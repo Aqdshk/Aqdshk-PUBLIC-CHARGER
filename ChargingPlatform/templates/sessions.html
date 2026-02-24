@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sessions - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item active"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>📋</span> Charging Sessions</h1>
+            </div>
+            <div class="header-right">
+                <select id="chargerFilter" onchange="loadSessions()" class="filter-select" style="padding:6px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;">
+                    <option value="">All Chargers</option>
+                </select>
+                <span id="sessionCount" class="header-info">Loading...</span>
+                <button class="btn btn-secondary btn-small" onclick="loadSessions()">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <div id="sessionList">
+                <div class="loading-spinner">Loading sessions...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function formatKLTime(isoString) {
+            if (!isoString) return 'N/A';
+            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+        }
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { populateChargerFilter(); loadSessions(); setInterval(loadSessions, 3000); });
+
+        async function populateChargerFilter() {
+            try {
+                const chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const sel = document.getElementById('chargerFilter');
+                sel.innerHTML = '<option value="">All Chargers</option>';
+                chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
+            } catch(e){ console.error('Error:',e); }
+        }
+
+        async function loadSessions() {
+            try {
+                const filter = document.getElementById('chargerFilter')?.value || '';
+                const url = filter ? `${API_BASE}/sessions?charge_point_id=${filter}` : `${API_BASE}/sessions`;
+                const sessions = await (await fetch(url)).json();
+                const container = document.getElementById('sessionList');
+                const countEl = document.getElementById('sessionCount');
+
+                if (sessions.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div>No charging sessions found</div></div>'; countEl.textContent = '0 sessions'; return; }
+                countEl.textContent = `${sessions.length} session(s)`;
+
+                container.innerHTML = sessions.map(s => `
+                    <div class="session-item">
+                        <div class="session-header">
+                            <span class="transaction-id">Transaction #${s.transaction_id}</span>
+                            <span class="session-status ${s.status}">${s.status.toUpperCase()}</span>
+                        </div>
+                        <div class="session-details">
+                            <div><strong>Charger:</strong> ${s.charge_point_id}</div>
+                            <div><strong>Connector:</strong> ${s.connector_id}</div>
+                            <div><strong>Start:</strong> ${formatKLTime(s.start_time)}</div>
+                            <div><strong>Stop:</strong> ${s.stop_time ? formatKLTime(s.stop_time) : 'Ongoing'}</div>
+                            <div><strong>Energy:</strong> ${s.energy_consumed.toFixed(2)} kWh</div>
+                            <div><strong>ID Tag:</strong> ${s.id_tag||'N/A'}</div>
+                        </div>
+                    </div>`).join('');
+            } catch(e){ console.error('Error:',e); document.getElementById('sessionList').innerHTML = '<div class="empty-state">Error loading sessions</div>'; }
+        }
+    </script>
+</body>
+</html>

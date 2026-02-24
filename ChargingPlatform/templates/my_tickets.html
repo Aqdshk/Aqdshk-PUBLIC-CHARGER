@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Tickets - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <style>
+        .tickets-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: clamp(8px, 0.8vw, 16px); flex-wrap:wrap; gap: clamp(6px, 0.6vw, 12px); }
+        .tickets-header h2 { font-size: clamp(14px, 1vw, 18px); color:#00ff88; }
+        .filter-row { display:flex; gap: clamp(4px, 0.4vw, 8px); flex-wrap:wrap; }
+        .filter-row select { background:#1a1a2e; color:#fff; border:1px solid #333; border-radius:8px; padding: clamp(5px, 0.4vw, 8px) clamp(8px, 0.6vw, 12px); font-size: clamp(10px, 0.7vw, 13px); outline:none; }
+        .filter-row select:focus { border-color:#00ff88; }
+
+        .stats-mini { display:flex; gap: clamp(6px, 0.6vw, 12px); margin-bottom: clamp(8px, 0.8vw, 16px); flex-wrap:wrap; }
+        .stat-pill { background:#12122a; border:1px solid #222; border-radius: clamp(8px, 0.5vw, 12px); padding: clamp(6px, 0.5vw, 10px) clamp(10px, 0.9vw, 18px); display:flex; align-items:center; gap: clamp(4px, 0.4vw, 8px); }
+        .stat-pill .num { font-size: clamp(14px, 1.1vw, 20px); font-weight:700; }
+        .stat-pill .lbl { font-size: clamp(9px, 0.55vw, 11px); color:#888; text-transform:uppercase; letter-spacing:0.5px; }
+        .stat-pill.open .num { color:#ff8800; }
+        .stat-pill.progress .num { color:#00aaff; }
+        .stat-pill.resolved .num { color:#00ff88; }
+
+        .ticket-card { background:#12122a; border:1px solid #222; border-radius: clamp(8px, 0.7vw, 14px); padding: clamp(10px, 0.9vw, 18px); margin-bottom: clamp(6px, 0.5vw, 12px); transition:border-color 0.2s; cursor:pointer; }
+        .ticket-card:hover { border-color:#00ff88; }
+        .ticket-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: clamp(6px, 0.5vw, 10px); flex-wrap:wrap; gap:6px; }
+        .ticket-number { font-size: clamp(10px, 0.7vw, 13px); font-weight:700; color:#00ff88; font-family:monospace; }
+        .ticket-date { font-size: clamp(9px, 0.55vw, 11px); color:#666; }
+        .ticket-subject { font-size: clamp(12px, 0.85vw, 15px); font-weight:600; color:#eee; margin-bottom:4px; }
+        .ticket-desc { font-size: clamp(10px, 0.7vw, 13px); color:#888; margin-bottom: clamp(6px, 0.5vw, 10px); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+        .ticket-meta { display:flex; gap: clamp(4px, 0.4vw, 8px); flex-wrap:wrap; align-items:center; }
+        .badge { font-size: clamp(8px, 0.5vw, 10px); font-weight:700; padding:2px clamp(6px, 0.5vw, 10px); border-radius:12px; text-transform:uppercase; letter-spacing:0.5px; }
+        .badge-open { background:#ff880022; color:#ff8800; border:1px solid #ff880044; }
+        .badge-in_progress { background:#00aaff22; color:#00aaff; border:1px solid #00aaff44; }
+        .badge-waiting_user { background:#aa88ff22; color:#aa88ff; border:1px solid #aa88ff44; }
+        .badge-resolved { background:#00ff8822; color:#00ff88; border:1px solid #00ff8844; }
+        .badge-closed { background:#66666622; color:#666; border:1px solid #66666644; }
+        .badge-low { background:#88888822; color:#888; }
+        .badge-medium { background:#ff880022; color:#ff8800; }
+        .badge-high { background:#ff444422; color:#ff4444; }
+        .badge-urgent { background:#ff004422; color:#ff0044; }
+        .badge-cat { background:#ffffff08; color:#aaa; border:1px solid #333; }
+
+        /* SLA / Overdue indicators */
+        .sla-tag { font-size: clamp(8px, 0.5vw, 10px); font-weight:700; padding:2px clamp(6px, 0.5vw, 10px); border-radius:12px; display:inline-flex; align-items:center; gap:3px; }
+        .sla-overdue { background:#ff000022; color:#ff4444; border:1px solid #ff000044; animation: pulse-overdue 1.5s infinite; }
+        .sla-warning { background:#ff880022; color:#ffa500; border:1px solid #ff880044; }
+        .sla-ok { background:#00ff8811; color:#00ff8888; border:1px solid #00ff8833; }
+        @keyframes pulse-overdue { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+        .ticket-card.overdue { border-color:#ff4444 !important; border-width:2px; }
+        .ticket-card.warning { border-color:#ffa500 !important; }
+
+        .overdue-banner { background:linear-gradient(135deg,#ff000022,#ff440011); border:1px solid #ff444444; border-radius:12px; padding: clamp(8px, 0.6vw, 12px) clamp(10px, 0.9vw, 18px); margin-bottom: clamp(8px, 0.8vw, 16px); display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); }
+        .overdue-banner .count { font-size: clamp(16px, 1.2vw, 22px); font-weight:800; color:#ff4444; }
+        .overdue-banner .label { font-size: clamp(10px, 0.7vw, 13px); color:#ff8888; }
+
+        .empty-state { text-align:center; padding: clamp(30px, 3vw, 60px) clamp(10px, 1vw, 20px); color:#666; }
+        .empty-state .icon { font-size: clamp(32px, 2.5vw, 48px); margin-bottom: clamp(6px, 0.5vw, 12px); }
+        .empty-state h3 { color:#888; margin-bottom:6px; }
+
+        /* Ticket detail modal */
+        .modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:5000; justify-content:center; align-items:flex-start; padding: clamp(20px, 2vw, 40px) clamp(10px, 1vw, 20px); overflow-y:auto; }
+        .modal-overlay.active { display:flex; }
+        .modal-card { background:#12122a; border:1px solid #333; border-radius:16px; width:100%; max-width:700px; max-height:85vh; overflow-y:auto; }
+        .modal-header { display:flex; justify-content:space-between; align-items:center; padding: clamp(10px, 0.9vw, 18px) clamp(12px, 1.1vw, 22px); border-bottom:1px solid #222; position:sticky; top:0; background:#12122a; z-index:1; border-radius:16px 16px 0 0; }
+        .modal-header h3 { font-size: clamp(12px, 0.9vw, 16px); color:#00ff88; }
+        .modal-close { background:none; border:none; color:#888; font-size:24px; cursor:pointer; }
+        .modal-body { padding: clamp(12px, 1.1vw, 22px); }
+        .msg-list { max-height: clamp(200px, 20vw, 300px); overflow-y:auto; margin-bottom: clamp(8px, 0.8vw, 16px); }
+        .msg { padding: clamp(6px, 0.5vw, 10px) clamp(8px, 0.7vw, 14px); border-radius:10px; margin-bottom: clamp(4px, 0.4vw, 8px); }
+        .msg.user { background:#1a2e1a; border:1px solid #00ff8833; }
+        .msg.admin { background:#1a1a3e; border:1px solid #00aaff33; }
+        .msg.bot { background:#2e2a1a; border:1px solid #ff880033; }
+        .msg.system { background:#1a1a1a; border:1px solid #333; font-style:italic; }
+        .msg-sender { font-size: clamp(9px, 0.55vw, 11px); font-weight:700; margin-bottom:2px; }
+        .msg.user .msg-sender { color:#00ff88; }
+        .msg.admin .msg-sender { color:#00aaff; }
+        .msg.bot .msg-sender { color:#ff8800; }
+        .msg.system .msg-sender { color:#666; }
+        .msg-text { font-size: clamp(10px, 0.7vw, 13px); color:#ccc; line-height:1.5; }
+        .msg-time { font-size: clamp(8px, 0.5vw, 10px); color:#555; margin-top:3px; }
+
+        .reply-box { display:flex; gap: clamp(4px, 0.4vw, 8px); }
+        .reply-box textarea { flex:1; background:#1a1a2e; color:#fff; border:1px solid #333; border-radius:10px; padding: clamp(6px, 0.5vw, 10px); font-size: clamp(10px, 0.7vw, 13px); resize:vertical; min-height: clamp(40px, 4vw, 60px); outline:none; }
+        .reply-box textarea:focus { border-color:#00ff88; }
+        .reply-box button { background:linear-gradient(135deg,#00ff88,#00cc66); color:#000; border:none; border-radius:10px; padding: clamp(6px, 0.5vw, 10px) clamp(12px, 1vw, 20px); font-weight:700; cursor:pointer; align-self:flex-end; }
+        .reply-box button:hover { opacity:0.9; }
+
+        .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap: clamp(6px, 0.5vw, 10px); margin-bottom: clamp(8px, 0.8vw, 16px); }
+        .detail-item { background:#0a0a1a; border-radius:8px; padding: clamp(6px, 0.5vw, 10px) clamp(8px, 0.7vw, 14px); }
+        .detail-label { font-size: clamp(8px, 0.5vw, 10px); color:#666; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }
+        .detail-value { font-size: clamp(10px, 0.7vw, 13px); color:#eee; }
+
+        .hierarchy-banner { background:#0a0a2a; border:1px solid #222; border-radius:12px; padding: clamp(8px, 0.6vw, 12px) clamp(10px, 0.9vw, 18px); margin-bottom: clamp(8px, 0.8vw, 16px); display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); }
+        .hierarchy-banner .icon { font-size: clamp(16px, 1.2vw, 22px); }
+        .hierarchy-banner .text { font-size: clamp(10px, 0.7vw, 13px); color:#aaa; }
+        .hierarchy-banner .text strong { color:#eee; }
+
+        @media(max-width:768px){ .detail-grid{grid-template-columns:1fr;} }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <img src="/static/logo.png" alt="Plag Sini Logo">
+            </div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item">
+                    <span class="nav-item-icon">📊</span>
+                    <span class="nav-item-text">Dashboard</span>
+                </a>
+                <a href="/analytics" class="nav-item">
+                    <span class="nav-item-icon">🧠</span>
+                    <span class="nav-item-text">Analytics & Insights</span>
+                </a>
+                <a href="/chargers" class="nav-item">
+                    <span class="nav-item-icon">🔌</span>
+                    <span class="nav-item-text">Charger Status</span>
+                </a>
+                <a href="/sessions" class="nav-item">
+                    <span class="nav-item-icon">📋</span>
+                    <span class="nav-item-text">Sessions</span>
+                </a>
+                <a href="/metering" class="nav-item">
+                    <span class="nav-item-icon">⚡</span>
+                    <span class="nav-item-text">Metering</span>
+                </a>
+                <a href="/faults" class="nav-item">
+                    <span class="nav-item-icon">⚠️</span>
+                    <span class="nav-item-text">Faults</span>
+                </a>
+                <a href="/maintenance" class="nav-item">
+                    <span class="nav-item-icon">🔧</span>
+                    <span class="nav-item-text">Maintenance</span>
+                </a>
+                <a href="/invoice" class="nav-item">
+                    <span class="nav-item-icon">📄</span>
+                    <span class="nav-item-text">Invoice & Reports</span>
+                </a>
+                <a href="/settings" class="nav-item">
+                    <span class="nav-item-icon">⚙️</span>
+                    <span class="nav-item-text">Configuration</span>
+                </a>
+                <a href="/operations" class="nav-item">
+                    <span class="nav-item-icon">🎛️</span>
+                    <span class="nav-item-text">OCPP Operations</span>
+                </a>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item">
+                    <span class="nav-item-icon">👥</span>
+                    <span class="nav-item-text">User Management</span>
+                </a>
+                <a href="/admin?tab=tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')">
+                    <span class="nav-item-icon">🎫</span>
+                    <span class="nav-item-text">Support Tickets</span>
+                </a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')">
+                    <span class="nav-item-icon">🏢</span>
+                    <span class="nav-item-text">Staff Management</span>
+                </a>
+            </div>
+        </div>
+        
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item">
+                <span class="nav-item-icon">📚</span>
+                <span class="nav-item-text">API Documentation</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger">
+                    <span></span><span></span><span></span>
+                </button>
+                <h1 class="page-title"><span>🎫</span> My Tickets</h1>
+            </div>
+            <div class="header-right">
+                <span id="staffLabel" style="font-size:12px;color:#888;"></span>
+            </div>
+        </header>
+
+        <div class="content-body">
+            <!-- Hierarchy banner -->
+            <div class="hierarchy-banner" id="hierarchyBanner"></div>
+
+            <!-- Overdue alert banner -->
+            <div id="overdueBanner" style="display:none;"></div>
+
+            <!-- Stats -->
+            <div class="stats-mini" id="ticketStats"></div>
+
+            <!-- Filters -->
+            <div class="tickets-header">
+                <h2 id="ticketTitle">Assigned Tickets</h2>
+                <div class="filter-row">
+                    <select id="filterStatus" onchange="loadTickets()">
+                        <option value="">All Status</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="waiting_user">Waiting User</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                    <select id="filterPriority" onchange="loadTickets()">
+                        <option value="">All Priority</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Ticket list -->
+            <div id="ticketList">
+                <div class="empty-state">
+                    <div class="icon">⏳</div>
+                    <h3>Loading tickets...</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ticket Detail Modal -->
+    <div class="modal-overlay" id="ticketModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Ticket Detail</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        // Auth info from auth.js
+        const auth = window.STAFF_AUTH || {};
+        const token = auth.token;
+        const role = auth.role;
+        const dept = auth.dept;
+        const staffName = auth.name;
+
+        // Set header
+        document.getElementById('staffLabel').textContent = `${staffName} · ${dept} · ${role.toUpperCase()}`;
+
+        // Hierarchy banner
+        const hb = document.getElementById('hierarchyBanner');
+        if (role === 'admin') {
+            hb.innerHTML = '<span class="icon">👑</span><span class="text"><strong>Admin</strong> — You can see and manage <strong>all tickets</strong> across all departments.</span>';
+            document.getElementById('ticketTitle').textContent = 'All Tickets';
+        } else if (role === 'manager') {
+            hb.innerHTML = `<span class="icon">📋</span><span class="text"><strong>Manager</strong> — Viewing all tickets in <strong>${dept}</strong> department (read-only).</span>`;
+            document.getElementById('ticketTitle').textContent = `${dept} Department Tickets`;
+        } else {
+            hb.innerHTML = '<span class="icon">🎯</span><span class="text"><strong>Staff</strong> — Tickets <strong>assigned to you</strong>.</span>';
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+        }
+
+        function getTimeLeft(dueAt) {
+            if (!dueAt) return null;
+            const now = new Date();
+            const due = new Date(dueAt);
+            const diffMs = due - now;
+            const diffMin = Math.floor(Math.abs(diffMs) / 60000);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
+            const isOver = diffMs < 0;
+            if (diffDay > 0) return { text: `${diffDay}d ${diffHr % 24}h ${isOver ? 'overdue' : 'left'}`, isOver };
+            if (diffHr > 0) return { text: `${diffHr}h ${diffMin % 60}m ${isOver ? 'overdue' : 'left'}`, isOver };
+            return { text: `${diffMin}m ${isOver ? 'overdue' : 'left'}`, isOver };
+        }
+
+        function isApproachingSla(t) {
+            if (!t.due_at || t.status === 'resolved' || t.status === 'closed') return false;
+            const now = new Date();
+            const due = new Date(t.due_at);
+            const diffMs = due - now;
+            return diffMs > 0 && diffMs < 2 * 60 * 60 * 1000; // within 2 hours
+        }
+
+        function getSlaTag(t) {
+            if (!t.due_at || t.status === 'resolved' || t.status === 'closed') return '';
+            const tl = getTimeLeft(t.due_at);
+            if (!tl) return '';
+            if (t.is_overdue || tl.isOver) {
+                return `<span class="sla-tag sla-overdue">🚨 ${tl.text}</span>`;
+            } else if (isApproachingSla(t)) {
+                return `<span class="sla-tag sla-warning">⚠️ ${tl.text}</span>`;
+            } else {
+                return `<span class="sla-tag sla-ok">⏱ ${tl.text}</span>`;
+            }
+        }
+
+        async function loadTickets() {
+            const status = document.getElementById('filterStatus').value;
+            const priority = document.getElementById('filterPriority').value;
+            const list = document.getElementById('ticketList');
+            list.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><h3>Loading...</h3></div>';
+
+            try {
+                let url = `/api/staff/my-tickets?token=${token}`;
+                if (status) url += `&status=${status}`;
+                if (priority) url += `&priority=${priority}`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    list.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>${data.detail || 'Error'}</h3></div>`;
+                    return;
+                }
+
+                const tickets = data.tickets || [];
+
+                // Stats
+                const stats = document.getElementById('ticketStats');
+                const openCount = tickets.filter(t => t.status === 'open').length;
+                const progressCount = tickets.filter(t => t.status === 'in_progress').length;
+                const resolvedCount = tickets.filter(t => t.status === 'resolved' || t.status === 'closed').length;
+                const overdueCount = tickets.filter(t => t.is_overdue).length;
+                stats.innerHTML = `
+                    <div class="stat-pill"><div><div class="num">${data.total}</div><div class="lbl">Total</div></div></div>
+                    <div class="stat-pill open"><div><div class="num">${openCount}</div><div class="lbl">Open</div></div></div>
+                    <div class="stat-pill progress"><div><div class="num">${progressCount}</div><div class="lbl">In Progress</div></div></div>
+                    <div class="stat-pill resolved"><div><div class="num">${resolvedCount}</div><div class="lbl">Resolved</div></div></div>
+                    ${overdueCount > 0 ? `<div class="stat-pill" style="border:1px solid #ff4444;"><div><div class="num" style="color:#ff4444;">${overdueCount}</div><div class="lbl" style="color:#ff8888;">Overdue</div></div></div>` : ''}
+                `;
+
+                // Overdue banner
+                const banner = document.getElementById('overdueBanner');
+                if (overdueCount > 0) {
+                    banner.style.display = 'flex';
+                    banner.innerHTML = `<div class="overdue-banner"><div class="count">🚨 ${overdueCount}</div><div class="label">ticket${overdueCount > 1 ? 's' : ''} overdue — please resolve ASAP!</div></div>`;
+                } else {
+                    banner.style.display = 'none';
+                }
+
+                if (tickets.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="icon">🎉</div><h3>No tickets found</h3><p style="color:#666">Great! Nothing to handle right now.</p></div>';
+                    return;
+                }
+
+                list.innerHTML = tickets.map(t => {
+                    const slaTag = getSlaTag(t);
+                    const cardClass = t.is_overdue ? 'ticket-card overdue' : (isApproachingSla(t) ? 'ticket-card warning' : 'ticket-card');
+                    return `
+                    <div class="${cardClass}" onclick="openTicket(${t.id})">
+                        <div class="ticket-top">
+                            <span class="ticket-number">${t.ticket_number}</span>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                ${slaTag}
+                                <span class="ticket-date">${formatDate(t.created_at)}</span>
+                            </div>
+                        </div>
+                        <div class="ticket-subject">${t.subject}</div>
+                        <div class="ticket-desc">${t.description || ''}</div>
+                        <div class="ticket-meta">
+                            <span class="badge badge-${t.status}">${t.status.replace('_',' ')}</span>
+                            <span class="badge badge-${t.priority}">${t.priority}</span>
+                            <span class="badge badge-cat">${t.category.replace('_',' ')}</span>
+                            ${t.escalated ? '<span class="badge" style="background:#ff000022;color:#ff4444;border:1px solid #ff000044;">⬆ ESCALATED</span>' : ''}
+                            ${t.user_email ? `<span style="font-size:11px;color:#666;">from: ${t.user_email}</span>` : ''}
+                        </div>
+                        ${t.due_at ? `<div style="font-size:11px;color:#666;margin-top:8px;">SLA Deadline: ${formatDate(t.due_at)}</div>` : ''}
+                    </div>
+                `}).join('');
+
+            } catch(e) {
+                list.innerHTML = '<div class="empty-state"><div class="icon">❌</div><h3>Connection error</h3></div>';
+                console.error(e);
+            }
+        }
+
+        async function openTicket(ticketId) {
+            const modal = document.getElementById('ticketModal');
+            const body = document.getElementById('modalBody');
+            body.innerHTML = '<div style="text-align:center;padding:40px;color:#666;">Loading...</div>';
+            modal.classList.add('active');
+
+            try {
+                const res = await fetch(`/api/tickets/${ticketId}`);
+                const t = await res.json();
+
+                document.getElementById('modalTitle').textContent = t.ticket_number;
+
+                const isReadOnly = role !== 'admin';
+
+                const slaInfo = getSlaTag(t);
+                const slaHours = t.sla_hours || '-';
+
+                body.innerHTML = `
+                    ${t.is_overdue ? '<div style="background:#ff000015;border:1px solid #ff444444;border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ff4444;display:flex;align-items:center;gap:8px;">🚨 <strong>OVERDUE</strong> — This ticket has exceeded its SLA deadline. Please resolve immediately.</div>' : ''}
+                    ${t.escalated ? '<div style="background:#ff880015;border:1px solid #ff880044;border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ffa500;display:flex;align-items:center;gap:8px;">⬆ <strong>ESCALATED</strong> — This ticket was auto-escalated due to SLA breach.</div>' : ''}
+                    <div class="detail-grid">
+                        <div class="detail-item"><div class="detail-label">Status</div><div class="detail-value"><span class="badge badge-${t.status}">${t.status.replace('_',' ')}</span></div></div>
+                        <div class="detail-item"><div class="detail-label">Priority</div><div class="detail-value"><span class="badge badge-${t.priority}">${t.priority}</span></div></div>
+                        <div class="detail-item"><div class="detail-label">Category</div><div class="detail-value">${t.category.replace('_',' ')}</div></div>
+                        <div class="detail-item"><div class="detail-label">Department</div><div class="detail-value">${t.department || '-'}</div></div>
+                        <div class="detail-item"><div class="detail-label">User</div><div class="detail-value">${t.user_name || t.user_email}</div></div>
+                        <div class="detail-item"><div class="detail-label">Assigned To</div><div class="detail-value">${t.assigned_to || 'Unassigned'}</div></div>
+                        <div class="detail-item"><div class="detail-label">Created</div><div class="detail-value">${formatDate(t.created_at)}</div></div>
+                        <div class="detail-item"><div class="detail-label">Updated</div><div class="detail-value">${formatDate(t.updated_at)}</div></div>
+                        <div class="detail-item"><div class="detail-label">SLA Deadline</div><div class="detail-value">${t.due_at ? formatDate(t.due_at) : '-'} ${slaInfo}</div></div>
+                        <div class="detail-item"><div class="detail-label">SLA (hours)</div><div class="detail-value">${slaHours}h</div></div>
+                    </div>
+
+                    <h4 style="font-size:13px;color:#888;margin-bottom:10px;">SUBJECT</h4>
+                    <p style="font-size:14px;margin-bottom:16px;color:#eee;">${t.subject}</p>
+
+                    <h4 style="font-size:13px;color:#888;margin-bottom:10px;">MESSAGES</h4>
+                    <div class="msg-list" id="msgList">
+                        ${(t.messages || []).map(m => `
+                            <div class="msg ${m.sender_type}">
+                                <div class="msg-sender">${m.sender_name || m.sender_type}</div>
+                                <div class="msg-text">${m.message}</div>
+                                <div class="msg-time">${formatDate(m.created_at)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${!isReadOnly ? `
+                        <div class="reply-box">
+                            <textarea id="replyText" placeholder="Type your reply..."></textarea>
+                            <button onclick="sendReply(${t.id})">Send</button>
+                        </div>
+                        <div style="margin-top:12px;display:flex;gap:8px;">
+                            <select id="statusUpdate" style="background:#1a1a2e;color:#fff;border:1px solid #333;border-radius:8px;padding:8px 12px;font-size:13px;">
+                                <option value="">Change Status...</option>
+                                <option value="open">Open</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="waiting_user">Waiting User</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="closed">Closed</option>
+                            </select>
+                            <button onclick="updateStatus(${t.id})" style="background:#00aaff;color:#000;border:none;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer;">Update</button>
+                        </div>
+                    ` : `
+                        <div style="background:#00aaff11;border:1px solid #00aaff33;border-radius:10px;padding:10px 16px;font-size:12px;color:#00aaff;margin-top:12px;">
+                            👁 View-only mode — only Admin can reply and update ticket status.
+                        </div>
+                    `}
+                `;
+
+                // Scroll messages to bottom
+                const ml = document.getElementById('msgList');
+                if (ml) ml.scrollTop = ml.scrollHeight;
+
+            } catch(e) {
+                body.innerHTML = '<div style="text-align:center;padding:40px;color:#ff4444;">Failed to load ticket.</div>';
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('ticketModal').classList.remove('active');
+        }
+
+        async function sendReply(ticketId) {
+            const text = document.getElementById('replyText').value.trim();
+            if (!text) return;
+            try {
+                await fetch(`/api/tickets/${ticketId}/messages`, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ message: text, sender_type: 'admin', sender_name: staffName })
+                });
+                openTicket(ticketId); // Refresh
+            } catch(e) { alert('Error sending reply'); }
+        }
+
+        async function updateStatus(ticketId) {
+            const status = document.getElementById('statusUpdate').value;
+            if (!status) return;
+            try {
+                await fetch(`/api/tickets/${ticketId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ status })
+                });
+                openTicket(ticketId);
+                loadTickets();
+            } catch(e) { alert('Error updating'); }
+        }
+
+        // Sidebar toggle
+        document.getElementById('hamburger').addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('active');
+            document.getElementById('sidebarOverlay').classList.toggle('active');
+            document.getElementById('hamburger').classList.toggle('active');
+        });
+        document.getElementById('sidebarOverlay').addEventListener('click', () => {
+            document.getElementById('sidebar').classList.remove('active');
+            document.getElementById('sidebarOverlay').classList.remove('active');
+            document.getElementById('hamburger').classList.remove('active');
+        });
+
+        // Close modal on overlay click
+        document.getElementById('ticketModal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
+        // Init
+        loadTickets();
+
+        // Auto-refresh every 60 seconds to update SLA timers
+        setInterval(loadTickets, 60000);
+    </script>
+</body>
+</html>

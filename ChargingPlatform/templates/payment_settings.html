@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Gateway - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <style>
+        .payment-tabs{display:flex;gap:0;background:var(--bg-card);border-radius:var(--radius);overflow:hidden;margin-bottom: clamp(10px, 1vw, 20px);border:1px solid var(--border);}
+        .payment-tab{padding: clamp(6px, 0.6vw, 12px) clamp(10px, 1vw, 20px);cursor:pointer;font-size: clamp(10px, 0.7vw, 13px);font-weight:500;color:var(--text-muted);border:none;background:transparent;transition:all .2s;}
+        .payment-tab:hover{background:var(--bg-hover);}
+        .payment-tab.active{background:var(--accent);color:#000;font-weight:600;}
+        .tab-content{display:none;}
+        .tab-content.active{display:block;}
+
+        .gw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(200px, 18vw, 280px),1fr));gap: clamp(6px, 0.5vw, 10px);}
+        .gw-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding: clamp(10px, 1vw, 20px);position:relative;transition:all .2s;}
+        .gw-card:hover{border-color:var(--accent);box-shadow:0 0 20px rgba(0,255,136,.05);}
+        .gw-card.active-gw{border-color:var(--accent);}
+        .gw-card.default-gw{border-color:var(--cyan);}
+        .gw-badge{position:absolute;top: clamp(6px, 0.5vw, 12px);right: clamp(6px, 0.5vw, 12px);display:flex;gap:4px;}
+        .badge{padding:2px clamp(4px, 0.4vw, 8px);border-radius:10px;font-size: clamp(8px, 0.5vw, 10px);font-weight:600;text-transform:uppercase;}
+        .badge-active{background:rgba(0,255,136,.15);color:var(--accent);}
+        .badge-sandbox{background:rgba(255,193,7,.15);color:#ffc107;}
+        .badge-live{background:rgba(255,67,67,.15);color:#ff4343;}
+        .badge-default{background:rgba(0,200,255,.15);color:var(--cyan);}
+        .badge-inactive{background:rgba(255,255,255,.1);color:var(--text-muted);}
+        .gw-name{font-size: clamp(14px, 1vw, 18px);font-weight:600;color:var(--text-primary);margin-bottom:3px;}
+        .gw-provider{font-size: clamp(9px, 0.6vw, 12px);color:var(--text-muted);margin-bottom: clamp(6px, 0.6vw, 12px);text-transform:uppercase;letter-spacing:.5px;}
+        .gw-methods{display:flex;gap: clamp(3px, 0.3vw, 6px);flex-wrap:wrap;margin-bottom: clamp(6px, 0.6vw, 12px);}
+        .method-chip{padding:2px clamp(4px, 0.4vw, 8px);border-radius:12px;font-size: clamp(8px, 0.5vw, 10px);background:var(--bg-hover);color:var(--text-secondary);border:1px solid var(--border);}
+        .method-chip.supported{background:rgba(0,255,136,.1);color:var(--accent);border-color:rgba(0,255,136,.3);}
+        .gw-info{font-size: clamp(9px, 0.55vw, 11px);color:var(--text-muted);}
+        .gw-actions{display:flex;gap:6px;margin-top: clamp(6px, 0.6vw, 12px);border-top:1px solid var(--border);padding-top: clamp(6px, 0.6vw, 12px);}
+
+        .form-grid{display:grid;grid-template-columns:1fr 1fr;gap: clamp(6px, 0.6vw, 12px);}
+        .form-group{display:flex;flex-direction:column;gap:3px;}
+        .form-group.full{grid-column:1/-1;}
+        .form-group label{font-size: clamp(9px, 0.55vw, 11px);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:500;}
+        .form-group input,.form-group select,.form-group textarea{padding: clamp(5px, 0.4vw, 8px) clamp(8px, 0.6vw, 12px);background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size: clamp(10px, 0.7vw, 13px);font-family:inherit;}
+        .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,255,136,.1);}
+        .form-group textarea{min-height: clamp(40px, 4vw, 60px);resize:vertical;font-family:'Courier New',monospace;font-size: clamp(10px, 0.6vw, 12px);}
+        .form-group .hint{font-size: clamp(8px, 0.5vw, 10px);color:var(--text-muted);margin-top:2px;}
+        .checkbox-group{display:flex;align-items:center;gap:8px;}
+        .checkbox-group input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);}
+
+        .txn-table{width:100%;border-collapse:collapse;font-size: clamp(10px, 0.65vw, 12px);}
+        .txn-table th{text-align:left;padding: clamp(5px, 0.4vw, 8px) clamp(6px, 0.6vw, 12px);color:var(--text-muted);font-weight:500;font-size: clamp(9px, 0.55vw, 11px);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
+        .txn-table td{padding: clamp(5px, 0.4vw, 8px) clamp(6px, 0.6vw, 12px);border-bottom:1px solid rgba(255,255,255,.03);color:var(--text-secondary);}
+        .txn-table tr:hover td{background:var(--bg-hover);}
+        .status-badge{padding:2px clamp(4px, 0.4vw, 8px);border-radius:10px;font-size: clamp(8px, 0.5vw, 10px);font-weight:600;}
+        .status-success{background:rgba(0,255,136,.15);color:var(--accent);}
+        .status-pending{background:rgba(255,193,7,.15);color:#ffc107;}
+        .status-failed{background:rgba(255,67,67,.15);color:#ff4343;}
+        .status-processing{background:rgba(0,200,255,.15);color:var(--cyan);}
+        .status-pending_approval{background:rgba(255,140,0,.15);color:#ff8c00;}
+
+        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;z-index:1000;justify-content:center;align-items:center;padding: clamp(10px, 1vw, 20px);backdrop-filter:blur(4px);}
+        .modal-overlay.active{display:flex;}
+        .modal{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-width:700px;width:100%;max-height:90vh;overflow-y:auto;padding: clamp(12px, 1.2vw, 24px);}
+        .modal-title{font-size: clamp(14px, 1vw, 18px);font-weight:600;color:var(--text-primary);margin-bottom: clamp(10px, 1vw, 20px);display:flex;align-items:center;gap:8px;}
+        .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top: clamp(10px, 1vw, 20px);padding-top: clamp(8px, 0.8vw, 16px);border-top:1px solid var(--border);}
+
+        .topup-card{background:linear-gradient(135deg,rgba(0,255,136,.08),rgba(0,200,255,.08));border:1px solid rgba(0,255,136,.2);border-radius:var(--radius);padding: clamp(10px, 1vw, 20px);text-align:center;}
+        .topup-amount{font-size: clamp(22px, 2vw, 36px);font-weight:700;color:var(--accent);}
+        .topup-label{font-size: clamp(9px, 0.6vw, 12px);color:var(--text-muted);margin-top:3px;}
+
+        .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(clamp(90px, 8vw, 130px),1fr));gap: clamp(4px, 0.4vw, 8px);margin-bottom: clamp(8px, 0.7vw, 14px);}
+        .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding: clamp(6px, 0.5vw, 10px);text-align:center;}
+        .stat-value{font-size: clamp(13px, 1vw, 18px);font-weight:700;color:var(--accent);}
+        .stat-label{font-size: clamp(8px, 0.5vw, 10px);color:var(--text-muted);margin-top:2px;}
+        .stat-card.orange .stat-value{color:var(--orange);}
+        .stat-card.red .stat-value{color:#ff4343;}
+        .stat-card.cyan .stat-value{color:var(--cyan);}
+
+        .guide-step{display:flex;gap: clamp(6px, 0.6vw, 12px);margin-bottom: clamp(8px, 0.8vw, 16px);padding: clamp(8px, 0.8vw, 16px);background:var(--bg-hover);border-radius:var(--radius-sm);border-left:3px solid var(--accent);}
+        .guide-step-num{font-size: clamp(14px, 1.1vw, 20px);font-weight:700;color:var(--accent);min-width: clamp(20px, 1.5vw, 30px);}
+        .guide-step-text h4{margin:0 0 3px;color:var(--text-primary);font-size: clamp(11px, 0.75vw, 14px);}
+        .guide-step-text p{margin:0;color:var(--text-muted);font-size: clamp(10px, 0.65vw, 12px);line-height:1.5;}
+        .code-block{background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);padding: clamp(6px, 0.6vw, 12px);font-family:'Courier New',monospace;font-size: clamp(9px, 0.55vw, 11px);color:var(--cyan);margin:6px 0;overflow-x:auto;white-space:pre;}
+
+        @media(max-width:768px){.form-grid{grid-template-columns:1fr;}.gw-grid{grid-template-columns:1fr;}}
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item active"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>💳</span> Payment Gateway</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-primary btn-small" onclick="openAddGatewayModal()">+ Add Gateway</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <!-- Tabs -->
+            <div class="payment-tabs">
+                <button class="payment-tab active" onclick="switchTab('gateways')">🏦 Gateways</button>
+                <button class="payment-tab" onclick="switchTab('transactions')">📋 Transactions</button>
+                <button class="payment-tab" onclick="switchTab('manual')">✅ Manual Top-ups</button>
+                <button class="payment-tab" onclick="switchTab('guide')">📖 Integration Guide</button>
+            </div>
+
+            <!-- Tab 1: Gateways -->
+            <div class="tab-content active" id="tab-gateways">
+                <div class="stats-row" id="gwStats"></div>
+                <div class="gw-grid" id="gatewayGrid">
+                    <div class="empty-state">Loading gateways...</div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Transactions -->
+            <div class="tab-content" id="tab-transactions">
+                <div class="stats-row" id="txnStats"></div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Recent Transactions</span>
+                        <div style="display:flex;gap:6px;">
+                            <select id="txnStatusFilter" onchange="loadTransactions()" style="padding:4px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:11px;">
+                                <option value="">All Status</option>
+                                <option value="success">Success</option>
+                                <option value="pending">Pending</option>
+                                <option value="pending_approval">Pending Approval</option>
+                                <option value="processing">Processing</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                            <button class="btn btn-secondary btn-xs" onclick="loadTransactions()">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="card-body" style="overflow-x:auto;">
+                        <table class="txn-table">
+                            <thead><tr>
+                                <th>Ref</th><th>User</th><th>Amount</th><th>Method</th><th>Gateway</th><th>Status</th><th>Date</th><th>Action</th>
+                            </tr></thead>
+                            <tbody id="txnTableBody"><tr><td colspan="8"><div class="empty-state">Loading...</div></td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 3: Manual Top-ups -->
+            <div class="tab-content" id="tab-manual">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Pending Manual Top-ups</span>
+                        <button class="btn btn-secondary btn-xs" onclick="loadManualTopups()">Refresh</button>
+                    </div>
+                    <div class="card-body" style="overflow-x:auto;">
+                        <table class="txn-table">
+                            <thead><tr>
+                                <th>Ref</th><th>User</th><th>Amount</th><th>Date</th><th>Action</th>
+                            </tr></thead>
+                            <tbody id="manualTableBody"><tr><td colspan="5"><div class="empty-state">Loading...</div></td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 4: Integration Guide -->
+            <div class="tab-content" id="tab-guide">
+                <div class="card">
+                    <div class="card-header"><span class="card-title">🏦 OCBC Payment Gateway Integration Guide</span></div>
+                    <div class="card-body">
+                        <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
+                            Step-by-step guide for integrating OCBC (or any) payment gateway into PlagSini EV.
+                        </p>
+
+                        <div class="guide-step">
+                            <div class="guide-step-num">1</div>
+                            <div class="guide-step-text">
+                                <h4>Get Credentials from OCBC</h4>
+                                <p>After your proposal is approved, OCBC will provide:<br>
+                                • <strong>Merchant ID</strong> — Your unique merchant identifier<br>
+                                • <strong>API Key</strong> — For authenticating API requests<br>
+                                • <strong>API Secret</strong> — For signing/verifying requests<br>
+                                • <strong>Sandbox URL</strong> — Test environment endpoint<br>
+                                • <strong>Production URL</strong> — Live environment endpoint</p>
+                            </div>
+                        </div>
+
+                        <div class="guide-step">
+                            <div class="guide-step-num">2</div>
+                            <div class="guide-step-text">
+                                <h4>Key-In Credentials Here</h4>
+                                <p>Click <strong>"+ Add Gateway"</strong> → Select <strong>"OCBC"</strong> → Fill in the credentials from step 1. Start with <strong>Sandbox mode</strong> for testing.</p>
+                            </div>
+                        </div>
+
+                        <div class="guide-step">
+                            <div class="guide-step-num">3</div>
+                            <div class="guide-step-text">
+                                <h4>Give OCBC Your Callback URL</h4>
+                                <p>OCBC needs to know where to send payment confirmations. Give them this URL:</p>
+                                <div class="code-block" id="callbackUrlDisplay">https://your-domain.com/api/payment/callback/ocbc</div>
+                                <p style="margin-top:8px;">This endpoint receives payment confirmations automatically.</p>
+                            </div>
+                        </div>
+
+                        <div class="guide-step">
+                            <div class="guide-step-num">4</div>
+                            <div class="guide-step-text">
+                                <h4>Test in Sandbox</h4>
+                                <p>Make test payments using OCBC's sandbox credentials. Check the <strong>Transactions</strong> tab to verify everything works.</p>
+                            </div>
+                        </div>
+
+                        <div class="guide-step">
+                            <div class="guide-step-num">5</div>
+                            <div class="guide-step-text">
+                                <h4>Go Live</h4>
+                                <p>Once testing is done:<br>
+                                1. Update credentials with <strong>Production</strong> keys from OCBC<br>
+                                2. Toggle <strong>Sandbox OFF</strong><br>
+                                3. Set as <strong>Default gateway</strong><br>
+                                4. Enable the gateway → Done! 🎉</p>
+                            </div>
+                        </div>
+
+                        <div style="margin-top:20px;padding:16px;background:rgba(0,200,255,.05);border:1px solid rgba(0,200,255,.2);border-radius:var(--radius-sm);">
+                            <h4 style="color:var(--cyan);margin:0 0 8px;">💡 Payment Flow (How it Works)</h4>
+                            <div class="code-block" style="color:var(--text-secondary);">
+1. User taps "Top Up" in PlagSini App
+2. App sends request to your server → POST /api/payment/topup
+3. Server creates payment with OCBC API → Gets payment URL
+4. User is redirected to OCBC's payment page (bank login / card)
+5. User completes payment
+6. OCBC sends callback to → POST /api/payment/callback/ocbc
+7. Server verifies & credits user's wallet ✅
+8. User sees updated balance in app</div>
+                        </div>
+
+                        <div style="margin-top:20px;padding:16px;background:rgba(0,255,136,.05);border:1px solid rgba(0,255,136,.2);border-radius:var(--radius-sm);">
+                            <h4 style="color:var(--accent);margin:0 0 8px;">🔧 Supported Gateways</h4>
+                            <table class="txn-table" style="font-size:12px;">
+                                <tr><td><strong>OCBC</strong></td><td>Bank's own payment gateway (FPX, Card, DuitNow)</td><td>Requires merchant account</td></tr>
+                                <tr><td><strong>Billplz</strong></td><td>Popular Malaysian gateway (FPX)</td><td>Free signup, 1.5% fee</td></tr>
+                                <tr><td><strong>Manual</strong></td><td>Bank transfer — admin approves</td><td>No API needed</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Gateway Modal -->
+    <div class="modal-overlay" id="gatewayModal">
+        <div class="modal">
+            <div class="modal-title" id="modalTitle">🏦 Configure Payment Gateway</div>
+            
+            <input type="hidden" id="editGatewayId" value="">
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Gateway Provider</label>
+                    <select id="gwName" onchange="onGatewayProviderChange()">
+                        <option value="ocbc">🏦 OCBC Bank</option>
+                        <option value="billplz">📱 Billplz (FPX)</option>
+                        <option value="manual">✋ Manual (Bank Transfer)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Display Name</label>
+                    <input type="text" id="gwDisplayName" placeholder="e.g. OCBC Payment Gateway">
+                </div>
+
+                <div class="form-group">
+                    <label>Merchant ID</label>
+                    <input type="text" id="gwMerchantId" placeholder="From OCBC">
+                    <span class="hint">Provided by the bank/gateway</span>
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="gwApiKey" placeholder="Your API key">
+                    <span class="hint">Used to authenticate requests</span>
+                </div>
+                <div class="form-group full">
+                    <label>API Secret / Signing Key</label>
+                    <input type="password" id="gwApiSecret" placeholder="Your secret key">
+                    <span class="hint">Used to sign and verify requests — keep this secure!</span>
+                </div>
+
+                <div class="form-group">
+                    <label>Sandbox URL (Test)</label>
+                    <input type="text" id="gwSandboxUrl" placeholder="https://sandbox.ocbc.com.my/api">
+                </div>
+                <div class="form-group">
+                    <label>Production URL (Live)</label>
+                    <input type="text" id="gwProductionUrl" placeholder="https://api.ocbc.com.my/api">
+                </div>
+                <div class="form-group">
+                    <label>Callback URL (Your Server)</label>
+                    <input type="text" id="gwCallbackUrl" placeholder="Auto-generated">
+                    <span class="hint">OCBC sends payment confirmations here</span>
+                </div>
+                <div class="form-group">
+                    <label>Redirect URL</label>
+                    <input type="text" id="gwRedirectUrl" placeholder="Where user goes after payment">
+                </div>
+
+                <div class="form-group full">
+                    <label>Extra Config (JSON)</label>
+                    <textarea id="gwExtraConfig" placeholder='{"collection_id": "xxx"}'>{}</textarea>
+                    <span class="hint">Gateway-specific configuration in JSON format</span>
+                </div>
+
+                <div class="form-group">
+                    <label>Supported Methods</label>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label class="checkbox-group"><input type="checkbox" id="gwFpx"> FPX (Online Banking)</label>
+                        <label class="checkbox-group"><input type="checkbox" id="gwCard"> Credit/Debit Card</label>
+                        <label class="checkbox-group"><input type="checkbox" id="gwEwallet"> E-Wallet (TNG, GrabPay)</label>
+                        <label class="checkbox-group"><input type="checkbox" id="gwDuitnow"> DuitNow QR</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label class="checkbox-group"><input type="checkbox" id="gwSandbox" checked> Sandbox Mode (Testing)</label>
+                        <label class="checkbox-group"><input type="checkbox" id="gwActive"> Active (Accept Payments)</label>
+                        <label class="checkbox-group"><input type="checkbox" id="gwDefault"> Set as Default Gateway</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeGatewayModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveGateway()">💾 Save Gateway</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const API = '/api';
+    let allGateways = [];
+    let allTransactions = [];
+
+    // ─── Sidebar ───
+    const hamburger = document.getElementById('hamburger');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    function closeSidebar(){hamburger.classList.remove('active');sidebar.classList.remove('active');overlay.classList.remove('active');}
+    hamburger.addEventListener('click',()=>{hamburger.classList.toggle('active');sidebar.classList.toggle('active');overlay.classList.toggle('active');});
+    overlay.addEventListener('click',closeSidebar);
+
+    // ─── Init ───
+    document.addEventListener('DOMContentLoaded', () => {
+        loadGateways();
+        loadTransactions();
+        // Set callback URL hint
+        const base = window.location.origin;
+        document.getElementById('callbackUrlDisplay').textContent = `${base}/api/payment/callback/ocbc`;
+    });
+
+    // ─── Tabs ───
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.payment-tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        event.target.classList.add('active');
+        if (tab === 'transactions') loadTransactions();
+        if (tab === 'manual') loadManualTopups();
+    }
+
+    // ═══════════════════════════════════════
+    //  GATEWAYS
+    // ═══════════════════════════════════════
+    async function loadGateways() {
+        try {
+            const res = await fetch(`${API}/payment/gateways`);
+            const data = await res.json();
+            allGateways = data.gateways || [];
+            renderGateways();
+            renderGatewayStats();
+        } catch(e) { console.error(e); }
+    }
+
+    function renderGatewayStats() {
+        const active = allGateways.filter(g => g.is_active).length;
+        const sandbox = allGateways.filter(g => g.is_sandbox).length;
+        const def = allGateways.find(g => g.is_default);
+        document.getElementById('gwStats').innerHTML = `
+            <div class="stat-card"><div class="stat-value">${allGateways.length}</div><div class="stat-label">Total Gateways</div></div>
+            <div class="stat-card"><div class="stat-value">${active}</div><div class="stat-label">Active</div></div>
+            <div class="stat-card orange"><div class="stat-value">${sandbox}</div><div class="stat-label">Sandbox Mode</div></div>
+            <div class="stat-card cyan"><div class="stat-value">${def ? def.display_name : 'None'}</div><div class="stat-label">Default Gateway</div></div>
+        `;
+    }
+
+    function renderGateways() {
+        const grid = document.getElementById('gatewayGrid');
+        if (!allGateways.length) {
+            grid.innerHTML = `
+                <div style="grid-column:1/-1;text-align:center;padding:40px;">
+                    <div style="font-size:48px;margin-bottom:12px;">🏦</div>
+                    <div style="color:var(--text-primary);font-size:16px;font-weight:600;margin-bottom:8px;">No Payment Gateways Configured</div>
+                    <div style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Click "+ Add Gateway" to configure OCBC or other payment providers.<br>Just key-in the credentials they give you!</div>
+                    <button class="btn btn-primary" onclick="openAddGatewayModal()">+ Add Gateway</button>
+                </div>`;
+            return;
+        }
+
+        grid.innerHTML = allGateways.map(gw => {
+            const providerIcons = {ocbc:'🏦', billplz:'📱', manual:'✋', stripe:'💳'};
+            const icon = providerIcons[gw.gateway_name] || '💳';
+            const classes = [gw.is_active?'active-gw':'', gw.is_default?'default-gw':''].filter(Boolean).join(' ');
+            
+            const methods = [
+                {name:'FPX', active:gw.supports_fpx},
+                {name:'Card', active:gw.supports_card},
+                {name:'E-Wallet', active:gw.supports_ewallet},
+                {name:'DuitNow', active:gw.supports_duitnow},
+            ];
+
+            return `
+                <div class="gw-card ${classes}">
+                    <div class="gw-badge">
+                        ${gw.is_default?'<span class="badge badge-default">DEFAULT</span>':''}
+                        ${gw.is_active?'<span class="badge badge-active">ACTIVE</span>':'<span class="badge badge-inactive">INACTIVE</span>'}
+                        ${gw.is_sandbox?'<span class="badge badge-sandbox">SANDBOX</span>':'<span class="badge badge-live">LIVE</span>'}
+                    </div>
+                    <div style="font-size:28px;margin-bottom:8px;">${icon}</div>
+                    <div class="gw-name">${gw.display_name}</div>
+                    <div class="gw-provider">${gw.gateway_name}</div>
+                    <div class="gw-methods">
+                        ${methods.map(m => `<span class="method-chip ${m.active?'supported':''}">${m.name}</span>`).join('')}
+                    </div>
+                    <div class="gw-info">
+                        <div>Merchant: <strong>${gw.merchant_id || '—'}</strong></div>
+                        <div>API Key: <strong>${gw.api_key || '—'}</strong></div>
+                        <div style="margin-top:4px;font-size:10px;">Created: ${gw.created_at ? new Date(gw.created_at).toLocaleDateString() : '—'}</div>
+                    </div>
+                    <div class="gw-actions">
+                        <button class="btn btn-primary btn-xs" onclick="editGateway(${gw.id})">Edit</button>
+                        <button class="btn btn-secondary btn-xs" onclick="toggleGateway(${gw.id}, ${!gw.is_active})">${gw.is_active?'Disable':'Enable'}</button>
+                        <button class="btn btn-xs" onclick="deleteGateway(${gw.id})" style="color:#ff4343;border-color:#ff4343;">Delete</button>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    // ─── Modal ───
+    function openAddGatewayModal() {
+        document.getElementById('editGatewayId').value = '';
+        document.getElementById('modalTitle').innerHTML = '🏦 Add Payment Gateway';
+        document.getElementById('gwName').value = 'ocbc';
+        document.getElementById('gwName').disabled = false;
+        document.getElementById('gwDisplayName').value = '';
+        document.getElementById('gwMerchantId').value = '';
+        document.getElementById('gwApiKey').value = '';
+        document.getElementById('gwApiSecret').value = '';
+        document.getElementById('gwSandboxUrl').value = '';
+        document.getElementById('gwProductionUrl').value = '';
+        const base = window.location.origin;
+        document.getElementById('gwCallbackUrl').value = `${base}/api/payment/callback/ocbc`;
+        document.getElementById('gwRedirectUrl').value = `${base}/payment-success`;
+        document.getElementById('gwExtraConfig').value = '{}';
+        document.getElementById('gwFpx').checked = true;
+        document.getElementById('gwCard').checked = true;
+        document.getElementById('gwEwallet').checked = false;
+        document.getElementById('gwDuitnow').checked = false;
+        document.getElementById('gwSandbox').checked = true;
+        document.getElementById('gwActive').checked = false;
+        document.getElementById('gwDefault').checked = false;
+        onGatewayProviderChange();
+        document.getElementById('gatewayModal').classList.add('active');
+    }
+
+    function editGateway(id) {
+        const gw = allGateways.find(g => g.id === id);
+        if (!gw) return;
+        document.getElementById('editGatewayId').value = id;
+        document.getElementById('modalTitle').innerHTML = '✏️ Edit: ' + gw.display_name;
+        document.getElementById('gwName').value = gw.gateway_name;
+        document.getElementById('gwName').disabled = true;
+        document.getElementById('gwDisplayName').value = gw.display_name;
+        document.getElementById('gwMerchantId').value = gw.merchant_id;
+        document.getElementById('gwApiKey').value = '';
+        document.getElementById('gwApiSecret').value = '';
+        document.getElementById('gwSandboxUrl').value = gw.sandbox_url;
+        document.getElementById('gwProductionUrl').value = gw.production_url;
+        document.getElementById('gwCallbackUrl').value = gw.callback_url;
+        document.getElementById('gwRedirectUrl').value = gw.redirect_url;
+        document.getElementById('gwExtraConfig').value = gw.extra_config || '{}';
+        document.getElementById('gwFpx').checked = gw.supports_fpx;
+        document.getElementById('gwCard').checked = gw.supports_card;
+        document.getElementById('gwEwallet').checked = gw.supports_ewallet;
+        document.getElementById('gwDuitnow').checked = gw.supports_duitnow;
+        document.getElementById('gwSandbox').checked = gw.is_sandbox;
+        document.getElementById('gwActive').checked = gw.is_active;
+        document.getElementById('gwDefault').checked = gw.is_default;
+        document.getElementById('gatewayModal').classList.add('active');
+    }
+
+    function closeGatewayModal() {
+        document.getElementById('gatewayModal').classList.remove('active');
+    }
+
+    function onGatewayProviderChange() {
+        const provider = document.getElementById('gwName').value;
+        const base = window.location.origin;
+        document.getElementById('gwCallbackUrl').value = `${base}/api/payment/callback/${provider}`;
+        
+        const names = {ocbc:'OCBC Payment Gateway', billplz:'Billplz (FPX)', manual:'Manual Bank Transfer'};
+        if (!document.getElementById('gwDisplayName').value || Object.values(names).includes(document.getElementById('gwDisplayName').value)) {
+            document.getElementById('gwDisplayName').value = names[provider] || provider;
+        }
+
+        if (provider === 'billplz') {
+            document.getElementById('gwSandboxUrl').value = 'https://www.billplz-sandbox.com';
+            document.getElementById('gwProductionUrl').value = 'https://www.billplz.com';
+        }
+    }
+
+    async function saveGateway() {
+        const editId = document.getElementById('editGatewayId').value;
+        const body = {
+            gateway_name: document.getElementById('gwName').value,
+            display_name: document.getElementById('gwDisplayName').value,
+            merchant_id: document.getElementById('gwMerchantId').value,
+            api_key: document.getElementById('gwApiKey').value,
+            api_secret: document.getElementById('gwApiSecret').value,
+            is_sandbox: document.getElementById('gwSandbox').checked,
+            sandbox_url: document.getElementById('gwSandboxUrl').value,
+            production_url: document.getElementById('gwProductionUrl').value,
+            callback_url: document.getElementById('gwCallbackUrl').value,
+            redirect_url: document.getElementById('gwRedirectUrl').value,
+            supports_fpx: document.getElementById('gwFpx').checked,
+            supports_card: document.getElementById('gwCard').checked,
+            supports_ewallet: document.getElementById('gwEwallet').checked,
+            supports_duitnow: document.getElementById('gwDuitnow').checked,
+            extra_config: document.getElementById('gwExtraConfig').value,
+            is_active: document.getElementById('gwActive').checked,
+            is_default: document.getElementById('gwDefault').checked,
+        };
+
+        try {
+            const url = editId ? `${API}/payment/gateways/${editId}` : `${API}/payment/gateways`;
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+            const data = await res.json();
+            if (data.success) {
+                closeGatewayModal();
+                loadGateways();
+                showToast(data.message || 'Gateway saved!', 'success');
+            } else {
+                showToast(data.message || 'Error saving gateway', 'error');
+            }
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function toggleGateway(id, activate) {
+        const gw = allGateways.find(g => g.id === id);
+        if (!gw) return;
+        const body = {...gw, is_active: activate, api_key:'', api_secret:''};
+        try {
+            const res = await fetch(`${API}/payment/gateways/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+            const data = await res.json();
+            if (data.success) { loadGateways(); showToast(activate ? 'Gateway activated' : 'Gateway deactivated', 'success'); }
+        } catch(e) { console.error(e); }
+    }
+
+    async function deleteGateway(id) {
+        if (!confirm('Delete this payment gateway configuration?')) return;
+        try {
+            const res = await fetch(`${API}/payment/gateways/${id}`, {method:'DELETE'});
+            const data = await res.json();
+            if (data.success) { loadGateways(); showToast('Gateway deleted', 'success'); }
+        } catch(e) { console.error(e); }
+    }
+
+    // ═══════════════════════════════════════
+    //  TRANSACTIONS
+    // ═══════════════════════════════════════
+    async function loadTransactions() {
+        try {
+            const status = document.getElementById('txnStatusFilter')?.value || '';
+            const url = status ? `${API}/payment/transactions?status=${status}&limit=100` : `${API}/payment/transactions?limit=100`;
+            const res = await fetch(url);
+            const data = await res.json();
+            allTransactions = data.transactions || [];
+            renderTransactions();
+            renderTransactionStats();
+        } catch(e) { console.error(e); }
+    }
+
+    function renderTransactionStats() {
+        const total = allTransactions.length;
+        const success = allTransactions.filter(t => t.status === 'success');
+        const pending = allTransactions.filter(t => t.status === 'pending' || t.status === 'pending_approval');
+        const totalAmount = success.reduce((s,t) => s + t.amount, 0);
+        document.getElementById('txnStats').innerHTML = `
+            <div class="stat-card"><div class="stat-value">${total}</div><div class="stat-label">Total Transactions</div></div>
+            <div class="stat-card"><div class="stat-value">${success.length}</div><div class="stat-label">Successful</div></div>
+            <div class="stat-card orange"><div class="stat-value">${pending.length}</div><div class="stat-label">Pending</div></div>
+            <div class="stat-card cyan"><div class="stat-value">RM ${totalAmount.toFixed(2)}</div><div class="stat-label">Total Revenue</div></div>
+        `;
+    }
+
+    function renderTransactions() {
+        const tbody = document.getElementById('txnTableBody');
+        if (!allTransactions.length) {
+            tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No transactions yet</div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = allTransactions.map(t => `
+            <tr>
+                <td><strong style="color:var(--cyan)">${t.transaction_ref}</strong></td>
+                <td>${t.user_email}</td>
+                <td><strong>RM ${t.amount.toFixed(2)}</strong></td>
+                <td>${t.payment_method || '—'}</td>
+                <td>${t.gateway_name}</td>
+                <td><span class="status-badge status-${t.status}">${t.status.toUpperCase()}</span></td>
+                <td>${t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                <td>
+                    ${t.status === 'pending_approval' ? `<button class="btn btn-primary btn-xs" onclick="approvePayment('${t.transaction_ref}')">✅ Approve</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    // ═══════════════════════════════════════
+    //  MANUAL TOP-UPS
+    // ═══════════════════════════════════════
+    async function loadManualTopups() {
+        try {
+            const res = await fetch(`${API}/payment/transactions?status=pending_approval&limit=100`);
+            const data = await res.json();
+            const txns = data.transactions || [];
+            const tbody = document.getElementById('manualTableBody');
+            if (!txns.length) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">No pending manual top-ups</div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = txns.map(t => `
+                <tr>
+                    <td><strong style="color:var(--cyan)">${t.transaction_ref}</strong></td>
+                    <td>${t.user_email}</td>
+                    <td><strong style="color:var(--accent)">RM ${t.amount.toFixed(2)}</strong></td>
+                    <td>${t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                    <td>
+                        <button class="btn btn-primary btn-xs" onclick="approvePayment('${t.transaction_ref}')">✅ Approve</button>
+                        <button class="btn btn-xs" onclick="rejectPayment('${t.transaction_ref}')" style="color:#ff4343;border-color:#ff4343;">✕ Reject</button>
+                    </td>
+                </tr>
+            `).join('');
+        } catch(e) { console.error(e); }
+    }
+
+    async function approvePayment(ref) {
+        if (!confirm(`Approve payment ${ref}? This will credit the user's wallet.`)) return;
+        try {
+            const res = await fetch(`${API}/payment/approve/${ref}`, {method:'POST'});
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                loadTransactions();
+                loadManualTopups();
+            } else {
+                showToast(data.message || 'Error', 'error');
+            }
+        } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    }
+
+    async function rejectPayment(ref) {
+        if (!confirm(`Reject payment ${ref}?`)) return;
+        // For now, just mark as failed in UI (you can add a reject endpoint)
+        showToast('Payment rejected', 'success');
+        loadManualTopups();
+    }
+
+    // ─── Toast ───
+    function showToast(msg, type='success') {
+        const toast = document.createElement('div');
+        toast.style.cssText = `position:fixed;bottom:20px;right:20px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;z-index:9999;animation:fadeIn .3s;
+            ${type==='success'?'background:rgba(0,255,136,.15);color:#00ff88;border:1px solid rgba(0,255,136,.3);':'background:rgba(255,67,67,.15);color:#ff4343;border:1px solid rgba(255,67,67,.3);'}`;
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+    </script>
+</body>
+</html>

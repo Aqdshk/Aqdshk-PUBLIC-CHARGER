@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item active"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>⚙️</span> Configuration</h1>
+            </div>
+            <div class="header-right">
+                <select id="deviceCharger" onchange="loadDeviceInfo()" style="padding:6px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;">
+                    <option value="">Select Charger</option>
+                </select>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>ℹ️</span> Device Information</span></div>
+                    <div class="card-body">
+                        <div id="deviceInfo"><div class="empty-state">Select a charger</div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>🎛️</span> UI & Access Settings</span></div>
+                    <div class="card-body">
+                        <div class="settings-grid">
+                            <div class="setting-item"><label>User Password</label><input type="text" id="settingUserPass" placeholder="e.g. 12345678"></div>
+                            <div class="setting-item"><label>Back Selection</label><select id="settingBackSelection"><option value="">-- Select --</option><option value="1">1 - Option A</option><option value="2">2 - Option B</option><option value="3">3 - Option C</option></select></div>
+                            <div class="setting-item"><label>Status Light</label><select id="settingStatusLight"><option value="">-- Select --</option><option value="true">On</option><option value="false">Off</option></select></div>
+                            <div class="setting-item"><label>Background Light</label><select id="settingBackgroundLight"><option value="">-- Select --</option><option value="true">On</option><option value="false">Off</option></select></div>
+                            <div class="setting-item"><label>Logo Light</label><select id="settingLogoLight"><option value="">-- Select --</option><option value="true">On</option><option value="false">Off</option></select></div>
+                        </div>
+                        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-primary btn-small" onclick="applySelectedSettings()">Apply Settings</button>
+                            <span id="settingsResult" style="color:var(--text-muted);font-size:11px;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><span>📋</span> OCPP Configuration</span>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-primary btn-xs" onclick="loadConfiguration()">Get Config</button>
+                        <button class="btn btn-secondary btn-xs" onclick="setFastHeartbeat()">Fast Heartbeat</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="deviceConfig"><div class="empty-state">Select a charger and click "Get Config"</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', populateChargerSelect);
+
+        async function populateChargerSelect() {
+            try {
+                const chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const sel = document.getElementById('deviceCharger');
+                sel.innerHTML = '<option value="">Select Charger</option>';
+                chargers.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=c.charge_point_id; sel.appendChild(o); });
+            } catch(e){ console.error('Error:',e); }
+        }
+
+        async function loadDeviceInfo() {
+            const cpId = document.getElementById('deviceCharger').value;
+            if (!cpId) { document.getElementById('deviceInfo').innerHTML = '<div class="empty-state">Select a charger</div>'; return; }
+            try {
+                const d = await (await fetch(`${API_BASE}/device/${cpId}`)).json();
+                document.getElementById('deviceInfo').innerHTML = `
+                    <div class="device-info-item"><span class="device-info-label">Charge Point ID</span><span class="device-info-value">${d.charge_point_id}</span></div>
+                    <div class="device-info-item"><span class="device-info-label">Vendor</span><span class="device-info-value">${d.vendor||'N/A'}</span></div>
+                    <div class="device-info-item"><span class="device-info-label">Model</span><span class="device-info-value">${d.model||'N/A'}</span></div>
+                    <div class="device-info-item"><span class="device-info-label">Firmware</span><span class="device-info-value">${d.firmware_version||'N/A'}</span></div>`;
+            } catch(e){ document.getElementById('deviceInfo').innerHTML = '<div class="empty-state">Error loading device info</div>'; }
+        }
+
+        async function loadConfiguration() {
+            const cpId = document.getElementById('deviceCharger').value;
+            if (!cpId) { document.getElementById('deviceConfig').innerHTML = '<div class="empty-state">Select a charger first</div>'; return; }
+            document.getElementById('deviceConfig').innerHTML = '<div class="loading-spinner">Requesting config...</div>';
+            try {
+                const res = await fetch(`${API_BASE}/chargers/${encodeURIComponent(cpId)}/configuration`);
+                if (!res.ok) { document.getElementById('deviceConfig').innerHTML = `<div class="empty-state">Error: ${await res.text()}</div>`; return; }
+                const r = await res.json();
+                if (!r.success || !r.configuration?.length) { document.getElementById('deviceConfig').innerHTML = `<div class="empty-state">${r.message||'No config returned'}</div>`; return; }
+                const rows = r.configuration.map(i => `<tr><td class="config-key">${i.key||'?'}</td><td>${i.value!=null?i.value:'(none)'}</td><td>${i.readonly===true?'Yes':i.readonly===false?'No':'—'}</td></tr>`).join('');
+                document.getElementById('deviceConfig').innerHTML = `
+                    <div style="color:var(--text-muted);font-size:11px;margin-bottom:8px;">${r.message||''}</div>
+                    <div class="config-table-wrapper"><table class="config-table"><thead><tr><th>Key</th><th>Value</th><th>RO</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            } catch(e){ document.getElementById('deviceConfig').innerHTML = `<div class="empty-state">Error: ${e.message}</div>`; }
+        }
+
+        async function setFastHeartbeat() {
+            const cpId = document.getElementById('deviceCharger').value;
+            if (!cpId) { alert('Select a charger first.'); return; }
+            if (!confirm(`Set HeartbeatInterval=10s for ${cpId}?`)) return;
+            try {
+                const r = await (await fetch(`${API_BASE}/chargers/${encodeURIComponent(cpId)}/configuration/change`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:'HeartbeatInterval',value:'10'}) })).json();
+                if (r.success) { alert(`✅ Done!\n${r.message}`); loadConfiguration(); } else { alert(`❌ Failed:\n${r.message}`); }
+            } catch(e){ alert(`❌ Error: ${e.message}`); }
+        }
+
+        async function changeChargerConfigKey(cpId, key, value) {
+            const r = await (await fetch(`${API_BASE}/chargers/${encodeURIComponent(cpId)}/configuration/change`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key,value:String(value)}) })).json();
+            if (!r.success) throw new Error(r.message||`Failed for ${key}`);
+            return r;
+        }
+
+        async function applySelectedSettings() {
+            const cpId = document.getElementById('deviceCharger').value;
+            if (!cpId) { alert('Select a charger first.'); return; }
+            const tasks = [];
+            const up=document.getElementById('settingUserPass').value.trim(); if(up)tasks.push({key:'UserPass',value:up});
+            const bs=document.getElementById('settingBackSelection').value; if(bs)tasks.push({key:'BackSelection',value:bs});
+            const sl=document.getElementById('settingStatusLight').value; if(sl)tasks.push({key:'StatusLight',value:sl});
+            const bl=document.getElementById('settingBackgroundLight').value; if(bl)tasks.push({key:'BackgroundLight',value:bl});
+            const ll=document.getElementById('settingLogoLight').value; if(ll)tasks.push({key:'LogoLight',value:ll});
+            if (!tasks.length) { alert('Set at least one setting.'); return; }
+            const rd = document.getElementById('settingsResult');
+            rd.innerHTML = '<span style="color:var(--orange);">Applying...</span>';
+            let ok=0, fail=0;
+            for (const t of tasks) { try { await changeChargerConfigKey(cpId,t.key,t.value); ok++; } catch(e){ fail++; } }
+            rd.innerHTML = fail===0 ? `<span style="color:var(--accent);">✅ ${ok} setting(s) applied</span>` : `<span style="color:var(--red);">⚠️ ${ok} ok, ${fail} failed</span>`;
+            loadConfiguration();
+        }
+    </script>
+</body>
+</html>

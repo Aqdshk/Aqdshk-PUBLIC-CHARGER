@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics & Insights - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* ===== Fluid Analytics Grids ===== */
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: clamp(4px, 0.4vw, 8px);
+            margin-bottom: clamp(6px, 0.5vw, 10px);
+        }
+        .analytics-grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: clamp(4px, 0.4vw, 8px);
+            margin-bottom: clamp(6px, 0.5vw, 10px);
+        }
+        .analytics-grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: clamp(4px, 0.4vw, 8px);
+            margin-bottom: clamp(6px, 0.5vw, 10px);
+        }
+
+        /* ===== KPI Stat Cards — compact ===== */
+        .big-stat {
+            background: linear-gradient(135deg, rgba(0,255,136,0.08), rgba(0,136,255,0.05));
+            border: 1px solid rgba(0,255,136,0.15);
+            border-radius: clamp(4px, 0.4vw, 8px);
+            padding: clamp(6px, 0.5vw, 12px);
+            text-align: center;
+        }
+        .big-stat .stat-value {
+            font-size: clamp(14px, 1.2vw, 22px);
+            font-weight: 800; color: #00ff88; margin: 1px 0;
+        }
+        .big-stat .stat-label {
+            font-size: clamp(7px, 0.48vw, 9px);
+            color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.7px;
+        }
+        .big-stat .stat-change {
+            font-size: clamp(8px, 0.5vw, 10px); margin-top: 2px;
+        }
+        .big-stat .stat-change.up { color: #00ff88; }
+        .big-stat .stat-change.down { color: #ff4466; }
+        .big-stat .stat-change.neutral { color: rgba(255,255,255,0.4); }
+
+        /* ===== Chart Cards — compact ===== */
+        .chart-card {
+            background: rgba(15,25,40,0.7);
+            border: 1px solid rgba(0,255,136,0.1);
+            border-radius: clamp(4px, 0.4vw, 8px);
+            padding: clamp(6px, 0.5vw, 10px);
+        }
+        .chart-card h3 {
+            font-size: clamp(9px, 0.6vw, 11px);
+            color: rgba(255,255,255,0.7); margin-bottom: clamp(4px, 0.35vw, 8px);
+        }
+        .chart-container { position: relative; height: clamp(120px, 12vw, 170px); }
+        .chart-container-sm { position: relative; height: clamp(100px, 10vw, 140px); }
+
+        /* ===== Insights Panel ===== */
+        .insights-panel { margin-bottom: clamp(8px, 0.7vw, 14px); }
+        .insights-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: clamp(6px, 0.5vw, 10px); }
+        .insights-header h2 { font-size: clamp(11px, 0.8vw, 14px); color: #fff; }
+        .insights-header .badge {
+            background: rgba(0,255,136,0.15); color: #00ff88;
+            padding: 2px 8px; border-radius: 20px; font-size: clamp(8px, 0.5vw, 10px);
+        }
+
+        .insight-card {
+            background: rgba(15,25,40,0.6);
+            border-radius: clamp(4px, 0.4vw, 6px);
+            padding: clamp(6px, 0.5vw, 10px);
+            margin-bottom: clamp(4px, 0.3vw, 6px);
+            border-left: 3px solid rgba(255,255,255,0.1);
+            display: flex; gap: clamp(6px, 0.45vw, 10px); align-items: flex-start;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .insight-card:hover { transform: translateX(3px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+        .insight-card.warning { border-left-color: #ff9944; }
+        .insight-card.success { border-left-color: #00ff88; }
+        .insight-card.action { border-left-color: #ff4466; }
+        .insight-card.info { border-left-color: #4488ff; }
+
+        .insight-icon { font-size: clamp(14px, 1vw, 18px); min-width: 24px; text-align: center; padding-top: 1px; }
+        .insight-body { flex: 1; }
+        .insight-meta { display: flex; gap: 5px; align-items: center; margin-bottom: 2px; }
+        .insight-category {
+            font-size: clamp(7px, 0.45vw, 9px); text-transform: uppercase;
+            letter-spacing: 0.7px; padding: 2px 5px; border-radius: 3px;
+        }
+        .insight-category.warning { background: rgba(255,153,68,0.15); color: #ff9944; }
+        .insight-category.success { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .insight-category.action { background: rgba(255,68,102,0.15); color: #ff4466; }
+        .insight-category.info { background: rgba(68,136,255,0.15); color: #4488ff; }
+        .insight-title { font-size: clamp(10px, 0.65vw, 12px); font-weight: 600; color: #fff; margin-bottom: 2px; }
+        .insight-message { font-size: clamp(9px, 0.55vw, 11px); color: rgba(255,255,255,0.55); line-height: 1.4; }
+
+        .section-title {
+            font-size: clamp(10px, 0.7vw, 13px); font-weight: 700;
+            color: rgba(255,255,255,0.8);
+            margin: clamp(10px, 0.9vw, 18px) 0 clamp(6px, 0.45vw, 10px);
+            padding-left: clamp(6px, 0.4vw, 8px); border-left: 3px solid #00ff88;
+        }
+
+        /* ===== Charger Table ===== */
+        .charger-table { width: 100%; border-collapse: collapse; font-size: clamp(9px, 0.6vw, 11px); }
+        .charger-table th {
+            text-align: left; padding: clamp(4px, 0.3vw, 6px) clamp(5px, 0.4vw, 8px);
+            color: rgba(255,255,255,0.5); font-weight: 600; text-transform: uppercase;
+            font-size: clamp(7px, 0.48vw, 9px); letter-spacing: 0.4px;
+            border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap;
+        }
+        .charger-table td {
+            padding: clamp(4px, 0.3vw, 6px) clamp(5px, 0.4vw, 8px);
+            color: rgba(255,255,255,0.8); border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .charger-table tr:hover td { background: rgba(0,255,136,0.03); }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+        .status-dot.online { background: #00ff88; box-shadow: 0 0 5px #00ff88; }
+        .status-dot.offline { background: #ff4466; }
+        .status-dot.faulted { background: #ff9944; }
+
+        .loading-overlay { display: flex; align-items: center; justify-content: center; min-height: 200px; }
+        .loading-spinner { width: 30px; height: 30px; border: 3px solid rgba(0,255,136,0.15); border-top-color: #00ff88; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== Analytics Responsive Breakpoints ===== */
+        @media (max-width:1400px) {
+            .analytics-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+        @media (max-width:1200px) {
+            .analytics-grid { grid-template-columns: repeat(2, 1fr); }
+            .analytics-grid-3 { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width:768px) {
+            .analytics-grid, .analytics-grid-2, .analytics-grid-3 { grid-template-columns: 1fr; }
+            .chart-container { height: 140px; }
+            .chart-container-sm { height: 110px; }
+        }
+        @media (max-width:480px) {
+            .big-stat .stat-value { font-size: 16px; }
+            .big-stat .stat-label { font-size: 8px; }
+            .big-stat { padding: 8px 6px; }
+        }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item active"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>🧠</span> Analytics & AI Insights</h1>
+            </div>
+            <div class="header-right">
+                <button onclick="loadData()" style="background:rgba(0,255,136,0.15);color:#00ff88;border:1px solid rgba(0,255,136,0.3);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <div id="loadingState" class="loading-overlay">
+            <div class="loading-spinner"></div>
+        </div>
+
+        <div id="analyticsContent" class="dashboard-container fade-in" style="display:none;">
+
+            <!-- KPI Stats -->
+            <div class="analytics-grid" id="kpiGrid"></div>
+
+            <!-- Revenue & Sessions Charts -->
+            <div class="section-title">📈 Revenue & Activity Trends (30 Days)</div>
+            <div class="analytics-grid-2">
+                <div class="chart-card">
+                    <h3>💰 Daily Revenue (RM)</h3>
+                    <div class="chart-container"><canvas id="revenueChart"></canvas></div>
+                </div>
+                <div class="chart-card">
+                    <h3>⚡ Daily Charging Sessions</h3>
+                    <div class="chart-container"><canvas id="sessionsChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Traffic & Breakdown -->
+            <div class="analytics-grid-3">
+                <div class="chart-card">
+                    <h3>🕐 Peak Hours (Sessions by Hour)</h3>
+                    <div class="chart-container"><canvas id="peakChart"></canvas></div>
+                </div>
+                <div class="chart-card">
+                    <h3>👥 Daily New Users</h3>
+                    <div class="chart-container"><canvas id="usersChart"></canvas></div>
+                </div>
+                <div class="chart-card">
+                    <h3>💳 Top-up by Payment Method</h3>
+                    <div class="chart-container"><canvas id="paymentChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Financial Summary -->
+            <div class="section-title">💵 Financial Summary</div>
+            <div class="analytics-grid" id="financialGrid"></div>
+
+            <!-- Charger Performance Table -->
+            <div class="section-title">🔌 Charger Performance</div>
+            <div class="chart-card" style="margin-bottom:20px;">
+                <table class="charger-table" id="chargerTable">
+                    <thead>
+                        <tr>
+                            <th>Charger ID</th>
+                            <th>Vendor</th>
+                            <th>Status</th>
+                            <th>Sessions</th>
+                            <th>Energy (kWh)</th>
+                            <th>Active Faults</th>
+                        </tr>
+                    </thead>
+                    <tbody id="chargerBody"></tbody>
+                </table>
+                <div id="noChargers" style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);display:none;">No chargers registered yet</div>
+            </div>
+
+            <!-- AI Insights -->
+            <div class="section-title">🧠 AI Insights & Recommendations</div>
+            <div class="insights-panel" id="insightsPanel">
+                <div class="insights-header">
+                    <h2>Smart Suggestions</h2>
+                    <span class="badge" id="insightCount">0 insights</span>
+                </div>
+                <div id="insightsList"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Sidebar toggle
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        hamburger?.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); overlay.classList.toggle('active'); });
+        overlay?.addEventListener('click', () => { hamburger.classList.remove('active'); sidebar.classList.remove('active'); overlay.classList.remove('active'); });
+
+        let charts = {};
+
+        async function loadData() {
+            document.getElementById('loadingState').style.display = 'flex';
+            document.getElementById('analyticsContent').style.display = 'none';
+
+            try {
+                const [overviewRes, insightsRes] = await Promise.all([
+                    fetch('/api/analytics/overview'),
+                    fetch('/api/analytics/insights')
+                ]);
+
+                const overview = await overviewRes.json();
+                const insightsData = await insightsRes.json();
+
+                renderKPIs(overview);
+                renderCharts(overview);
+                renderFinancials(overview);
+                renderChargerTable(overview.chargers.details);
+                renderInsights(insightsData);
+
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('analyticsContent').style.display = 'block';
+            } catch (err) {
+                console.error('Error loading analytics:', err);
+                document.getElementById('loadingState').innerHTML = '<div style="text-align:center;color:#ff4466;"><p>Failed to load analytics</p><button onclick="loadData()" style="margin-top:10px;padding:8px 20px;background:#00ff88;color:#000;border:none;border-radius:8px;cursor:pointer;">Retry</button></div>';
+            }
+        }
+
+        function renderKPIs(d) {
+            const grid = document.getElementById('kpiGrid');
+            const kpis = [
+                { label: 'Total Revenue', value: `RM ${d.revenue.total.toLocaleString()}`, change: d.revenue.growth_pct, sub: `RM ${d.revenue.today} today` },
+                { label: 'Total Users', value: d.users.total.toLocaleString(), change: d.users.growth_pct, sub: `${d.users.new_this_month} new this month` },
+                { label: 'Charging Sessions', value: d.sessions.total.toLocaleString(), change: null, sub: `${d.sessions.active} active now` },
+                { label: 'Energy Delivered', value: `${d.energy.total_kwh.toLocaleString()} kWh`, change: null, sub: `${d.energy.this_month_kwh} kWh this month` },
+                { label: 'Chargers Online', value: `${d.chargers.online}/${d.chargers.total}`, change: null, sub: `${d.chargers.faulted} faulted` },
+                { label: 'Active Faults', value: d.faults.active, change: null, sub: `${d.faults.this_month} this month` },
+                { label: 'Open Tickets', value: d.tickets.open, change: null, sub: `${d.tickets.total} total` },
+                { label: 'Wallet Balance', value: `RM ${d.wallet.total_balance.toLocaleString()}`, change: null, sub: `${d.wallet.total_topups} top-ups` },
+            ];
+
+            grid.innerHTML = kpis.map(k => {
+                let changeHtml = '';
+                if (k.change !== null && k.change !== undefined) {
+                    const cls = k.change > 0 ? 'up' : k.change < 0 ? 'down' : 'neutral';
+                    const arrow = k.change > 0 ? '↑' : k.change < 0 ? '↓' : '→';
+                    changeHtml = `<div class="stat-change ${cls}">${arrow} ${Math.abs(k.change)}% vs last month</div>`;
+                } else {
+                    changeHtml = `<div class="stat-change neutral">${k.sub}</div>`;
+                }
+                return `<div class="big-stat"><div class="stat-label">${k.label}</div><div class="stat-value">${k.value}</div>${changeHtml}</div>`;
+            }).join('');
+        }
+
+        function renderCharts(d) {
+            // Destroy old charts
+            Object.values(charts).forEach(c => c.destroy());
+            charts = {};
+
+            const chartColors = {
+                green: '#00ff88', greenBg: 'rgba(0,255,136,0.15)',
+                blue: '#4488ff', blueBg: 'rgba(68,136,255,0.15)',
+                orange: '#ff9944', orangeBg: 'rgba(255,153,68,0.15)',
+                red: '#ff4466', redBg: 'rgba(255,68,102,0.15)',
+                purple: '#aa66ff', purpleBg: 'rgba(170,102,255,0.15)',
+            };
+
+            const defaultOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: 'rgba(255,255,255,0.3)', maxRotation: 0, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.03)' } }, y: { ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } } } };
+
+            // Revenue chart
+            const revLabels = d.revenue.daily.map(x => x.date.slice(5));
+            charts.revenue = new Chart(document.getElementById('revenueChart'), {
+                type: 'line', data: {
+                    labels: revLabels,
+                    datasets: [{ data: d.revenue.daily.map(x => x.amount), borderColor: chartColors.green, backgroundColor: chartColors.greenBg, fill: true, tension: 0.3, pointRadius: 1 }]
+                }, options: defaultOpts
+            });
+
+            // Sessions chart
+            charts.sessions = new Chart(document.getElementById('sessionsChart'), {
+                type: 'bar', data: {
+                    labels: d.sessions.daily.map(x => x.date.slice(5)),
+                    datasets: [{ data: d.sessions.daily.map(x => x.count), backgroundColor: chartColors.blueBg, borderColor: chartColors.blue, borderWidth: 1 }]
+                }, options: defaultOpts
+            });
+
+            // Peak hours chart
+            charts.peak = new Chart(document.getElementById('peakChart'), {
+                type: 'bar', data: {
+                    labels: d.traffic.peak_hours.map(x => `${x.hour}:00`),
+                    datasets: [{ data: d.traffic.peak_hours.map(x => x.sessions), backgroundColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orangeBg : 'rgba(255,255,255,0.02)'), borderColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orange : 'rgba(255,255,255,0.05)'), borderWidth: 1 }]
+                }, options: defaultOpts
+            });
+
+            // Users chart
+            charts.users = new Chart(document.getElementById('usersChart'), {
+                type: 'line', data: {
+                    labels: d.users.daily.map(x => x.date.slice(5)),
+                    datasets: [{ data: d.users.daily.map(x => x.count), borderColor: chartColors.purple, backgroundColor: chartColors.purpleBg, fill: true, tension: 0.3, pointRadius: 1 }]
+                }, options: defaultOpts
+            });
+
+            // Payment methods doughnut
+            const methods = d.wallet.payment_methods;
+            if (methods.length > 0) {
+                const colors = [chartColors.green, chartColors.blue, chartColors.orange, chartColors.purple, chartColors.red];
+                charts.payment = new Chart(document.getElementById('paymentChart'), {
+                    type: 'doughnut', data: {
+                        labels: methods.map(m => m.method),
+                        datasets: [{ data: methods.map(m => m.total), backgroundColor: methods.map((_, i) => colors[i % colors.length] + '40'), borderColor: methods.map((_, i) => colors[i % colors.length]), borderWidth: 2 }]
+                    }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } } } } }
+                });
+            } else {
+                document.getElementById('paymentChart').parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.3);font-size:13px;">No payment data yet</div>';
+            }
+        }
+
+        function renderFinancials(d) {
+            const grid = document.getElementById('financialGrid');
+            const items = [
+                { label: 'Gross Revenue (Top-ups)', value: `RM ${d.revenue.total.toLocaleString()}`, color: '#00ff88' },
+                { label: 'Charging Revenue (Energy)', value: `RM ${d.revenue.charging_revenue.toLocaleString()}`, color: '#4488ff' },
+                { label: 'Maintenance Costs', value: `RM ${d.maintenance.total_cost.toLocaleString()}`, color: '#ff9944' },
+                { label: 'Net Profit', value: `RM ${d.financials.net_profit.toLocaleString()}`, color: d.financials.net_profit >= 0 ? '#00ff88' : '#ff4466' },
+            ];
+            grid.innerHTML = items.map(i => `<div class="big-stat"><div class="stat-label">${i.label}</div><div class="stat-value" style="color:${i.color}">${i.value}</div></div>`).join('');
+        }
+
+        function renderChargerTable(chargers) {
+            const tbody = document.getElementById('chargerBody');
+            if (!chargers || chargers.length === 0) {
+                tbody.innerHTML = '';
+                document.getElementById('noChargers').style.display = 'block';
+                return;
+            }
+            document.getElementById('noChargers').style.display = 'none';
+            tbody.innerHTML = chargers.map(c => {
+                const statusCls = c.status === 'online' ? 'online' : c.availability === 'faulted' ? 'faulted' : 'offline';
+                return `<tr>
+                    <td><strong>${c.charge_point_id}</strong></td>
+                    <td>${c.vendor || '-'}</td>
+                    <td><span class="status-dot ${statusCls}"></span>${c.status} / ${c.availability}</td>
+                    <td>${c.total_sessions}</td>
+                    <td>${c.total_energy_kwh}</td>
+                    <td style="color:${c.active_faults > 0 ? '#ff4466' : 'rgba(255,255,255,0.5)'}">${c.active_faults}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderInsights(data) {
+            document.getElementById('insightCount').textContent = `${data.total_insights} insights`;
+            const list = document.getElementById('insightsList');
+
+            const icons = { warning: '⚠️', success: '✅', action: '🚨', info: '💡' };
+
+            list.innerHTML = data.insights.map(i => `
+                <div class="insight-card ${i.type}">
+                    <div class="insight-icon">${icons[i.type] || '💡'}</div>
+                    <div class="insight-body">
+                        <div class="insight-meta">
+                            <span class="insight-category ${i.type}">${i.category}</span>
+                        </div>
+                        <div class="insight-title">${i.title}</div>
+                        <div class="insight-message">${i.message}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Load on page ready
+        loadData();
+    </script>
+</body>
+</html>

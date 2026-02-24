@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: clamp(4px, 0.4vw, 8px);
+            margin-bottom: clamp(4px, 0.4vw, 8px);
+        }
+        .charts-grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: clamp(4px, 0.4vw, 8px);
+        }
+        .chart-wrap { position: relative; height: clamp(80px, 7vw, 120px); }
+        .chart-wrap-wide { position: relative; height: clamp(70px, 6vw, 100px); }
+        @media(max-width:1200px){ .charts-grid{ grid-template-columns:repeat(2,1fr); } }
+        @media(max-width:768px){ .charts-grid,.charts-grid-2{ grid-template-columns:1fr; } .chart-wrap,.chart-wrap-wide { height: 120px; } }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item active"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>📊</span> Analytics Dashboard</h1>
+            </div>
+            <div class="header-right">
+                <div class="header-info"><span>OCPP 1.6J</span></div>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">🔌</div>
+                    <div class="stat-value" id="totalChargers">-</div>
+                    <div class="stat-label">Total Chargers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-value" id="onlineChargers">-</div>
+                    <div class="stat-label">Online</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⚡</div>
+                    <div class="stat-value" id="chargingNow">-</div>
+                    <div class="stat-label">Charging</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-value" id="totalSessions">-</div>
+                    <div class="stat-label">Sessions</div>
+                </div>
+            </div>
+
+            <!-- Charts Row 1 -->
+            <div class="charts-grid">
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>🔌</span> Charger Status</span></div>
+                    <div class="card-body"><div class="chart-wrap"><canvas id="chargerStatusChart"></canvas></div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>📊</span> Availability</span></div>
+                    <div class="card-body"><div class="chart-wrap"><canvas id="chargerAvailabilityChart"></canvas></div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>📋</span> Sessions Status</span></div>
+                    <div class="card-body"><div class="chart-wrap"><canvas id="sessionsStatusChart"></canvas></div></div>
+                </div>
+            </div>
+
+            <!-- Charts Row 2 -->
+            <div class="charts-grid-2">
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>📈</span> Sessions (7 Days)</span></div>
+                    <div class="card-body"><div class="chart-wrap-wide"><canvas id="sessionsTimelineChart"></canvas></div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><span class="card-title"><span>⚡</span> Energy by Charger (kWh)</span></div>
+                    <div class="card-body"><div class="chart-wrap-wide"><canvas id="energyChart"></canvas></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let chargerStatusChart = null, chargerAvailabilityChart = null, sessionsStatusChart = null, energyChart = null, sessionsTimelineChart = null;
+        const C = { green:'#00e676', red:'#ef5350', yellow:'#ffa726', blue:'#42a5f5', gray:'#5a6478' };
+
+        // Sidebar
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { initializeCharts(); loadDashboardData(); setInterval(loadDashboardData, 10000); });
+
+        function initializeCharts() {
+            Chart.defaults.color = '#5a6478';
+            Chart.defaults.borderColor = '#1e2a3a';
+            const legendOpts = { position:'bottom', labels:{ color:'#8892a4', boxWidth:10, padding:6, font:{size:10} } };
+
+            chargerStatusChart = new Chart(document.getElementById('chargerStatusChart'), {
+                type:'doughnut', data:{ labels:['Online','Offline'], datasets:[{ data:[0,0], backgroundColor:[C.green,C.red], borderWidth:0 }] },
+                options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:legendOpts } }
+            });
+            chargerAvailabilityChart = new Chart(document.getElementById('chargerAvailabilityChart'), {
+                type:'doughnut', data:{ labels:['Available','Charging','Preparing','Faulted','Other'], datasets:[{ data:[0,0,0,0,0], backgroundColor:[C.blue,C.green,C.yellow,C.red,C.gray], borderWidth:0 }] },
+                options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:legendOpts } }
+            });
+            sessionsStatusChart = new Chart(document.getElementById('sessionsStatusChart'), {
+                type:'bar', data:{ labels:['Active','Pending','Done'], datasets:[{ data:[0,0,0], backgroundColor:[C.green,C.yellow,C.blue], borderRadius:4 }] },
+                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+            });
+            sessionsTimelineChart = new Chart(document.getElementById('sessionsTimelineChart'), {
+                type:'line', data:{ labels:[], datasets:[{ data:[], borderColor:C.green, backgroundColor:'rgba(0,230,118,0.08)', fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:C.green }] },
+                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+            });
+            energyChart = new Chart(document.getElementById('energyChart'), {
+                type:'bar', data:{ labels:[], datasets:[{ data:[], backgroundColor:C.blue, borderRadius:4 }] },
+                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+            });
+        }
+
+        async function loadDashboardData() {
+            try {
+                const [chargersRes, sessionsRes] = await Promise.all([fetch(`${API_BASE}/chargers`), fetch(`${API_BASE}/sessions`)]);
+                const chargers = await chargersRes.json();
+                const sessions = await sessionsRes.json();
+
+                document.getElementById('totalChargers').textContent = chargers.length;
+                document.getElementById('onlineChargers').textContent = chargers.filter(c=>c.status==='online').length;
+                document.getElementById('chargingNow').textContent = chargers.filter(c=>c.availability==='charging').length;
+                document.getElementById('totalSessions').textContent = sessions.length;
+
+                const online = chargers.filter(c=>c.status==='online').length;
+                chargerStatusChart.data.datasets[0].data = [online, chargers.length-online]; chargerStatusChart.update();
+
+                const avail=chargers.filter(c=>c.availability==='available').length, charging=chargers.filter(c=>c.availability==='charging').length, prep=chargers.filter(c=>c.availability==='preparing').length, fault=chargers.filter(c=>c.availability==='faulted').length;
+                chargerAvailabilityChart.data.datasets[0].data = [avail,charging,prep,fault,chargers.length-avail-charging-prep-fault]; chargerAvailabilityChart.update();
+
+                const active=sessions.filter(s=>s.status==='active').length, pending=sessions.filter(s=>s.status==='pending').length, completed=sessions.filter(s=>s.status==='completed').length;
+                sessionsStatusChart.data.datasets[0].data = [active,pending,completed]; sessionsStatusChart.update();
+
+                const days=[], counts=[];
+                for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); days.push(d.toLocaleDateString('en-MY',{weekday:'short'})); const ds=new Date(d); ds.setHours(0,0,0,0); const de=new Date(d); de.setHours(23,59,59,999); counts.push(sessions.filter(s=>{const sd=new Date(s.start_time); return sd>=ds&&sd<=de;}).length); }
+                sessionsTimelineChart.data.labels=days; sessionsTimelineChart.data.datasets[0].data=counts; sessionsTimelineChart.update();
+
+                const ebc={}; chargers.forEach(c=>ebc[c.charge_point_id]=0); sessions.forEach(s=>{if(ebc.hasOwnProperty(s.charge_point_id)) ebc[s.charge_point_id]+=(s.energy_consumed||0);});
+                energyChart.data.labels=Object.keys(ebc).map(id=>id.length>10?id.slice(-8):id); energyChart.data.datasets[0].data=Object.values(ebc).map(v=>parseFloat(v.toFixed(2))); energyChart.update();
+            } catch(e){ console.error('Dashboard error:',e); }
+        }
+    </script>
+</body>
+</html>

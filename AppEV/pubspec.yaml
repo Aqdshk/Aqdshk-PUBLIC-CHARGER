@@ -1,0 +1,59 @@
+name: appev
+description: Mobile application for EV charging platform with payment integration.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # HTTP Requests
+  http: ^1.1.0
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  
+  # Maps & Location (OpenStreetMap - no API key needed)
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  geolocator: ^10.1.0
+  intl: ^0.20.2
+
+  # QR Code Scanner (Camera)
+  mobile_scanner: ^6.0.2
+
+  # Custom Fonts
+  google_fonts: ^6.1.0
+
+  # URL Launcher
+  url_launcher: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/
+    - assets/images/
+    - assets/icons/
+    - assets/fonts/
+  
+  # fonts:
+  #   - family: Poppins
+  #     fonts:
+  #       - asset: assets/fonts/Poppins-Regular.ttf
+  #       - asset: assets/fonts/Poppins-Bold.ttf
+  #         weight: 700
+  #       - asset: assets/fonts/Poppins-Medium.ttf
+  #         weight: 500
+

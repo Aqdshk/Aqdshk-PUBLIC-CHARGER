@@ -1,0 +1,49 @@
+# PlatformIO build directories (hide completely)
+.pio/
+.pio/**
+build/
+build/**
+
+# Build artifacts (anywhere in project)
+**/*.o
+**/*.d
+**/*.elf
+**/*.bin
+**/*.hex
+**/*.map
+**/*.lst
+**/*.pidb
+**/*.a
+
+# Temporary files
+**/*.tmp
+tmp*/
+**/*.log
+**/.sconsign*
+**/project.checksum
+**/longcmd-*
+
+# PlatformIO specific build files
+**/bootloader.bin
+**/partitions.bin
+**/firmware.bin
+**/firmware.elf
+**/firmware.map
+**/libFrameworkArduino.a
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+

@@ -1,0 +1,145 @@
+# ============================================
+# PlagSini EV — Production (Google Cloud)
+# Usage:
+#   1. Copy .env.example → .env and fill in values
+#   2. Run: docker compose -f docker-compose.prod.yml up -d
+# ============================================
+
+services:
+
+  # ── Nginx Reverse Proxy + SSL ──
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: plagsini-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - certbot-webroot:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    environment:
+      - DOMAIN=${DOMAIN}
+    networks:
+      - ev-network
+    depends_on:
+      - charging-platform
+      - customer-service
+      - appev
+    restart: always
+
+  # ── Let's Encrypt SSL Auto-Renewal ──
+  certbot:
+    image: certbot/certbot:latest
+    container_name: plagsini-certbot
+    volumes:
+      - certbot-webroot:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    # Renew every 12 hours
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+    restart: always
+
+  # ── MySQL Database ──
+  mysql:
+    image: mysql:8.0
+    container_name: plagsini-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./ChargingPlatform/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - ev-network
+    restart: always
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    # Security: Don't expose MySQL port externally in production
+    # ports:
+    #   - "3306:3306"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── ChargingPlatform (Main Backend) ──
+  charging-platform:
+    build:
+      context: ./ChargingPlatform
+      dockerfile: Dockerfile
+    container_name: plagsini-api
+    environment:
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      - PYTHONUNBUFFERED=1
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_EMAIL=${SMTP_EMAIL}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME}
+    networks:
+      - ev-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── Customer Service Bot ──
+  customer-service:
+    build:
+      context: ./CustomerService
+      dockerfile: Dockerfile
+    container_name: plagsini-bot
+    environment:
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      - PYTHONUNBUFFERED=1
+      - CHARGING_PLATFORM_URL=http://charging-platform:8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks:
+      - ev-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Flutter Web App ──
+  appev:
+    build:
+      context: ./AppEV
+      dockerfile: Dockerfile
+      args:
+        - API_BASE_URL=${API_BASE_URL}
+        - BOT_BASE_URL=${BOT_BASE_URL}
+    container_name: plagsini-web
+    networks:
+      - ev-network
+    depends_on:
+      - charging-platform
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  ev-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  certbot-webroot:
+  certbot-certs:

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCPP 1.6 Operations - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <style>
+        .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
+        .ops-sidebar { width: clamp(170px, 14vw, 220px); min-width: clamp(170px, 14vw, 220px); background:var(--bg-card); border-right:1px solid var(--border); overflow-y:auto; padding: clamp(6px, 0.5vw, 10px) 0; }
+        .ops-sidebar::-webkit-scrollbar { width:3px; } .ops-sidebar::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+        .ops-cat { padding: clamp(4px, 0.3vw, 6px) clamp(8px, 0.7vw, 14px) clamp(2px, 0.2vw, 4px); font-size: clamp(7px, 0.45vw, 8px); text-transform:uppercase; letter-spacing:1.2px; color:var(--text-muted); font-weight:700; }
+        .ops-item { display:flex; align-items:center; gap: clamp(4px, 0.4vw, 8px); padding: clamp(4px, 0.4vw, 7px) clamp(8px, 0.7vw, 14px); color:var(--text-secondary); cursor:pointer; font-size: clamp(9px, 0.6vw, 11px); border-left:2px solid transparent; transition:all .15s; }
+        .ops-item:hover { background:rgba(0,230,118,.04); color:var(--text-primary); }
+        .ops-item.active { background:rgba(0,230,118,.08); border-left-color:var(--accent); color:var(--accent); font-weight:600; }
+        .ops-icon { font-size: clamp(10px, 0.7vw, 13px); width: clamp(14px, 1vw, 18px); text-align:center; flex-shrink:0; }
+        .ops-sep { height:1px; background:var(--border); margin: clamp(4px, 0.4vw, 8px) clamp(8px, 0.7vw, 14px); }
+        .ops-main { flex:1; padding: clamp(8px, 0.8vw, 16px) clamp(10px, 1vw, 20px); overflow-y:auto; }
+        .ops-hdr h2 { font-size: clamp(12px, 0.85vw, 15px); font-weight:700; color:var(--text-primary); margin-bottom:2px; }
+        .ops-hdr p { color:var(--text-muted); font-size: clamp(9px, 0.55vw, 11px); margin-bottom: clamp(8px, 0.7vw, 14px); }
+        .charger-bar { display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); padding: clamp(5px, 0.4vw, 8px) clamp(8px, 0.6vw, 12px); background:rgba(0,230,118,.03); border:1px solid rgba(0,230,118,.12); border-radius:var(--radius-sm); margin-bottom: clamp(8px, 0.7vw, 14px); flex-wrap:wrap; }
+        .charger-bar label { color:var(--accent); font-weight:600; font-size: clamp(9px, 0.55vw, 11px); white-space:nowrap; }
+        .charger-bar select { flex:1; max-width:280px; padding: clamp(3px, 0.3vw, 5px) clamp(5px, 0.4vw, 8px); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size: clamp(9px, 0.55vw, 11px); }
+        .charger-bar select:focus { outline:none; border-color:var(--accent); }
+        .c-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+        .c-txt { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); }
+        .pcard { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding: clamp(8px, 0.7vw, 14px) clamp(10px, 0.8vw, 16px); }
+        .pcard-title { font-size: clamp(7px, 0.45vw, 9px); text-transform:uppercase; letter-spacing:.8px; color:var(--text-muted); font-weight:700; margin-bottom: clamp(6px, 0.6vw, 12px); padding-bottom: clamp(4px, 0.4vw, 8px); border-bottom:1px solid var(--border); }
+        .pg { margin-bottom: clamp(6px, 0.6vw, 12px); }
+        .pg label { display:block; font-size: clamp(9px, 0.55vw, 11px); color:var(--text-secondary); margin-bottom:2px; font-weight:500; }
+        .pg input,.pg select,.pg textarea { width:100%; max-width:380px; padding: clamp(4px, 0.3vw, 6px) clamp(6px, 0.5vw, 10px); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size: clamp(9px, 0.55vw, 11px); font-family:inherit; }
+        .pg textarea { min-height: clamp(40px, 4vw, 60px); resize:vertical; }
+        .pg input:focus,.pg select:focus,.pg textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(0,230,118,.08); }
+        .pg .hint { font-size: clamp(7px, 0.45vw, 9px); color:var(--text-muted); margin-top:2px; }
+        .btn-go { display:inline-flex; align-items:center; gap:5px; padding: clamp(4px, 0.4vw, 7px) clamp(12px, 1.1vw, 22px); background:linear-gradient(135deg,var(--accent),#00b862); color:#000; border:none; border-radius:var(--radius-sm); font-size: clamp(9px, 0.55vw, 11px); font-weight:700; cursor:pointer; transition:all .2s; margin-top:4px; }
+        .btn-go:hover { transform:translateY(-1px); box-shadow:0 3px 12px rgba(0,230,118,.25); }
+        .btn-go:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+        .resp { margin-top: clamp(8px, 0.7vw, 14px); padding: clamp(8px, 0.6vw, 12px); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); display:none; }
+        .resp.visible { display:block; }
+        .resp-lbl { font-size: clamp(7px, 0.4vw, 8px); text-transform:uppercase; letter-spacing:.8px; color:var(--text-muted); margin-bottom:4px; font-weight:700; }
+        .resp-pill { display:inline-block; padding:2px clamp(6px, 0.5vw, 10px); border-radius:10px; font-size: clamp(8px, 0.5vw, 10px); font-weight:600; margin-bottom:4px; }
+        .resp-pill.ok { background:rgba(0,230,118,.12); color:var(--accent); }
+        .resp-pill.err { background:rgba(255,68,68,.12); color:var(--red); }
+        .resp pre { background:rgba(5,5,16,.6); padding: clamp(6px, 0.5vw, 10px); border-radius:4px; color:var(--text-secondary); font-size: clamp(8px, 0.5vw, 10px); overflow-x:auto; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+        .no-op { text-align:center; padding: clamp(30px, 3vw, 60px) clamp(8px, 0.8vw, 16px); color:var(--text-muted); }
+        .no-op .ico { font-size: clamp(24px, 2vw, 36px); margin-bottom: clamp(6px, 0.5vw, 10px); opacity:.4; }
+        .no-op h3 { color:var(--text-secondary); font-size: clamp(11px, 0.75vw, 14px); margin-bottom:4px; }
+        .no-op p { font-size: clamp(9px, 0.55vw, 11px); }
+        @media(max-width:900px){ .ops-layout{flex-direction:column;} .ops-sidebar{width:100%;min-width:100%;max-height:160px;border-right:none;border-bottom:1px solid var(--border);} .ops-main{padding: clamp(6px, 0.6vw, 12px);} }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item active"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>🎛️</span> OCPP 1.6 Operations</h1>
+            </div>
+        </header>
+
+        <div style="padding:0 16px 8px;">
+            <div class="charger-bar">
+                <label>⚡ Charge Point:</label>
+                <select id="chargerSelect"><option value="">-- Select Charger --</option></select>
+                <span class="c-dot" id="chargerDot" style="background:#555;"></span>
+                <span class="c-txt" id="chargerStatusText">No charger selected</span>
+            </div>
+        </div>
+
+        <div class="ops-layout">
+            <div class="ops-sidebar">
+                <div class="ops-cat">Core Operations</div>
+                <div class="ops-item" data-op="change-availability"><span class="ops-icon">🔄</span> Change Availability</div>
+                <div class="ops-item" data-op="change-configuration"><span class="ops-icon">📝</span> Change Configuration</div>
+                <div class="ops-item" data-op="clear-cache"><span class="ops-icon">🗑️</span> Clear Cache</div>
+                <div class="ops-item" data-op="get-diagnostics"><span class="ops-icon">🔍</span> Get Diagnostics</div>
+                <div class="ops-item" data-op="remote-start"><span class="ops-icon">▶️</span> Remote Start</div>
+                <div class="ops-item" data-op="remote-stop"><span class="ops-icon">⏹️</span> Remote Stop</div>
+                <div class="ops-item" data-op="reset"><span class="ops-icon">🔁</span> Reset</div>
+                <div class="ops-item" data-op="unlock-connector"><span class="ops-icon">🔓</span> Unlock Connector</div>
+                <div class="ops-item" data-op="update-firmware"><span class="ops-icon">📦</span> Update Firmware</div>
+                <div class="ops-sep"></div>
+                <div class="ops-cat">Reservation</div>
+                <div class="ops-item" data-op="reserve-now"><span class="ops-icon">📌</span> Reserve Now</div>
+                <div class="ops-item" data-op="cancel-reservation"><span class="ops-icon">❌</span> Cancel Reservation</div>
+                <div class="ops-sep"></div>
+                <div class="ops-cat">Advanced</div>
+                <div class="ops-item" data-op="data-transfer"><span class="ops-icon">📡</span> Data Transfer</div>
+                <div class="ops-item" data-op="get-configuration"><span class="ops-icon">📋</span> Get Configuration</div>
+                <div class="ops-item" data-op="get-local-list-version"><span class="ops-icon">📃</span> Get Local List Version</div>
+                <div class="ops-item" data-op="send-local-list"><span class="ops-icon">📤</span> Send Local List</div>
+                <div class="ops-item" data-op="trigger-message"><span class="ops-icon">📨</span> Trigger Message</div>
+                <div class="ops-item" data-op="get-composite-schedule"><span class="ops-icon">📊</span> Composite Schedule</div>
+                <div class="ops-item" data-op="clear-charging-profile"><span class="ops-icon">🧹</span> Clear Charge Profile</div>
+                <div class="ops-item" data-op="set-charging-profile"><span class="ops-icon">⚡</span> Set Charge Profile</div>
+            </div>
+
+            <div class="ops-main">
+                <div id="opsContent">
+                    <div class="no-op">
+                        <div class="ico">🎛️</div>
+                        <h3>Select an Operation</h3>
+                        <p>Choose an OCPP 1.6 operation from the left panel.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        let currentOp = null;
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); overlay.classList.toggle('active'); });
+        overlay.addEventListener('click', () => { hamburger.classList.remove('active'); sidebar.classList.remove('active'); overlay.classList.remove('active'); });
+
+        async function loadChargers() {
+            try {
+                const cs = await(await fetch(`${API}/chargers`)).json();
+                const sel = document.getElementById('chargerSelect');
+                sel.innerHTML = '<option value="">-- Select Charger --</option>';
+                cs.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=`${c.charge_point_id} (${c.vendor||'N/A'} — ${c.model||'N/A'})`; o.dataset.status=c.status; sel.appendChild(o); });
+            } catch(e){}
+        }
+
+        document.getElementById('chargerSelect').addEventListener('change', function(){
+            const opt=this.options[this.selectedIndex], dot=document.getElementById('chargerDot'), txt=document.getElementById('chargerStatusText');
+            if(!this.value){ dot.style.background='#555'; txt.textContent='No charger selected'; }
+            else { const st=opt.dataset.status||'unknown'; dot.style.background=st==='online'?'var(--accent)':'var(--red)'; txt.textContent=st==='online'?'Connected':'Offline'; }
+        });
+
+        const OPS = {
+            'change-availability': { title:'Change Availability', desc:'Change the availability of a connector or the entire charge point.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'0',hint:'0 = charge point as a whole'},{name:'type',label:'Availability Type',type:'select',options:['Inoperative','Operative'],value:'Inoperative'}], endpoint:'/change-availability', method:'POST' },
+            'change-configuration': { title:'Change Configuration', desc:'Change a configuration key on the charge point.', fields:[{name:'key_type',label:'Key Type',type:'select',options:['Predefined','Custom'],value:'Predefined'},{name:'key_predefined',label:'Configuration Key',type:'select',options:['','AllowOfflineTxForUnknownId','AuthorizationCacheEnabled','AuthorizeRemoteTxRequests','BlinkRepeat','ClockAlignedDataInterval','ConnectionTimeOut','ConnectorPhaseRotation','ConnectorPhaseRotationMaxLength','GetConfigurationMaxKeys','HeartbeatInterval','LightIntensity','LocalAuthorizeOffline','LocalPreAuthorize','MaxEnergyOnInvalidId','MeterValuesAlignedData','MeterValuesAlignedDataMaxLength','MeterValuesSampledData','MeterValuesSampledDataMaxLength','MeterValueSampleInterval','MinimumStatusDuration','NumberOfConnectors','ResetRetries','StopTransactionOnEVSideDisconnect','StopTransactionOnInvalidId','StopTxnAlignedData','StopTxnAlignedDataMaxLength','StopTxnSampledData','StopTxnSampledDataMaxLength','SupportedFeatureProfiles','SupportedFeatureProfilesMaxLength','TransactionMessageAttempts','TransactionMessageRetryInterval','UnlockConnectorOnEVSideDisconnect','WebSocketPingInterval','LocalAuthListEnabled','LocalAuthListMaxLength','SendLocalListMaxLength','ReserveConnectorZeroSupported','ChargeProfileMaxStackLevel','ChargingScheduleAllowedChargingRateUnit','ChargingScheduleMaxPeriods','ConnectorSwitch3to1PhaseSupported','MaxChargingProfilesInstalled'],value:'',hint:'Standard OCPP 1.6 key'},{name:'key_custom',label:'Custom Key',type:'text',value:'',hint:'Enter custom key',hidden:true},{name:'value',label:'Value',type:'text',value:''}], endpoint:'/configuration/change', method:'POST', customEndpoint:true },
+            'clear-cache': { title:'Clear Cache', desc:'Clear the authorization cache on the charge point.', fields:[], endpoint:'/clear-cache', method:'POST' },
+            'get-diagnostics': { title:'Get Diagnostics', desc:'Request diagnostics from the charge point.', fields:[{name:'location',label:'Upload Location (URI)',type:'text',value:'',hint:'e.g. ftp://user:pass@host/path'},{name:'retries',label:'Retries',type:'number',value:'',hint:'Optional'},{name:'retry_interval',label:'Retry Interval (sec)',type:'number',value:'',hint:'Optional'},{name:'start_time',label:'Start Time',type:'datetime-local',value:'',hint:'Optional'},{name:'stop_time',label:'Stop Time',type:'datetime-local',value:'',hint:'Optional'}], endpoint:'/get-diagnostics', method:'POST' },
+            'remote-start': { title:'Remote Start Transaction', desc:'Remotely start a charging transaction.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'id_tag',label:'ID Tag',type:'text',value:'APP_USER'}], endpoint:'/charging/start', method:'POST', customBody:true },
+            'remote-stop': { title:'Remote Stop Transaction', desc:'Remotely stop a charging transaction.', fields:[{name:'transaction_id',label:'Transaction ID',type:'number',value:'0'}], endpoint:'/charging/stop', method:'POST', customBody:true },
+            'reset': { title:'Reset', desc:'Reset the charge point (soft or hard reset).', fields:[{name:'type',label:'Reset Type',type:'select',options:['Soft','Hard'],value:'Soft'}], endpoint:'/reset', method:'POST' },
+            'unlock-connector': { title:'Unlock Connector', desc:'Unlock a connector on the charge point.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'}], endpoint:'/unlock-connector', method:'POST' },
+            'update-firmware': { title:'Update Firmware', desc:'Instruct the charge point to download and install new firmware.', fields:[{name:'location',label:'Firmware URI',type:'text',value:'',hint:'e.g. https://example.com/fw.bin'},{name:'retrieve_date',label:'Retrieve Date',type:'datetime-local',value:''},{name:'retries',label:'Retries',type:'number',value:'',hint:'Optional'},{name:'retry_interval',label:'Retry Interval (sec)',type:'number',value:'',hint:'Optional'}], endpoint:'/update-firmware', method:'POST' },
+            'reserve-now': { title:'Reserve Now', desc:'Reserve a connector for a specific ID tag.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'0',hint:'0 = any connector'},{name:'expiry_date',label:'Expiry Date',type:'datetime-local',value:''},{name:'id_tag',label:'ID Tag',type:'text',value:''},{name:'reservation_id',label:'Reservation ID',type:'number',value:'1'}], endpoint:'/reserve-now', method:'POST' },
+            'cancel-reservation': { title:'Cancel Reservation', desc:'Cancel a previously made reservation.', fields:[{name:'reservation_id',label:'Reservation ID',type:'number',value:''}], endpoint:'/cancel-reservation', method:'POST' },
+            'data-transfer': { title:'Data Transfer', desc:'Send vendor-specific data to the charge point.', fields:[{name:'vendor_id',label:'Vendor ID',type:'text',value:''},{name:'message_id',label:'Message ID',type:'text',value:'',hint:'Optional'},{name:'data',label:'Data',type:'textarea',value:'',hint:'Optional string data'}], endpoint:'/data-transfer', method:'POST' },
+            'get-configuration': { title:'Get Configuration', desc:'Get configuration keys from the charge point.', fields:[{name:'keys',label:'Keys (comma-separated)',type:'text',value:'',hint:'Leave empty for all keys'}], endpoint:'/configuration', method:'GET', customEndpoint:true },
+            'get-local-list-version': { title:'Get Local List Version', desc:'Get the version of the local authorization list.', fields:[], endpoint:'/get-local-list-version', method:'POST' },
+            'send-local-list': { title:'Send Local List', desc:'Send a local authorization list to the charge point.', fields:[{name:'list_version',label:'List Version',type:'number',value:'1'},{name:'update_type',label:'Update Type',type:'select',options:['Full','Differential'],value:'Full'},{name:'local_authorization_list',label:'Authorization List (JSON)',type:'textarea',value:'',hint:'e.g. [{"id_tag":"TAG001"}]'}], endpoint:'/send-local-list', method:'POST' },
+            'trigger-message': { title:'Trigger Message', desc:'Trigger the charge point to send a specific message.', fields:[{name:'requested_message',label:'Requested Message',type:'select',options:['BootNotification','DiagnosticsStatusNotification','FirmwareStatusNotification','Heartbeat','MeterValues','StatusNotification'],value:'StatusNotification'},{name:'connector_id',label:'Connector ID',type:'number',value:'',hint:'Optional'}], endpoint:'/trigger-message', method:'POST' },
+            'get-composite-schedule': { title:'Get Composite Schedule', desc:'Get the composite charging schedule for a connector.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'duration',label:'Duration (seconds)',type:'number',value:'3600'},{name:'charging_rate_unit',label:'Rate Unit',type:'select',options:['','W','A'],value:'',hint:'Optional'}], endpoint:'/get-composite-schedule', method:'POST' },
+            'clear-charging-profile': { title:'Clear Charging Profile', desc:'Clear charging profiles on the charge point.', fields:[{name:'id',label:'Profile ID',type:'number',value:'',hint:'Optional'},{name:'connector_id',label:'Connector ID',type:'number',value:'',hint:'Optional'},{name:'charging_profile_purpose',label:'Purpose',type:'select',options:['','ChargePointMaxProfile','TxDefaultProfile','TxProfile'],value:'',hint:'Optional'},{name:'stack_level',label:'Stack Level',type:'number',value:'',hint:'Optional'}], endpoint:'/clear-charging-profile', method:'POST' },
+            'set-charging-profile': { title:'Set Charging Profile', desc:'Set a charging profile on the charge point.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'cs_charging_profiles',label:'Charging Profile (JSON)',type:'textarea',value:'{\n  "charging_profile_id": 1,\n  "stack_level": 0,\n  "charging_profile_purpose": "TxDefaultProfile",\n  "charging_profile_kind": "Absolute",\n  "charging_schedule": {\n    "charging_rate_unit": "W",\n    "charging_schedule_period": [\n      { "start_period": 0, "limit": 11000.0 }\n    ]\n  }\n}',hint:'JSON csChargingProfiles'}], endpoint:'/set-charging-profile', method:'POST' },
+        };
+
+        function selectOp(opKey) {
+            currentOp = opKey;
+            const op = OPS[opKey];
+            if(!op) return;
+            document.querySelectorAll('.ops-item').forEach(el=>el.classList.remove('active'));
+            document.querySelector(`.ops-item[data-op="${opKey}"]`)?.classList.add('active');
+
+            let fh = '';
+            op.fields.forEach(f=>{
+                const hid = f.hidden===true;
+                let inp='';
+                if(f.type==='select'){ inp=`<select id="field_${f.name}">${f.options.map(o=>`<option value="${o}" ${o===f.value?'selected':''}>${o||'-- Select --'}</option>`).join('')}</select>`; }
+                else if(f.type==='textarea'){ inp=`<textarea id="field_${f.name}">${f.value||''}</textarea>`; }
+                else { inp=`<input type="${f.type}" id="field_${f.name}" value="${f.value||''}" placeholder="${f.hint||''}">`; }
+                fh+=`<div class="pg" id="group_${f.name}" ${hid?'style="display:none;"':''}><label>${f.label}</label>${inp}${f.hint?`<div class="hint">${f.hint}</div>`:''}</div>`;
+            });
+            if(!op.fields.length) fh='<p style="color:var(--text-muted);font-size:11px;">No parameters required.</p>';
+
+            document.getElementById('opsContent').innerHTML=`
+                <div class="ops-hdr"><h2>${op.title}</h2><p>${op.desc}</p></div>
+                <div class="pcard"><div class="pcard-title">Parameters</div>${fh}<button class="btn-go" id="btnPerform" onclick="performOp()">⚡ Execute</button></div>
+                <div class="resp" id="responseArea"><div class="resp-lbl">Response</div><div id="respStatus"></div><pre id="respBody"></pre></div>`;
+
+            if(opKey==='change-configuration'){ const kt=document.getElementById('field_key_type'); if(kt){kt.addEventListener('change',toggleKeyType);toggleKeyType();} }
+        }
+
+        function toggleKeyType(){ const kt=document.getElementById('field_key_type')?.value, pg=document.getElementById('group_key_predefined'), cg=document.getElementById('group_key_custom'); if(!pg||!cg)return; pg.style.display=kt==='Predefined'?'':'none'; cg.style.display=kt==='Custom'?'':'none'; }
+
+        async function performOp(){
+            const cpId=document.getElementById('chargerSelect').value;
+            if(!cpId){alert('Select a charger first.');return;} if(!currentOp)return;
+            const op=OPS[currentOp], btn=document.getElementById('btnPerform');
+            btn.disabled=true; btn.textContent='⏳ Sending...';
+            const ra=document.getElementById('responseArea'); ra.classList.add('visible');
+            document.getElementById('respStatus').innerHTML='<span class="resp-pill" style="background:rgba(255,200,0,.12);color:#ffc800;">Pending...</span>';
+            document.getElementById('respBody').textContent='';
+            try {
+                let url, fo;
+                if(currentOp==='remote-start'){ url=`${API}/charging/start`; fo={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({charger_id:cpId,connector_id:parseInt(document.getElementById('field_connector_id').value)||1,id_tag:document.getElementById('field_id_tag').value||'APP_USER'})}; }
+                else if(currentOp==='remote-stop'){ url=`${API}/charging/stop`; fo={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_id:parseInt(document.getElementById('field_transaction_id').value)||0,charger_id:cpId})}; }
+                else if(currentOp==='change-configuration'){ url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration/change`; const kt=document.getElementById('field_key_type').value; const ck=kt==='Predefined'?document.getElementById('field_key_predefined').value:document.getElementById('field_key_custom').value; if(!ck){alert('Enter a key.');btn.disabled=false;btn.textContent='⚡ Execute';return;} fo={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:ck,value:document.getElementById('field_value').value})}; }
+                else if(currentOp==='get-configuration'){ const ks=document.getElementById('field_keys').value.trim(); url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration${ks?'?keys='+encodeURIComponent(ks):''}`; fo={method:'GET'}; }
+                else { url=`${API}/ocpp/${encodeURIComponent(cpId)}${op.endpoint}`; if(op.method==='POST'){ const body={}; op.fields.forEach(f=>{const el=document.getElementById(`field_${f.name}`);if(!el)return;let v=el.value;if(v===''||v===null||v===undefined)return;if(f.type==='number'){v=parseFloat(v);if(isNaN(v))return;}if(f.type==='datetime-local'&&v)v=new Date(v).toISOString();if(f.name==='cs_charging_profiles'||f.name==='local_authorization_list'){try{v=JSON.parse(v);}catch(e){}}body[f.name]=v;}); fo={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}; } else { fo={method:'GET'}; } }
+                const res=await fetch(url,fo), data=await res.json(), ok=data.success!==false&&res.ok;
+                document.getElementById('respStatus').innerHTML=`<span class="resp-pill ${ok?'ok':'err'}">${ok?'✅ Success':'❌ Failed'}</span>`;
+                document.getElementById('respBody').textContent=JSON.stringify(data,null,2);
+            } catch(err){ document.getElementById('respStatus').innerHTML='<span class="resp-pill err">❌ Error</span>'; document.getElementById('respBody').textContent=err.message||'Network error'; }
+            finally { btn.disabled=false; btn.textContent='⚡ Execute'; }
+        }
+
+        document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>selectOp(el.dataset.op)));
+        document.addEventListener('DOMContentLoaded', loadChargers);
+    </script>
+</body>
+</html>

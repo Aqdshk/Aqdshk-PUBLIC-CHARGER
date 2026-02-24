@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlagSini Support — Admin Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0A0A1A; --card:#12192B; --border:#1E2D42; --green:#00FF88; --cyan:#00E5FF; --text:#E8E8E8; --text2:#888; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Rajdhani',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+  .topbar {
+    background:var(--card); border-bottom:1px solid var(--border);
+    padding:14px 24px; display:flex; align-items:center; gap:12px;
+  }
+  .topbar h1 { font-size:18px; color:var(--green); letter-spacing:1px; }
+  .topbar .badge {
+    margin-left:auto; background:var(--green); color:#000;
+    padding:4px 12px; border-radius:12px; font-size:12px; font-weight:700;
+  }
+
+  .container { max-width:1200px; margin:0 auto; padding:20px; }
+
+  /* Stats Cards */
+  .stats {
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+    gap:12px; margin-bottom:24px;
+  }
+  .stat-card {
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:16px; text-align:center;
+  }
+  .stat-card .num { font-size:28px; font-weight:700; color:var(--green); }
+  .stat-card .label { font-size:12px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+  .stat-card.critical .num { color:#FF3333; }
+  .stat-card.high .num { color:#FF8800; }
+  .stat-card.medium .num { color:#FFD700; }
+
+  /* Filters */
+  .filters {
+    display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;
+  }
+  .filters select, .filters input {
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; color:var(--text); font-family:'Rajdhani',sans-serif;
+    font-size:13px; font-weight:500; outline:none;
+  }
+  .filters select:focus, .filters input:focus { border-color:var(--cyan); }
+  .filters button {
+    background:linear-gradient(135deg,var(--green),#00AA55);
+    border:none; border-radius:8px; padding:8px 16px;
+    color:#000; font-family:'Rajdhani',sans-serif; font-weight:700;
+    font-size:13px; cursor:pointer;
+  }
+  .refresh-btn {
+    margin-left:auto;
+    background:transparent !important;
+    border:1px solid var(--border) !important;
+    color:var(--text2) !important;
+    cursor:pointer;
+  }
+
+  /* Tickets Table */
+  .tickets-table {
+    width:100%; border-collapse:collapse;
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    overflow:hidden;
+  }
+  .tickets-table th {
+    background:rgba(0,229,255,0.05); padding:10px 14px;
+    font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:1px;
+    text-align:left; border-bottom:1px solid var(--border);
+  }
+  .tickets-table td {
+    padding:12px 14px; font-size:13px; border-bottom:1px solid rgba(30,45,66,0.5);
+    vertical-align:middle;
+  }
+  .tickets-table tr:hover td { background:rgba(0,229,255,0.03); }
+  .tickets-table tr { cursor:pointer; }
+
+  .badge-status {
+    padding:3px 8px; border-radius:8px; font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .badge-open { color:var(--cyan); border:1px solid var(--cyan); }
+  .badge-in_progress { color:#FFD700; border:1px solid #FFD700; }
+  .badge-waiting_user { color:#FF8800; border:1px solid #FF8800; }
+  .badge-resolved { color:var(--green); border:1px solid var(--green); }
+  .badge-closed { color:#666; border:1px solid #666; }
+
+  .badge-priority {
+    padding:2px 8px; border-radius:6px; font-size:10px; font-weight:700;
+    text-transform:uppercase;
+  }
+  .priority-critical { background:rgba(255,51,51,0.15); color:#FF3333; }
+  .priority-high { background:rgba(255,136,0,0.15); color:#FF8800; }
+  .priority-medium { background:rgba(255,215,0,0.15); color:#FFD700; }
+  .priority-low { background:rgba(0,204,102,0.15); color:#00CC66; }
+
+  /* Ticket Detail Panel */
+  .detail-panel {
+    display:none; position:fixed; right:0; top:0; bottom:0;
+    width:480px; background:var(--card); border-left:1px solid var(--border);
+    z-index:50; overflow-y:auto;
+    animation: slideIn 0.3s ease;
+  }
+  .detail-panel.show { display:block; }
+  @keyframes slideIn {
+    from { transform:translateX(100%); }
+    to { transform:translateX(0); }
+  }
+  .detail-header {
+    background:rgba(0,229,255,0.05); padding:16px 20px;
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .detail-header h3 { color:var(--green); font-size:15px; }
+  .close-btn {
+    background:transparent; border:1px solid var(--border); border-radius:8px;
+    color:var(--text2); padding:4px 10px; cursor:pointer;
+    font-family:'Rajdhani',sans-serif; font-size:13px;
+  }
+  .detail-body { padding:16px 20px; }
+  .detail-field { margin-bottom:12px; }
+  .detail-field label { font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; display:block; margin-bottom:4px; }
+  .detail-field .value { font-size:14px; font-weight:600; }
+
+  .messages-list { margin-top:16px; }
+  .msg-item {
+    padding:10px 12px; border-radius:8px; margin-bottom:8px;
+    border:1px solid var(--border);
+  }
+  .msg-item.user { background:rgba(0,255,136,0.04); border-color:rgba(0,255,136,0.15); }
+  .msg-item.admin { background:rgba(255,215,0,0.04); border-color:rgba(255,215,0,0.15); }
+  .msg-item.system { background:rgba(0,229,255,0.04); border-color:rgba(0,229,255,0.1); }
+  .msg-item .meta { display:flex; justify-content:space-between; margin-bottom:4px; }
+  .msg-item .meta .name { font-size:11px; font-weight:700; }
+  .msg-item .meta .time { font-size:10px; color:var(--text2); }
+  .msg-item .content { font-size:13px; line-height:1.5; }
+  .msg-item.system .content { font-style:italic; color:var(--text2); font-size:12px; }
+
+  /* Reply form */
+  .reply-form { margin-top:16px; padding:16px; background:var(--bg); border-radius:10px; border:1px solid var(--border); }
+  .reply-form textarea {
+    width:100%; background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:10px; color:var(--text); font-family:'Rajdhani',sans-serif;
+    font-size:13px; resize:vertical; min-height:60px; outline:none;
+  }
+  .reply-form textarea:focus { border-color:var(--cyan); }
+  .reply-actions { display:flex; gap:8px; margin-top:10px; }
+  .reply-actions button {
+    padding:8px 16px; border-radius:8px; font-family:'Rajdhani',sans-serif;
+    font-size:13px; font-weight:700; cursor:pointer; border:none;
+  }
+  .btn-reply { background:linear-gradient(135deg,var(--green),#00AA55); color:#000; }
+  .btn-resolve { background:transparent; border:1px solid var(--green) !important; color:var(--green); }
+  .btn-close-ticket { background:transparent; border:1px solid #666 !important; color:#666; }
+
+  .status-select {
+    background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    padding:6px 10px; color:var(--text); font-family:'Rajdhani',sans-serif;
+    font-size:12px; outline:none;
+  }
+
+  .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:40; }
+  .overlay.show { display:block; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span style="font-size:22px;">⚡</span>
+  <h1>PlagSini Support Admin</h1>
+  <span class="badge" id="openCount">0 Open</span>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats" id="statsCards"></div>
+
+  <!-- Filters -->
+  <div class="filters">
+    <select id="fStatus" onchange="loadTickets()">
+      <option value="">All Status</option>
+      <option value="open">Open</option>
+      <option value="in_progress">In Progress</option>
+      <option value="waiting_user">Waiting User</option>
+      <option value="resolved">Resolved</option>
+      <option value="closed">Closed</option>
+    </select>
+    <select id="fPriority" onchange="loadTickets()">
+      <option value="">All Priority</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <select id="fCategory" onchange="loadTickets()">
+      <option value="">All Category</option>
+      <option value="login_account">Login & Account</option>
+      <option value="charging">Charging</option>
+      <option value="wallet_payment">Wallet & Payment</option>
+      <option value="vehicle">Vehicle</option>
+      <option value="rewards">Rewards</option>
+      <option value="app_issue">App Issue</option>
+      <option value="general">General</option>
+    </select>
+    <button class="refresh-btn" onclick="refresh()">🔄 Refresh</button>
+  </div>
+
+  <!-- Tickets Table -->
+  <table class="tickets-table">
+    <thead>
+      <tr>
+        <th>Ticket</th>
+        <th>Subject</th>
+        <th>User</th>
+        <th>Category</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody id="ticketsBody"></tbody>
+  </table>
+</div>
+
+<!-- Overlay -->
+<div class="overlay" id="overlay" onclick="closeDetail()"></div>
+
+<!-- Detail Panel -->
+<div class="detail-panel" id="detailPanel">
+  <div class="detail-header">
+    <h3 id="detailTitle">Ticket</h3>
+    <button class="close-btn" onclick="closeDetail()">✕ Close</button>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+async function loadStats() {
+  try {
+    const res = await fetch(`${API}/api/tickets/stats`);
+    const data = await res.json();
+    if (!data.success) return;
+    const s = data.data;
+    
+    document.getElementById('openCount').textContent = `${s.by_status.open || 0} Open`;
+    
+    document.getElementById('statsCards').innerHTML = `
+      <div class="stat-card"><div class="num">${s.total_tickets}</div><div class="label">Total Tickets</div></div>
+      <div class="stat-card critical"><div class="num">${s.by_status.open || 0}</div><div class="label">Open</div></div>
+      <div class="stat-card high"><div class="num">${s.by_status.in_progress || 0}</div><div class="label">In Progress</div></div>
+      <div class="stat-card medium"><div class="num">${s.by_priority.high || 0}</div><div class="label">High Priority</div></div>
+      <div class="stat-card"><div class="num">${s.by_status.resolved || 0}</div><div class="label">Resolved</div></div>
+      <div class="stat-card"><div class="num">${s.bot_stats.total_conversations}</div><div class="label">Bot Chats</div></div>
+    `;
+  } catch(e) { console.error(e); }
+}
+
+async function loadTickets() {
+  const status = document.getElementById('fStatus').value;
+  const priority = document.getElementById('fPriority').value;
+  const category = document.getElementById('fCategory').value;
+  
+  let url = `${API}/api/tickets?limit=50`;
+  if (status) url += `&status=${status}`;
+  if (priority) url += `&priority=${priority}`;
+  if (category) url += `&category=${category}`;
+  
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    const body = document.getElementById('ticketsBody');
+    if (!data.success || data.data.tickets.length === 0) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text2); padding:30px;">No tickets found</td></tr>';
+      return;
+    }
+    
+    body.innerHTML = data.data.tickets.map(t => {
+      const date = new Date(t.created_at).toLocaleDateString('en-MY', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      return `
+        <tr onclick="openDetail(${t.id})">
+          <td style="color:var(--green); font-weight:700;">${t.ticket_number}</td>
+          <td>${t.subject}</td>
+          <td style="font-size:12px;">${t.user_email}<br><span style="color:var(--text2)">${t.user_name || ''}</span></td>
+          <td style="font-size:12px;">${t.category}</td>
+          <td><span class="badge-priority priority-${t.priority}">${t.priority}</span></td>
+          <td><span class="badge-status badge-${t.status}">${t.status.replace('_',' ')}</span></td>
+          <td style="font-size:12px; color:var(--text2);">${date}</td>
+        </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function openDetail(id) {
+  try {
+    const res = await fetch(`${API}/api/tickets/${id}`);
+    const data = await res.json();
+    if (!data.success) return;
+    
+    const t = data.data;
+    document.getElementById('detailTitle').textContent = `${t.ticket_number} — ${t.subject}`;
+    
+    const senderColors = { user:'var(--green)', admin:'#FFD700', system:'var(--cyan)', bot:'var(--cyan)' };
+    
+    let html = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+        <div class="detail-field"><label>Email</label><div class="value">${t.user_email}</div></div>
+        <div class="detail-field"><label>Name</label><div class="value">${t.user_name || '—'}</div></div>
+        <div class="detail-field"><label>Category</label><div class="value">${t.category}</div></div>
+        <div class="detail-field"><label>Priority</label><div class="value"><span class="badge-priority priority-${t.priority}">${t.priority}</span></div></div>
+        <div class="detail-field"><label>Status</label><div class="value">
+          <select class="status-select" id="statusSelect" onchange="changeStatus(${t.id}, this.value)">
+            <option value="open" ${t.status==='open'?'selected':''}>Open</option>
+            <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+            <option value="waiting_user" ${t.status==='waiting_user'?'selected':''}>Waiting User</option>
+            <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
+            <option value="closed" ${t.status==='closed'?'selected':''}>Closed</option>
+          </select>
+        </div></div>
+        <div class="detail-field"><label>Source</label><div class="value">${t.source}</div></div>
+      </div>
+
+      <div class="detail-field">
+        <label>Description</label>
+        <div style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px; font-size:13px; line-height:1.5;">
+          ${t.description}
+        </div>
+      </div>
+
+      <div class="messages-list">
+        <label style="font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; display:block;">
+          Messages (${t.messages.length})
+        </label>
+        ${t.messages.map(m => {
+          const date = new Date(m.created_at).toLocaleString('en-MY');
+          return `
+            <div class="msg-item ${m.sender_type}">
+              <div class="meta">
+                <span class="name" style="color:${senderColors[m.sender_type] || 'var(--text)'}">${m.sender_name || m.sender_type}</span>
+                <span class="time">${date}</span>
+              </div>
+              <div class="content">${m.message}</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="reply-form">
+        <textarea id="replyText" placeholder="Type your reply to the customer..."></textarea>
+        <div class="reply-actions">
+          <button class="btn-reply" onclick="sendReply(${t.id})">Send Reply</button>
+          <button class="btn-resolve" onclick="resolveTicket(${t.id})">✓ Resolve</button>
+          <button class="btn-close-ticket" onclick="closeTicket(${t.id})">Close Ticket</button>
+        </div>
+      </div>
+    `;
+    
+    document.getElementById('detailBody').innerHTML = html;
+    document.getElementById('detailPanel').classList.add('show');
+    document.getElementById('overlay').classList.add('show');
+  } catch(e) { console.error(e); }
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('show');
+  document.getElementById('overlay').classList.remove('show');
+}
+
+async function sendReply(ticketId) {
+  const text = document.getElementById('replyText').value.trim();
+  if (!text) return;
+  
+  await fetch(`${API}/api/tickets/${ticketId}/reply`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ message: text, sender_type:'admin', sender_name:'Support Team' })
+  });
+  
+  openDetail(ticketId);
+  loadTickets();
+}
+
+async function changeStatus(ticketId, newStatus) {
+  await fetch(`${API}/api/tickets/${ticketId}/status`, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status: newStatus })
+  });
+  loadTickets();
+  loadStats();
+}
+
+async function resolveTicket(ticketId) {
+  const msg = document.getElementById('replyText').value.trim() || 'Issue resolved. Thank you for contacting PlagSini support!';
+  await fetch(`${API}/api/tickets/${ticketId}/status`, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status:'resolved', admin_message: msg })
+  });
+  openDetail(ticketId);
+  loadTickets();
+  loadStats();
+}
+
+async function closeTicket(ticketId) {
+  await fetch(`${API}/api/tickets/${ticketId}/status`, {
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status:'closed', admin_message:'Ticket closed.' })
+  });
+  closeDetail();
+  loadTickets();
+  loadStats();
+}
+
+function refresh() {
+  loadStats();
+  loadTickets();
+}
+
+// Init
+loadStats();
+loadTickets();
+setInterval(refresh, 30000); // Auto refresh every 30s
+</script>
+</body>
+</html>

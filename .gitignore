@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.env
+.venv/
+venv/
+
+# Database (runtime artifacts)
+*.db
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+docker-compose.override.yml
+
+# Flutter / Dart
+AppEV/.dart_tool/
+AppEV/.packages
+AppEV/build/
+AppEV/.flutter-plugins
+AppEV/.flutter-plugins-dependencies
+AppEV/android/.gradle/
+AppEV/android/local.properties
+
+# ESP / PlatformIO
+ESP-Charger-RND/.pio/
+ESP-Charger-RND/.vscode/
+
+# Logs
+*.log

@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlagSini — Staff Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{
+            --bg:#060a10;--surface:rgba(12,18,30,.85);--card:rgba(15,22,38,.92);
+            --border:rgba(0,230,118,.08);--border-hover:rgba(0,230,118,.25);
+            --accent:#00e676;--accent-glow:rgba(0,230,118,.15);--accent-soft:rgba(0,230,118,.06);
+            --cyan:#00bcd4;--purple:#7c4dff;--pink:#ff4081;--amber:#ffab00;--blue:#448aff;
+            --text:#e8ecf4;--text-sec:#8892a4;--text-muted:#4a5568;
+            --red:#ff5252;--radius:14px;--radius-lg:20px;
+        }
+
+        html,body{height:100%}
+        body{
+            font-family:'Inter',system-ui,-apple-system,sans-serif;
+            background:var(--bg);color:var(--text);font-size:14px;
+            -webkit-font-smoothing:antialiased;overflow:hidden;
+        }
+
+        /* ═══ FULL-SCREEN LAYOUT ═══ */
+        .page{display:flex;height:100vh;width:100vw}
+
+        /* ═══ LEFT: HERO PANEL ═══ */
+        .hero{
+            flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;
+            position:relative;overflow:hidden;padding:60px;
+        }
+        .hero::before{
+            content:'';position:absolute;inset:0;
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 80%, rgba(0,230,118,.06) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,188,212,.05) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 40% at 50% 50%, rgba(124,77,255,.03) 0%, transparent 60%);
+        }
+
+        /* Animated grid background */
+        .grid-bg{
+            position:absolute;inset:0;
+            background-image:
+                linear-gradient(rgba(0,230,118,.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,230,118,.03) 1px, transparent 1px);
+            background-size:40px 40px;
+            animation:gridDrift 30s linear infinite;
+            mask-image:radial-gradient(ellipse 70% 70% at center, black 30%, transparent 80%);
+        }
+        @keyframes gridDrift{to{transform:translate(40px,40px)}}
+
+        /* Floating orbs */
+        .orb{position:absolute;border-radius:50%;filter:blur(80px);pointer-events:none;opacity:.12}
+        .orb-1{width:400px;height:400px;background:var(--accent);top:-100px;left:-100px;animation:orbFloat1 12s ease-in-out infinite}
+        .orb-2{width:300px;height:300px;background:var(--cyan);bottom:-80px;right:-80px;animation:orbFloat2 15s ease-in-out infinite}
+        .orb-3{width:200px;height:200px;background:var(--purple);top:50%;left:60%;animation:orbFloat3 10s ease-in-out infinite}
+        @keyframes orbFloat1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(40px,50px) scale(1.1)}}
+        @keyframes orbFloat2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-30px,-40px) scale(1.05)}}
+        @keyframes orbFloat3{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-20px,30px) scale(.9)}}
+
+        /* Particles */
+        .particles{position:absolute;inset:0;overflow:hidden}
+        .particle{
+            position:absolute;width:3px;height:3px;background:var(--accent);
+            border-radius:50%;opacity:0;animation:particleRise linear infinite;
+        }
+
+        @keyframes particleRise{
+            0%{opacity:0;transform:translateY(100vh) scale(0)}
+            10%{opacity:.6}
+            90%{opacity:.3}
+            100%{opacity:0;transform:translateY(-20vh) scale(1)}
+        }
+
+        .hero-content{position:relative;z-index:5;text-align:center;max-width:480px}
+
+        /* Animated EV icon */
+        .ev-icon{
+            font-size:80px;margin-bottom:20px;display:inline-block;
+            animation:evBounce 3s ease-in-out infinite;
+            filter:drop-shadow(0 0 30px rgba(0,230,118,.3));
+        }
+        @keyframes evBounce{
+            0%,100%{transform:translateY(0) rotate(0deg)}
+            25%{transform:translateY(-8px) rotate(-2deg)}
+            75%{transform:translateY(-4px) rotate(1deg)}
+        }
+
+        /* Charging animation ring */
+        .charge-ring{
+            position:relative;display:inline-block;padding:30px;margin-bottom:24px;
+        }
+        .charge-ring::before{
+            content:'';position:absolute;inset:0;border-radius:50%;
+            border:2px solid transparent;
+            border-top-color:var(--accent);border-right-color:var(--cyan);
+            animation:ringRotate 3s linear infinite;
+        }
+        .charge-ring::after{
+            content:'';position:absolute;inset:6px;border-radius:50%;
+            border:1px solid transparent;
+            border-bottom-color:var(--purple);border-left-color:var(--accent);
+            animation:ringRotate 5s linear infinite reverse;
+        }
+        @keyframes ringRotate{to{transform:rotate(360deg)}}
+
+        .hero h2{
+            font-family:'Space Grotesk',sans-serif;font-size:36px;font-weight:800;
+            background:linear-gradient(135deg, var(--accent) 0%, var(--cyan) 50%, var(--purple) 100%);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            background-clip:text;margin-bottom:12px;line-height:1.2;
+        }
+        .hero p{color:var(--text-sec);font-size:15px;line-height:1.6;margin-bottom:32px}
+
+        /* Stats bar */
+        .stats-bar{
+            display:flex;gap:20px;justify-content:center;flex-wrap:wrap;
+        }
+        .stat-item{
+            background:rgba(0,230,118,.04);border:1px solid rgba(0,230,118,.08);
+            border-radius:12px;padding:14px 20px;text-align:center;min-width:100px;
+            transition:all .3s ease;
+        }
+        .stat-item:hover{
+            border-color:rgba(0,230,118,.2);transform:translateY(-2px);
+            box-shadow:0 8px 24px rgba(0,230,118,.08);
+        }
+        .stat-value{
+            font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:800;
+            color:var(--accent);display:block;
+        }
+        .stat-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+
+        /* ═══ EV SCENE ═══ */
+        .ev-scene{
+            position:relative;width:100%;max-width:520px;height:260px;
+            margin:0 auto 36px;
+        }
+        .ev-scene svg{width:100%;height:100%;overflow:visible}
+
+        /* Car body glow */
+        .car-glow{
+            animation:carGlow 3s ease-in-out infinite;
+        }
+        @keyframes carGlow{
+            0%,100%{filter:drop-shadow(0 0 8px rgba(0,230,118,.15))}
+            50%{filter:drop-shadow(0 0 20px rgba(0,230,118,.3))}
+        }
+
+        /* Charging cable pulse */
+        .cable-pulse{animation:cablePulse 1.5s ease-in-out infinite}
+        @keyframes cablePulse{
+            0%,100%{stroke-dashoffset:0;opacity:.6}
+            50%{stroke-dashoffset:12;opacity:1}
+        }
+
+        /* Electricity sparks */
+        .spark{animation:sparkle 1.2s ease-in-out infinite}
+        .spark:nth-child(2){animation-delay:.3s}
+        .spark:nth-child(3){animation-delay:.6s}
+        @keyframes sparkle{
+            0%,100%{opacity:0;transform:scale(.5)}
+            50%{opacity:1;transform:scale(1.2)}
+        }
+
+        /* Charger screen blink */
+        .charger-screen{animation:screenBlink 2s ease-in-out infinite}
+        @keyframes screenBlink{
+            0%,90%,100%{fill:rgba(0,230,118,.8)}
+            95%{fill:rgba(0,230,118,.3)}
+        }
+
+        /* Wheel spin */
+        .wheel-spin{animation:wheelSpin 4s linear infinite}
+        @keyframes wheelSpin{to{transform-origin:center;transform:rotate(360deg)}}
+
+        /* Car hover float */
+        .car-float{animation:carFloat 4s ease-in-out infinite}
+        @keyframes carFloat{
+            0%,100%{transform:translateY(0)}
+            50%{transform:translateY(-4px)}
+        }
+
+        /* Ground reflection */
+        .ground-line{
+            animation:groundPulse 3s ease-in-out infinite;
+        }
+        @keyframes groundPulse{
+            0%,100%{opacity:.2}
+            50%{opacity:.5}
+        }
+
+        /* Energy flow dots */
+        .energy-dot{animation:energyFlow 1.8s linear infinite}
+        .energy-dot:nth-child(2){animation-delay:.6s}
+        .energy-dot:nth-child(3){animation-delay:1.2s}
+        @keyframes energyFlow{
+            0%{offset-distance:0%;opacity:0}
+            10%{opacity:1}
+            90%{opacity:1}
+            100%{offset-distance:100%;opacity:0}
+        }
+
+        /* Charger LED */
+        .charger-led{animation:ledBlink 1s ease-in-out infinite}
+        @keyframes ledBlink{0%,100%{fill:#00e676;filter:drop-shadow(0 0 4px #00e676)}50%{fill:#00c853;filter:drop-shadow(0 0 8px #00e676)}}
+
+        /* Battery fill animation */
+        .battery-fill{animation:batteryCharge 3s ease-in-out infinite}
+        @keyframes batteryCharge{
+            0%{width:20%}
+            50%{width:85%}
+            100%{width:20%}
+        }
+
+        /* ═══ RIGHT: LOGIN PANEL ═══ */
+        .login-panel{
+            width:480px;display:flex;flex-direction:column;justify-content:center;
+            padding:60px;position:relative;
+            background:linear-gradient(180deg, rgba(10,15,25,.98) 0%, rgba(8,12,20,.99) 100%);
+            border-left:1px solid rgba(0,230,118,.06);
+        }
+        .login-panel::before{
+            content:'';position:absolute;top:0;left:0;width:1px;height:100%;
+            background:linear-gradient(180deg, transparent 0%, var(--accent) 50%, transparent 100%);
+            opacity:.3;
+        }
+
+        /* Greeting */
+        .greeting{margin-bottom:32px}
+        .greeting-emoji{font-size:36px;margin-bottom:8px;display:inline-block;animation:wave 2s ease-in-out infinite}
+        @keyframes wave{0%,100%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-8deg)}45%{transform:rotate(10deg)}60%{transform:rotate(0)}}
+        .greeting h1{
+            font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;
+            color:var(--text);margin-bottom:6px;
+        }
+        .greeting p{color:var(--text-muted);font-size:13px}
+
+        /* Motivational quote */
+        .quote-box{
+            background:linear-gradient(135deg, rgba(0,230,118,.04), rgba(0,188,212,.03));
+            border:1px solid rgba(0,230,118,.06);border-radius:12px;
+            padding:14px 18px;margin-bottom:28px;position:relative;overflow:hidden;
+        }
+        .quote-box::before{
+            content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+            background:linear-gradient(180deg, var(--accent), var(--cyan));border-radius:3px;
+        }
+        .quote-text{font-size:12px;color:var(--text-sec);font-style:italic;line-height:1.5;padding-left:6px}
+        .quote-author{font-size:10px;color:var(--text-muted);margin-top:4px;padding-left:6px}
+
+        /* Error box */
+        .login-err{
+            background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.15);
+            color:#ff8a80;border-radius:var(--radius);padding:12px 16px;font-size:12px;
+            margin-bottom:16px;display:none;animation:shake .4s ease;
+            backdrop-filter:blur(8px);
+        }
+        @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+
+        /* Form groups */
+        .fg{margin-bottom:18px;position:relative}
+        .fg label{
+            display:flex;align-items:center;gap:6px;
+            font-size:11px;color:var(--text-muted);text-transform:uppercase;
+            letter-spacing:.8px;margin-bottom:8px;font-weight:600;
+        }
+        .fg label .label-icon{font-size:12px;opacity:.7}
+        .input-wrap{position:relative}
+        .input-wrap .field-icon{
+            position:absolute;left:14px;top:50%;transform:translateY(-50%);
+            font-size:16px;opacity:.4;transition:opacity .3s;pointer-events:none;
+        }
+        .fg input{
+            width:100%;background:rgba(20,28,45,.8);
+            border:1px solid var(--border);border-radius:var(--radius);
+            padding:14px 14px 14px 44px;color:var(--text);font-size:14px;
+            outline:none;transition:all .3s ease;font-family:'Inter',sans-serif;
+        }
+        .fg input::placeholder{color:var(--text-muted);font-size:13px}
+        .fg input:focus{
+            border-color:var(--accent);
+            box-shadow:0 0 0 3px rgba(0,230,118,.06), 0 4px 16px rgba(0,0,0,.2);
+            background:rgba(20,28,45,1);
+        }
+        .fg input:focus ~ .field-icon{opacity:.8}
+
+        /* Password toggle */
+        .pw-toggle{
+            position:absolute;right:14px;top:50%;transform:translateY(-50%);
+            background:none;border:none;color:var(--text-muted);cursor:pointer;
+            font-size:16px;padding:4px;transition:color .2s;
+        }
+        .pw-toggle:hover{color:var(--text)}
+
+        /* Remember me */
+        .extras{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+        .remember{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-sec)}
+        .remember input[type="checkbox"]{
+            appearance:none;width:16px;height:16px;border:1.5px solid var(--border);
+            border-radius:4px;background:transparent;cursor:pointer;position:relative;
+            transition:all .2s;
+        }
+        .remember input[type="checkbox"]:checked{
+            background:var(--accent);border-color:var(--accent);
+        }
+        .remember input[type="checkbox"]:checked::after{
+            content:'✓';position:absolute;inset:0;display:flex;align-items:center;
+            justify-content:center;color:#000;font-size:10px;font-weight:900;
+        }
+
+        /* Login button */
+        .btn-login{
+            width:100%;padding:15px;border:none;border-radius:var(--radius);
+            font-size:14px;font-weight:700;letter-spacing:1.5px;cursor:pointer;
+            text-transform:uppercase;position:relative;overflow:hidden;
+            background:linear-gradient(135deg, var(--accent), #00c853);
+            color:#000;transition:all .3s ease;
+            box-shadow:0 4px 20px rgba(0,230,118,.2);
+            text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;
+        }
+        .btn-login::before{
+            content:'';position:absolute;inset:0;
+            background:linear-gradient(135deg, transparent 30%, rgba(255,255,255,.15) 50%, transparent 70%);
+            transform:translateX(-100%);transition:transform .6s;
+        }
+        .btn-login:hover{
+            transform:translateY(-2px);
+            box-shadow:0 8px 30px rgba(0,230,118,.3);
+        }
+        .btn-login:hover::before{transform:translateX(100%)}
+        .btn-login:active{transform:translateY(0);box-shadow:0 2px 10px rgba(0,230,118,.2)}
+        .btn-login:disabled{opacity:.5;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+        .btn-login .spinner{
+            display:inline-block;width:16px;height:16px;
+            border:2.5px solid rgba(0,0,0,.2);border-top-color:#000;
+            border-radius:50%;animation:spin .6s linear infinite;
+            vertical-align:middle;margin-right:8px;
+        }
+        @keyframes spin{to{transform:rotate(360deg)}}
+
+        .btn-login.success{
+            background:linear-gradient(135deg, var(--accent), #69f0ae)!important;
+            box-shadow:0 0 40px rgba(0,230,118,.4)!important;
+        }
+
+        /* Divider */
+        .divider{
+            display:flex;align-items:center;gap:12px;margin:20px 0;
+        }
+        .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+        .divider span{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px}
+
+        /* Version & branding */
+        .login-footer{text-align:center;margin-top:32px}
+        .login-footer p{font-size:10px;color:var(--text-muted);line-height:1.6}
+        .footer-badge{
+            display:inline-flex;align-items:center;gap:4px;
+            background:rgba(0,230,118,.04);border:1px solid rgba(0,230,118,.08);
+            border-radius:20px;padding:4px 12px;font-size:9px;color:var(--accent);
+            font-weight:600;letter-spacing:.5px;margin-top:8px;
+        }
+        .footer-badge .dot{width:5px;height:5px;background:var(--accent);border-radius:50%;animation:blink 2s infinite}
+        @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+        /* ═══ RESPONSIVE ═══ */
+        @media(max-width:960px){
+            .page{flex-direction:column}
+            .hero{display:none}
+            .login-panel{width:100%;border-left:none;padding:40px 24px}
+        }
+        @media(max-width:480px){
+            .login-panel{padding:30px 20px}
+            .greeting h1{font-size:22px}
+        }
+
+        /* ═══ SUCCESS ANIMATION ═══ */
+        .confetti-container{position:fixed;inset:0;pointer-events:none;z-index:999}
+        .confetti{
+            position:absolute;width:8px;height:8px;opacity:0;
+            animation:confettiFall 1.5s ease-out forwards;
+        }
+        @keyframes confettiFall{
+            0%{opacity:1;transform:translateY(-20px) rotate(0deg) scale(1)}
+            100%{opacity:0;transform:translateY(100vh) rotate(720deg) scale(0)}
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <!-- ═══ LEFT HERO ═══ -->
+        <div class="hero">
+            <div class="grid-bg"></div>
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+            <div class="particles" id="particles"></div>
+
+            <div class="hero-content">
+                <!-- ═══ EV + CHARGER SCENE ═══ -->
+                <div class="ev-scene">
+                    <svg viewBox="0 0 520 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <!-- Car body gradient -->
+                            <linearGradient id="carBody" x1="50" y1="80" x2="50" y2="200" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#1e3a5f"/>
+                                <stop offset="50%" stop-color="#152a45"/>
+                                <stop offset="100%" stop-color="#0d1b2e"/>
+                            </linearGradient>
+                            <!-- Window gradient -->
+                            <linearGradient id="windowGrad" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stop-color="#1a3a5c" stop-opacity=".9"/>
+                                <stop offset="100%" stop-color="#0d2035" stop-opacity=".95"/>
+                            </linearGradient>
+                            <!-- Charger gradient -->
+                            <linearGradient id="chargerBody" x1="420" y1="60" x2="420" y2="220" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#1a2940"/>
+                                <stop offset="100%" stop-color="#0f1a2a"/>
+                            </linearGradient>
+                            <!-- Ground gradient -->
+                            <linearGradient id="groundGrad" x1="0" y1="230" x2="520" y2="230" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="transparent"/>
+                                <stop offset="30%" stop-color="rgba(0,230,118,.15)"/>
+                                <stop offset="70%" stop-color="rgba(0,230,118,.15)"/>
+                                <stop offset="100%" stop-color="transparent"/>
+                            </linearGradient>
+                            <!-- Cable gradient -->
+                            <linearGradient id="cableGrad" x1="310" y1="155" x2="395" y2="155" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#00e676"/>
+                                <stop offset="100%" stop-color="#00bcd4"/>
+                            </linearGradient>
+                            <!-- Glow filter -->
+                            <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
+                                <feGaussianBlur stdDeviation="3" result="blur"/>
+                                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                            </filter>
+                            <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+                                <feGaussianBlur stdDeviation="6" result="blur"/>
+                                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                            </filter>
+                            <!-- Energy flow path -->
+                            <path id="cablePath" d="M 310 158 Q 340 148, 360 152 Q 380 156, 395 145"/>
+                        </defs>
+
+                        <!-- ═══ GROUND ═══ -->
+                        <line x1="20" y1="228" x2="500" y2="228" stroke="url(#groundGrad)" stroke-width="1" class="ground-line"/>
+                        <ellipse cx="180" cy="230" rx="130" ry="6" fill="rgba(0,230,118,.03)" class="ground-line"/>
+                        <ellipse cx="430" cy="230" rx="50" ry="4" fill="rgba(0,188,212,.03)" class="ground-line"/>
+
+                        <!-- ═══ CHARGER STATION ═══ -->
+                        <g transform="translate(380, 68)">
+                            <!-- Base -->
+                            <rect x="15" y="145" width="70" height="15" rx="3" fill="#0a1220" stroke="rgba(0,230,118,.15)" stroke-width=".5"/>
+                            <!-- Body -->
+                            <rect x="20" y="20" width="60" height="125" rx="8" fill="url(#chargerBody)" stroke="rgba(0,230,118,.12)" stroke-width="1"/>
+                            <!-- Screen -->
+                            <rect x="30" y="32" width="40" height="28" rx="4" class="charger-screen" fill="rgba(0,230,118,.8)" opacity=".15"/>
+                            <!-- Screen content - battery icon -->
+                            <rect x="38" y="39" width="24" height="12" rx="2" fill="none" stroke="#00e676" stroke-width="1" opacity=".7"/>
+                            <rect x="62" y="42" width="3" height="6" rx="1" fill="#00e676" opacity=".5"/>
+                            <!-- Battery fill level (animated via JS) -->
+                            <rect x="40" y="41" width="14" height="8" rx="1" fill="#00e676" opacity=".6">
+                                <animate attributeName="width" values="4;20;4" dur="3s" repeatCount="indefinite"/>
+                            </rect>
+                            <!-- Charging indicator text -->
+                            <text x="50" y="75" text-anchor="middle" fill="#00e676" font-size="7" font-family="Space Grotesk,sans-serif" font-weight="700" opacity=".8">CHARGING</text>
+                            <!-- Power display -->
+                            <text x="50" y="88" text-anchor="middle" fill="#00bcd4" font-size="9" font-family="Space Grotesk,sans-serif" font-weight="800" opacity=".7">
+                                22 kW
+                                <animate attributeName="opacity" values=".5;.9;.5" dur="2s" repeatCount="indefinite"/>
+                            </text>
+                            <!-- LED indicator -->
+                            <circle cx="50" cy="102" r="3" class="charger-led"/>
+                            <!-- Cable socket -->
+                            <rect x="25" y="115" width="14" height="8" rx="2" fill="#0d1f35" stroke="rgba(0,230,118,.2)" stroke-width=".5"/>
+                            <circle cx="30" cy="119" r="1.5" fill="#00e676" opacity=".4"/>
+                            <circle cx="35" cy="119" r="1.5" fill="#00e676" opacity=".4"/>
+                            <!-- PlagSini branding on charger -->
+                            <text x="50" y="140" text-anchor="middle" fill="rgba(0,230,118,.3)" font-size="5" font-family="Space Grotesk,sans-serif" font-weight="700" letter-spacing="1">PLAGSINI</text>
+                        </g>
+
+                        <!-- ═══ CHARGING CABLE ═══ -->
+                        <path d="M 310 158 Q 340 148, 360 152 Q 380 156, 395 145"
+                              stroke="url(#cableGrad)" stroke-width="3" fill="none"
+                              stroke-linecap="round" stroke-dasharray="6 6"
+                              class="cable-pulse" filter="url(#neonGlow)"/>
+                        <!-- Cable connector at car end -->
+                        <circle cx="310" cy="158" r="4" fill="#0d1f35" stroke="#00e676" stroke-width="1.5"/>
+                        <circle cx="310" cy="158" r="1.5" fill="#00e676" opacity=".8"/>
+
+                        <!-- Energy flow dots along cable -->
+                        <circle r="2.5" fill="#00e676" filter="url(#neonGlow)">
+                            <animateMotion dur="1.2s" repeatCount="indefinite">
+                                <mpath href="#cablePath"/>
+                            </animateMotion>
+                            <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite"/>
+                        </circle>
+                        <circle r="2" fill="#00bcd4" filter="url(#neonGlow)">
+                            <animateMotion dur="1.2s" repeatCount="indefinite" begin=".4s">
+                                <mpath href="#cablePath"/>
+                            </animateMotion>
+                            <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" begin=".4s"/>
+                        </circle>
+                        <circle r="1.5" fill="#7c4dff" filter="url(#neonGlow)">
+                            <animateMotion dur="1.2s" repeatCount="indefinite" begin=".8s">
+                                <mpath href="#cablePath"/>
+                            </animateMotion>
+                            <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" begin=".8s"/>
+                        </circle>
+
+                        <!-- ═══ EV CAR ═══ -->
+                        <g class="car-float car-glow">
+                            <!-- Car shadow -->
+                            <ellipse cx="175" cy="228" rx="110" ry="5" fill="rgba(0,0,0,.3)"/>
+
+                            <!-- Car body -->
+                            <path d="
+                                M 60 195
+                                L 55 180
+                                Q 52 170, 60 162
+                                L 95 155
+                                Q 105 150, 115 130
+                                Q 120 120, 135 115
+                                L 210 112
+                                Q 230 112, 240 120
+                                Q 255 135, 260 150
+                                L 290 158
+                                Q 300 162, 300 172
+                                L 305 185
+                                L 305 195
+                                Q 305 205, 295 208
+                                L 60 208
+                                Q 52 205, 55 195
+                                Z
+                            " fill="url(#carBody)" stroke="rgba(0,230,118,.2)" stroke-width=".8"/>
+
+                            <!-- Hood line -->
+                            <line x1="70" y1="168" x2="108" y2="157" stroke="rgba(0,230,118,.08)" stroke-width=".5"/>
+
+                            <!-- Door line -->
+                            <line x1="175" y1="125" x2="175" y2="200" stroke="rgba(0,230,118,.06)" stroke-width=".5"/>
+
+                            <!-- Door handle -->
+                            <rect x="168" y="160" width="14" height="3" rx="1.5" fill="rgba(0,230,118,.15)"/>
+
+                            <!-- Front windshield -->
+                            <path d="M 118 152 L 132 118 Q 135 113, 142 113 L 170 113 L 170 148 Z"
+                                  fill="url(#windowGrad)" stroke="rgba(100,160,220,.15)" stroke-width=".5"/>
+
+                            <!-- Rear window -->
+                            <path d="M 180 148 L 180 113 L 215 113 Q 222 113, 225 118 L 248 148 Z"
+                                  fill="url(#windowGrad)" stroke="rgba(100,160,220,.15)" stroke-width=".5"/>
+
+                            <!-- Window pillar -->
+                            <line x1="175" y1="113" x2="175" y2="150" stroke="#0d1b2e" stroke-width="3"/>
+
+                            <!-- Headlight -->
+                            <ellipse cx="62" cy="175" rx="6" ry="8" fill="#1a3050" stroke="rgba(255,255,255,.1)" stroke-width=".5"/>
+                            <ellipse cx="62" cy="175" rx="3" ry="5" fill="rgba(255,220,100,.6)" filter="url(#softGlow)">
+                                <animate attributeName="opacity" values=".4;.8;.4" dur="2s" repeatCount="indefinite"/>
+                            </ellipse>
+
+                            <!-- Taillight -->
+                            <rect x="297" y="170" width="5" height="14" rx="2" fill="#ff1744" opacity=".7"/>
+                            <rect x="297" y="170" width="5" height="14" rx="2" fill="#ff1744" opacity=".3" filter="url(#softGlow)">
+                                <animate attributeName="opacity" values=".2;.5;.2" dur="1.5s" repeatCount="indefinite"/>
+                            </rect>
+
+                            <!-- Charging port (glowing) -->
+                            <circle cx="300" cy="158" r="4" fill="#0a1525" stroke="#00e676" stroke-width="1.2"/>
+                            <circle cx="300" cy="158" r="2" fill="#00e676" opacity=".7" filter="url(#neonGlow)">
+                                <animate attributeName="opacity" values=".4;1;.4" dur="1s" repeatCount="indefinite"/>
+                            </circle>
+
+                            <!-- Front wheel -->
+                            <g>
+                                <circle cx="110" cy="210" r="20" fill="#0a0f18" stroke="rgba(60,80,100,.4)" stroke-width="1.5"/>
+                                <circle cx="110" cy="210" r="16" fill="#111820" stroke="rgba(80,100,120,.3)" stroke-width="1"/>
+                                <circle cx="110" cy="210" r="12" fill="#0d1520"/>
+                                <!-- Rim spokes -->
+                                <g opacity=".3">
+                                    <line x1="110" y1="198" x2="110" y2="222" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 110 210" to="360 110 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="98" y1="210" x2="122" y2="210" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 110 210" to="360 110 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="101" y1="201" x2="119" y2="219" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 110 210" to="360 110 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="101" y1="219" x2="119" y2="201" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 110 210" to="360 110 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                </g>
+                                <!-- Hub cap -->
+                                <circle cx="110" cy="210" r="4" fill="#1a2535" stroke="rgba(0,230,118,.15)" stroke-width=".5"/>
+                                <circle cx="110" cy="210" r="1.5" fill="rgba(0,230,118,.3)"/>
+                            </g>
+
+                            <!-- Rear wheel -->
+                            <g>
+                                <circle cx="255" cy="210" r="20" fill="#0a0f18" stroke="rgba(60,80,100,.4)" stroke-width="1.5"/>
+                                <circle cx="255" cy="210" r="16" fill="#111820" stroke="rgba(80,100,120,.3)" stroke-width="1"/>
+                                <circle cx="255" cy="210" r="12" fill="#0d1520"/>
+                                <g opacity=".3">
+                                    <line x1="255" y1="198" x2="255" y2="222" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 255 210" to="360 255 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="243" y1="210" x2="267" y2="210" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 255 210" to="360 255 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="246" y1="201" x2="264" y2="219" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 255 210" to="360 255 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                    <line x1="246" y1="219" x2="264" y2="201" stroke="#4a6080" stroke-width=".8">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 255 210" to="360 255 210" dur="4s" repeatCount="indefinite"/>
+                                    </line>
+                                </g>
+                                <circle cx="255" cy="210" r="4" fill="#1a2535" stroke="rgba(0,230,118,.15)" stroke-width=".5"/>
+                                <circle cx="255" cy="210" r="1.5" fill="rgba(0,230,118,.3)"/>
+                            </g>
+                        </g>
+
+                        <!-- ═══ ELECTRICITY SPARKS ═══ -->
+                        <g filter="url(#neonGlow)">
+                            <!-- Spark 1 -->
+                            <path d="M 345 140 L 348 135 L 344 137 L 347 131" stroke="#00e676" stroke-width="1.2" fill="none" stroke-linecap="round" class="spark">
+                                <animate attributeName="opacity" values="0;1;0" dur="1s" repeatCount="indefinite"/>
+                            </path>
+                            <!-- Spark 2 -->
+                            <path d="M 355 160 L 358 155 L 354 157 L 357 151" stroke="#00bcd4" stroke-width="1" fill="none" stroke-linecap="round" class="spark">
+                                <animate attributeName="opacity" values="0;1;0" dur="1.3s" repeatCount="indefinite" begin=".4s"/>
+                            </path>
+                            <!-- Spark 3 -->
+                            <path d="M 340 150 L 342 144 L 339 147 L 341 141" stroke="#7c4dff" stroke-width=".8" fill="none" stroke-linecap="round" class="spark">
+                                <animate attributeName="opacity" values="0;1;0" dur="1.1s" repeatCount="indefinite" begin=".7s"/>
+                            </path>
+                        </g>
+
+                        <!-- ═══ TINY BOLT ICON above car ═══ -->
+                        <g opacity=".4">
+                            <text x="180" y="96" text-anchor="middle" fill="#00e676" font-size="16" filter="url(#softGlow)">⚡</text>
+                            <animate attributeName="opacity" values=".2;.6;.2" dur="2s" repeatCount="indefinite"/>
+                        </g>
+                    </svg>
+                </div>
+
+                <h2>Powering Malaysia's<br>EV Future</h2>
+                <p>Monitor chargers, manage users, track revenue, and keep our charging network running at peak performance.</p>
+
+                <div class="stats-bar">
+                    <div class="stat-item">
+                        <span class="stat-value" id="statChargers">—</span>
+                        <span class="stat-label">Chargers</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="statUsers">—</span>
+                        <span class="stat-label">Users</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="statSessions">—</span>
+                        <span class="stat-label">Sessions</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="statUptime">99.9%</span>
+                        <span class="stat-label">Uptime</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ RIGHT LOGIN ═══ -->
+        <div class="login-panel">
+            <div class="greeting">
+                <div class="greeting-emoji" id="greetEmoji">👋</div>
+                <h1 id="greetText">Good morning!</h1>
+                <p id="greetSub">Ready to power up the day?</p>
+            </div>
+
+            <div class="quote-box" id="quoteBox">
+                <div class="quote-text" id="quoteText">"The future is electric."</div>
+                <div class="quote-author" id="quoteAuthor">— PlagSini Team</div>
+            </div>
+
+            <div class="login-err" id="loginError"></div>
+
+            <div class="fg">
+                <label><span class="label-icon">📧</span> Email Address</label>
+                <div class="input-wrap">
+                    <span class="field-icon">👤</span>
+                    <input type="email" id="loginEmail" placeholder="you@plagsini.com" autocomplete="email"
+                           onkeyup="if(event.key==='Enter')document.getElementById('loginPassword').focus()">
+                </div>
+            </div>
+
+            <div class="fg">
+                <label><span class="label-icon">🔐</span> Password</label>
+                <div class="input-wrap">
+                    <span class="field-icon">🔑</span>
+                    <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password"
+                           onkeyup="if(event.key==='Enter')doLogin()">
+                    <button class="pw-toggle" onclick="togglePassword()" title="Show/Hide password">
+                        <span id="pwEye">👁️</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="extras">
+                <label class="remember">
+                    <input type="checkbox" id="rememberMe" checked>
+                    Remember me
+                </label>
+            </div>
+
+            <button class="btn-login" id="loginBtn" onclick="doLogin()">
+                ⚡ Sign In
+            </button>
+
+            <div class="divider"><span>PlagSini Staff Portal</span></div>
+
+            <div class="login-footer">
+                <p>Secure access for authorized personnel only.<br>
+                All activities are monitored and logged.</p>
+                <div class="footer-badge">
+                    <span class="dot"></span>
+                    System Online — v2.6.0
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="confetti-container" id="confettiContainer"></div>
+
+    <script>
+        // ═══ GREETING BASED ON TIME ═══
+        (function setGreeting() {
+            const h = new Date().getHours();
+            const el = document.getElementById;
+            const emoji = document.getElementById('greetEmoji');
+            const text = document.getElementById('greetText');
+            const sub = document.getElementById('greetSub');
+
+            if (h >= 5 && h < 12) {
+                emoji.textContent = '☀️';
+                text.textContent = 'Good morning!';
+                sub.textContent = 'Let\'s start the day with full energy! ⚡';
+            } else if (h >= 12 && h < 17) {
+                emoji.textContent = '🌤️';
+                text.textContent = 'Good afternoon!';
+                sub.textContent = 'Keep the momentum going! 💪';
+            } else if (h >= 17 && h < 21) {
+                emoji.textContent = '🌅';
+                text.textContent = 'Good evening!';
+                sub.textContent = 'Almost done, finish strong! 🚀';
+            } else {
+                emoji.textContent = '🌙';
+                text.textContent = 'Hey, night owl!';
+                sub.textContent = 'Burning the midnight oil? Respect! 🦉';
+            }
+        })();
+
+        // ═══ MOTIVATIONAL QUOTES ═══
+        (function setQuote() {
+            const quotes = [
+                { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
+                { text: "Innovation distinguishes between a leader and a follower.", author: "Steve Jobs" },
+                { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+                { text: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
+                { text: "Every EV charged is a step towards a greener Malaysia. 🇲🇾", author: "PlagSini Team" },
+                { text: "Great things are done by a series of small things brought together.", author: "Vincent Van Gogh" },
+                { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+                { text: "Alone we can do so little; together we can do so much.", author: "Helen Keller" },
+                { text: "Your work is going to fill a large part of your life. Make it great.", author: "Steve Jobs" },
+                { text: "Plug in, power up, move forward. That's the PlagSini way. ⚡", author: "PlagSini Team" },
+            ];
+            const q = quotes[Math.floor(Math.random() * quotes.length)];
+            document.getElementById('quoteText').textContent = `"${q.text}"`;
+            document.getElementById('quoteAuthor').textContent = `— ${q.author}`;
+        })();
+
+        // ═══ PARTICLES ═══
+        (function createParticles() {
+            const container = document.getElementById('particles');
+            for (let i = 0; i < 25; i++) {
+                const p = document.createElement('div');
+                p.className = 'particle';
+                p.style.left = Math.random() * 100 + '%';
+                p.style.animationDuration = (6 + Math.random() * 10) + 's';
+                p.style.animationDelay = Math.random() * 8 + 's';
+                p.style.width = p.style.height = (2 + Math.random() * 3) + 'px';
+                const colors = ['var(--accent)', 'var(--cyan)', 'var(--purple)', 'var(--amber)'];
+                p.style.background = colors[Math.floor(Math.random() * colors.length)];
+                container.appendChild(p);
+            }
+        })();
+
+        // ═══ LOAD LIVE STATS (best effort) ═══
+        (async function loadStats() {
+            try {
+                const r = await fetch('/api/chargers');
+                if (r.ok) {
+                    const chargers = await r.json();
+                    const el = document.getElementById('statChargers');
+                    if (el) animateCounter(el, chargers.length || 0);
+                }
+            } catch(e) {}
+            try {
+                const r2 = await fetch('/api/tickets/stats');
+                if (r2.ok) {
+                    const stats = await r2.json();
+                    const sEl = document.getElementById('statSessions');
+                    if (sEl && stats.total !== undefined) animateCounter(sEl, stats.total);
+                }
+            } catch(e) {}
+        })();
+
+        function animateCounter(el, target) {
+            if (target === 0) { el.textContent = '0'; return; }
+            let current = 0;
+            const step = Math.max(1, Math.floor(target / 30));
+            const timer = setInterval(() => {
+                current += step;
+                if (current >= target) { current = target; clearInterval(timer); }
+                el.textContent = current.toLocaleString();
+            }, 40);
+        }
+
+        // ═══ PASSWORD TOGGLE ═══
+        function togglePassword() {
+            const input = document.getElementById('loginPassword');
+            const eye = document.getElementById('pwEye');
+            if (input.type === 'password') {
+                input.type = 'text';
+                eye.textContent = '🙈';
+            } else {
+                input.type = 'password';
+                eye.textContent = '👁️';
+            }
+        }
+
+        // ═══ AUTO-LOGIN CHECK ═══
+        const existingToken = localStorage.getItem('staffToken');
+        const existingInfo = JSON.parse(localStorage.getItem('staffInfo') || 'null');
+        if (existingToken && existingInfo) {
+            fetch('/api/staff/me?token=' + existingToken)
+                .then(r => r.json())
+                .then(d => { if (d.success) redirectByRole(d.staff.role); })
+                .catch(() => {});
+        }
+
+        function redirectByRole(role) { window.location.href = '/'; }
+
+        // ═══ CONFETTI ON SUCCESS ═══
+        function fireConfetti() {
+            const container = document.getElementById('confettiContainer');
+            const colors = ['#00e676','#00bcd4','#7c4dff','#ff4081','#ffab00','#448aff','#69f0ae','#ffea00'];
+            for (let i = 0; i < 60; i++) {
+                const c = document.createElement('div');
+                c.className = 'confetti';
+                c.style.left = Math.random() * 100 + '%';
+                c.style.top = '-10px';
+                c.style.background = colors[Math.floor(Math.random() * colors.length)];
+                c.style.width = (4 + Math.random() * 8) + 'px';
+                c.style.height = (4 + Math.random() * 8) + 'px';
+                c.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+                c.style.animationDelay = Math.random() * 0.5 + 's';
+                c.style.animationDuration = (1 + Math.random() * 1.5) + 's';
+                container.appendChild(c);
+            }
+            setTimeout(() => { container.innerHTML = ''; }, 3000);
+        }
+
+        // ═══ LOGIN ═══
+        async function doLogin() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const errEl = document.getElementById('loginError');
+            const btn = document.getElementById('loginBtn');
+
+            errEl.style.display = 'none';
+            if (!email || !password) {
+                errEl.innerHTML = '⚠️ Please enter both email and password.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Signing in...';
+
+            try {
+                const res = await fetch('/api/staff/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errEl.innerHTML = '🔒 ' + (data.detail || 'Invalid credentials. Please try again.');
+                    errEl.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerHTML = '⚡ Sign In';
+
+                    // Shake the input
+                    document.getElementById('loginPassword').style.animation = 'shake .4s';
+                    setTimeout(() => document.getElementById('loginPassword').style.animation = '', 500);
+                    return;
+                }
+
+                // SUCCESS!
+                localStorage.setItem('staffToken', data.token);
+                localStorage.setItem('staffInfo', JSON.stringify(data.staff));
+
+                btn.classList.add('success');
+                btn.innerHTML = '✅ Welcome back, ' + (data.staff?.name || 'Team') + '!';
+
+                fireConfetti();
+
+                setTimeout(() => redirectByRole(data.staff.role), 1200);
+            } catch(e) {
+                errEl.innerHTML = '🔌 Connection error. Is the server running?';
+                errEl.style.display = 'block';
+                btn.disabled = false;
+                btn.innerHTML = '⚡ Sign In';
+            }
+        }
+
+        // ═══ FOCUS FIRST INPUT ═══
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loginEmail').focus();
+        });
+    </script>
+</body>
+</html>

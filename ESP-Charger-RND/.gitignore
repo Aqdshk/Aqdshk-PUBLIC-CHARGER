@@ -1,0 +1,46 @@
+# PlatformIO
+.pio/
+build/
+*.pidb
+
+# Build artifacts (anywhere in project)
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# Temporary files
+*.tmp
+tmp*/
+*.log
+*.swp
+*~
+.sconsign*
+project.checksum
+longcmd-*
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python (if any scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Firmware binaries (optional - uncomment if you don't want to track them)
+# firmware.bin
+# bootloader.bin
+# partitions.bin
+

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faults - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item active"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>⚠️</span> Faults & Errors</h1>
+            </div>
+            <div class="header-right">
+                <label style="display:flex;align-items:center;gap:5px;color:var(--text-muted);font-size:12px;cursor:pointer;">
+                    <input type="checkbox" id="showCleared" onchange="loadFaults()" style="accent-color:var(--accent);width:14px;height:14px;">
+                    Show Cleared
+                </label>
+                <span id="faultCount" class="header-info">Loading...</span>
+                <button class="btn btn-secondary btn-small" onclick="loadFaults()">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <div id="faultList">
+                <div class="loading-spinner">Loading faults...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function formatKLTime(isoString) {
+            if (!isoString) return 'N/A';
+            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+        }
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { loadFaults(); setInterval(loadFaults, 5000); });
+
+        async function loadFaults() {
+            try {
+                const showCleared = document.getElementById('showCleared')?.checked;
+                const url = showCleared ? `${API_BASE}/faults` : `${API_BASE}/faults?cleared=false`;
+                const faults = await (await fetch(url)).json();
+                const container = document.getElementById('faultList');
+                const countEl = document.getElementById('faultCount');
+
+                if (faults.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✅</div><div style="color:var(--accent);">No faults found</div></div>'; countEl.textContent = '0 faults'; return; }
+                countEl.textContent = `${faults.length} fault(s)`;
+
+                const typeMap = {'overcurrent':'Overcurrent','ground_fault':'Ground Fault','emergency_stop':'Emergency Stop','cp_error':'CP Error'};
+                container.innerHTML = faults.map(f => `
+                    <div class="fault-item ${f.cleared?'cleared':''}">
+                        <div class="fault-header">
+                            <span class="fault-type">${typeMap[f.fault_type]||f.fault_type}</span>
+                            ${f.cleared ? '<span class="fault-cleared-badge">CLEARED</span>' : ''}
+                        </div>
+                        <div class="fault-message"><strong>Charger:</strong> ${f.charge_point_id}</div>
+                        ${f.message ? `<div class="fault-message">${f.message}</div>` : ''}
+                        <div class="fault-timestamp">${formatKLTime(f.timestamp)}</div>
+                    </div>`).join('');
+            } catch(e){ console.error('Error:',e); document.getElementById('faultList').innerHTML = '<div class="empty-state">Error loading faults</div>'; }
+        }
+    </script>
+</body>
+</html>

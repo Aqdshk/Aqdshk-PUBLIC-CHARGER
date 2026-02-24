@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlagSini Staff Portal</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a1a; color: #e8e8e8; min-height: 100vh; font-size: clamp(11px, 0.75vw, 14px); }
+
+        /* Login */
+        .login-overlay { display:flex; justify-content:center; align-items:center; min-height:100vh; background:linear-gradient(135deg,#0a0a1a 0%,#1a1a3e 100%); }
+        .login-card { background:#12122a; border-radius:16px; padding: clamp(20px, 2.5vw, 40px); max-width:420px; width:90%; border:1px solid #333; }
+        .login-card h2 { color:#00ff88; margin-bottom:8px; font-size: clamp(18px, 1.5vw, 24px); }
+        .login-card p { color:#888; margin-bottom: clamp(12px, 1.2vw, 24px); font-size: clamp(11px, 0.8vw, 14px); }
+        .login-card input { width:100%; background:#1a1a2e; color:#fff; border:1px solid #333; border-radius:10px; padding: clamp(8px, 0.7vw, 12px) clamp(10px, 0.9vw, 16px); font-size: clamp(12px, 0.85vw, 15px); margin-bottom: clamp(8px, 0.7vw, 14px); outline:none; }
+        .login-card input:focus { border-color:#00ff88; }
+        .login-card button { width:100%; padding: clamp(8px, 0.7vw, 14px); background:linear-gradient(135deg,#00ff88,#00cc66); color:#000; border:none; border-radius:10px; font-size: clamp(12px, 0.9vw, 16px); font-weight:700; cursor:pointer; }
+        .login-card button:hover { opacity:0.9; }
+        .login-error { color:#ff4444; font-size: clamp(10px, 0.7vw, 13px); margin-bottom: clamp(8px, 0.6vw, 12px); display:none; }
+
+        /* Top bar */
+        .topbar { background:#12122a; border-bottom:1px solid #222; padding: clamp(8px, 0.7vw, 14px) clamp(12px, 1.2vw, 24px); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+        .topbar-left { display:flex; align-items:center; gap: clamp(8px, 0.8vw, 16px); }
+        .topbar-left h1 { font-size: clamp(14px, 1.1vw, 20px); color:#00ff88; }
+        .role-badge { font-size: clamp(9px, 0.6vw, 11px); font-weight:700; padding:3px clamp(6px, 0.6vw, 12px); border-radius:20px; text-transform:uppercase; letter-spacing:0.5px; }
+        .role-admin { background:#ff004422; color:#ff0044; border:1px solid #ff004444; }
+        .role-manager { background:#ff880022; color:#ff8800; border:1px solid #ff880044; }
+        .role-staff { background:#00aaff22; color:#00aaff; border:1px solid #00aaff44; }
+        .topbar-right { display:flex; align-items:center; gap: clamp(6px, 0.6vw, 12px); }
+        .staff-name { font-weight:600; font-size: clamp(11px, 0.8vw, 14px); }
+        .staff-dept { color:#888; font-size: clamp(10px, 0.65vw, 12px); }
+        .btn-logout { background:#ff444422; color:#ff4444; border:1px solid #ff444444; padding: clamp(5px, 0.4vw, 8px) clamp(10px, 0.8vw, 16px); border-radius:8px; font-size: clamp(10px, 0.7vw, 13px); cursor:pointer; font-weight:600; }
+        .btn-logout:hover { background:#ff444444; }
+
+        /* Stats */
+        .stats-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(clamp(100px, 9vw, 150px),1fr)); gap: clamp(6px, 0.5vw, 10px); padding: clamp(8px, 0.7vw, 14px) clamp(10px, 0.9vw, 18px); max-width:1320px; margin:0 auto; }
+        .stat-card { background:#12122a; border-radius: clamp(6px, 0.5vw, 10px); padding: clamp(6px, 0.5vw, 12px); border:1px solid #222; }
+        .stat-label { color:#888; font-size: clamp(8px, 0.5vw, 10px); text-transform:uppercase; margin-bottom:3px; }
+        .stat-value { font-size: clamp(15px, 1.2vw, 22px); font-weight:700; }
+        .stat-sub { color:#666; font-size: clamp(8px, 0.5vw, 10px); margin-top:2px; }
+
+        /* Filters */
+        .filter-bar { display:flex; gap: clamp(6px, 0.5vw, 10px); padding:0 clamp(10px, 0.9vw, 18px) clamp(6px, 0.5vw, 12px); flex-wrap:wrap; max-width:1320px; margin:0 auto; }
+        .filter-bar select, .filter-bar input { background:#1a1a2e; color:#fff; border:1px solid #333; border-radius:8px; padding: clamp(4px, 0.35vw, 7px) clamp(6px, 0.5vw, 10px); font-size: clamp(10px, 0.65vw, 12px); }
+
+        /* Table */
+        .table-wrap { padding:0 clamp(10px, 0.9vw, 18px) clamp(10px, 0.9vw, 18px); overflow-x:auto; max-width:1320px; margin:0 auto; }
+        table { width:100%; border-collapse:collapse; }
+        th { text-align:left; color:#888; font-size: clamp(9px, 0.55vw, 11px); text-transform:uppercase; letter-spacing:0.5px; padding: clamp(6px, 0.5vw, 10px) clamp(8px, 0.6vw, 12px); border-bottom:1px solid #222; white-space:nowrap; }
+        td { padding: clamp(7px, 0.6vw, 12px); border-bottom:1px solid #1a1a2e; font-size: clamp(11px, 0.75vw, 14px); }
+        tr:hover { background:#ffffff06; }
+
+        .badge { padding:2px clamp(6px, 0.5vw, 10px); border-radius:12px; font-size: clamp(9px, 0.55vw, 11px); font-weight:700; display:inline-block; }
+
+        /* Modal */
+        .modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.7); z-index:1000; justify-content:center; align-items:center; }
+        .modal.active { display:flex; }
+        .modal-content { background:#12122a; border-radius:16px; max-width:700px; width:95%; max-height:85vh; overflow-y:auto; border:1px solid #333; }
+        .modal-header { display:flex; justify-content:space-between; align-items:center; padding: clamp(12px, 1vw, 20px); border-bottom:1px solid #222; }
+        .modal-header h3 { color:#00ff88; font-size: clamp(14px, 1vw, 18px); }
+        .modal-close { background:none; border:1px solid #ff4444; color:#ff4444; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:18px; }
+
+        .btn { padding: clamp(5px, 0.4vw, 8px) clamp(10px, 0.8vw, 16px); border-radius:8px; font-size: clamp(10px, 0.7vw, 13px); font-weight:600; cursor:pointer; border:none; }
+        .btn-primary { background:linear-gradient(135deg,#00ff88,#00cc66); color:#000; }
+        .btn-secondary { background:#1a1a2e; color:#aaa; border:1px solid #333; }
+        .btn-small { padding:4px 10px; font-size: clamp(10px, 0.65vw, 12px); }
+
+        .msg-box { background:#0d0d1a; border:1px solid #333; border-radius:12px; padding: clamp(6px, 0.5vw, 10px) clamp(8px, 0.7vw, 14px); max-width:85%; margin-bottom: clamp(6px, 0.5vw, 10px); }
+        .msg-admin { background:rgba(0,255,136,0.08); border-color:#00ff8833; }
+        .msg-system { background:rgba(255,255,255,0.03); border-color:#33333355; }
+
+        /* Hierarchy indicator */
+        .hierarchy-info { padding: clamp(8px, 0.6vw, 12px) clamp(12px, 1.2vw, 24px); background:rgba(0,255,136,0.05); border-bottom:1px solid #00ff8822; display:flex; align-items:center; gap: clamp(8px, 0.6vw, 12px); }
+        .hierarchy-info .icon { font-size: clamp(16px, 1.1vw, 20px); }
+        .hierarchy-info .text { font-size: clamp(10px, 0.7vw, 13px); color:#aaa; }
+        .hierarchy-info .text strong { color:#00ff88; }
+
+        @media(max-width:768px){ .topbar{flex-direction:column;align-items:flex-start;} .stats-row{grid-template-columns:repeat(2,1fr);} }
+        @media(max-width:480px){ .stats-row{grid-template-columns:1fr;} }
+    </style>
+</head>
+<body>
+    <!-- Login handled by centralized /login page -->
+
+    <!-- MAIN -->
+    <div id="mainApp" style="display:none;">
+        <div class="topbar">
+            <div class="topbar-left">
+                <h1>🏢 Staff Portal</h1>
+                <span class="role-badge" id="roleBadge"></span>
+            </div>
+            <div class="topbar-right">
+                <div>
+                    <div class="staff-name" id="staffName"></div>
+                    <div class="staff-dept" id="staffDept"></div>
+                </div>
+                <button class="btn-logout" onclick="doLogout()">Logout</button>
+            </div>
+        </div>
+
+        <!-- Hierarchy info -->
+        <div class="hierarchy-info" id="hierarchyInfo"></div>
+
+        <!-- Stats -->
+        <div class="stats-row" id="staffStats"></div>
+
+        <!-- Filters -->
+        <div class="filter-bar">
+            <select id="filterStatus" onchange="loadMyTickets()">
+                <option value="">All Status</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="waiting_user">Waiting User</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+            </select>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ticket #</th>
+                        <th>User</th>
+                        <th>Category</th>
+                        <th>Subject</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>SLA</th>
+                        <th>Dept</th>
+                        <th>Assigned</th>
+                        <th>Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="ticketBody">
+                    <tr><td colspan="11" style="text-align:center;color:#666;padding:40px;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Ticket Detail Modal -->
+    <div class="modal" id="ticketModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Ticket Detail</h3>
+                <button class="modal-close" onclick="document.getElementById('ticketModal').classList.remove('active')">&times;</button>
+            </div>
+            <div id="modalBody" style="padding:20px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Unified auth from centralized /login page
+        let staffToken = localStorage.getItem('staffToken') || '';
+        let staffInfo = JSON.parse(localStorage.getItem('staffInfo') || 'null');
+
+        // If not logged in or is admin (admin should be on /admin), redirect to login
+        if (!staffToken || !staffInfo) {
+            window.location.href = '/login';
+        }
+        // Admin role should go to /admin, not here
+        if (staffInfo && staffInfo.role === 'admin') {
+            window.location.href = '/admin';
+        }
+
+        const priorityColors = {low:'#888',medium:'#ff8800',high:'#ff4444',urgent:'#ff0044'};
+        const statusColors = {open:'#ff8800',in_progress:'#00aaff',waiting_user:'#aa88ff',resolved:'#00ff88',closed:'#666'};
+        const roleLabels = {admin:'ADMIN',manager:'MANAGER',staff:'STAFF'};
+
+        function formatDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+        }
+
+        function doLogout() {
+            fetch('/api/staff/logout', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token:staffToken})}).catch(()=>{});
+            localStorage.removeItem('staffToken');
+            localStorage.removeItem('staffInfo');
+            window.location.href = '/login';
+        }
+
+        function showApp() {
+            document.getElementById('mainApp').style.display = 'block';
+
+            // Set staff info
+            document.getElementById('staffName').textContent = staffInfo.name;
+            document.getElementById('staffDept').textContent = staffInfo.department;
+            const rb = document.getElementById('roleBadge');
+            rb.textContent = roleLabels[staffInfo.role] || staffInfo.role;
+            rb.className = 'role-badge role-' + staffInfo.role;
+
+            // Hierarchy info
+            const hi = document.getElementById('hierarchyInfo');
+            if (staffInfo.role === 'admin') {
+                hi.innerHTML = '<span class="icon">👑</span><span class="text"><strong>Admin</strong> — Full control. You can see and manage <strong>all tickets</strong> across all departments.</span>';
+            } else if (staffInfo.role === 'manager') {
+                hi.innerHTML = '<span class="icon">📋</span><span class="text"><strong>Manager</strong> — You can <strong>view</strong> all tickets in the <strong>' + staffInfo.department + '</strong> department (read-only).</span>';
+            } else {
+                hi.innerHTML = '<span class="icon">🎯</span><span class="text"><strong>Staff</strong> — You can see and handle tickets <strong>assigned to you</strong> only.</span>';
+            }
+
+            loadMyTickets();
+        }
+
+        async function loadMyTickets() {
+            const status = document.getElementById('filterStatus').value;
+            const tbody = document.getElementById('ticketBody');
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:40px;">Loading tickets...</td></tr>';
+
+            try {
+                let url = '/api/staff/my-tickets?token=' + staffToken;
+                if (status) url += '&status=' + status;
+
+                const res = await fetch(url);
+                if (!res.ok) { doLogout(); return; }
+                const data = await res.json();
+                const tickets = data.tickets || [];
+
+                // Stats
+                const total = tickets.length;
+                const open = tickets.filter(t => t.status === 'open').length;
+                const progress = tickets.filter(t => t.status === 'in_progress').length;
+                const resolved = tickets.filter(t => t.status === 'resolved').length;
+                const overdueCount = tickets.filter(t => t.is_overdue).length;
+                document.getElementById('staffStats').innerHTML = `
+                    <div class="stat-card"><div class="stat-label">Total Visible</div><div class="stat-value" style="color:#00ff88;">${total}</div></div>
+                    <div class="stat-card"><div class="stat-label">Open</div><div class="stat-value" style="color:#ff8800;">${open}</div></div>
+                    <div class="stat-card"><div class="stat-label">In Progress</div><div class="stat-value" style="color:#00aaff;">${progress}</div></div>
+                    <div class="stat-card"><div class="stat-label">Resolved</div><div class="stat-value" style="color:#00ff88;">${resolved}</div></div>
+                    ${overdueCount > 0 ? `<div class="stat-card" style="border:1px solid #ff4444;"><div class="stat-label" style="color:#ff8888;">Overdue</div><div class="stat-value" style="color:#ff4444;">${overdueCount}</div></div>` : ''}
+                `;
+
+                if (tickets.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#666;padding:40px;">🎉 No tickets — all clear!</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = tickets.map(t => {
+                    const slaCell = t.due_at ? (() => {
+                        const due = new Date(t.due_at);
+                        const now = new Date();
+                        const diffMs = due - now;
+                        const isOver = diffMs < 0;
+                        const absDiff = Math.abs(diffMs);
+                        const hr = Math.floor(absDiff / 3600000);
+                        const mn = Math.floor((absDiff % 3600000) / 60000);
+                        const label = isOver ? `${hr}h${mn}m overdue` : `${hr}h${mn}m left`;
+                        const color = isOver ? '#ff4444' : (diffMs < 7200000 ? '#ffa500' : '#00ff88');
+                        return `<span style="font-size:11px;font-weight:700;color:${color};">${isOver ? '🚨' : (diffMs < 7200000 ? '⚠️' : '⏱')} ${label}</span>`;
+                    })() : '<span style="font-size:11px;color:#666;">—</span>';
+                    const rowStyle = t.is_overdue ? 'cursor:pointer;border-left:3px solid #ff4444;' : 'cursor:pointer;';
+                    return `
+                    <tr style="${rowStyle}" onclick="openDetail(${t.id})">
+                        <td style="color:#00ff88;font-weight:600;font-size:13px;">${t.ticket_number} ${t.escalated ? '<span style="color:#ff4444;font-size:10px;">⬆</span>' : ''}</td>
+                        <td><div style="font-weight:600;">${t.user_name||'Unknown'}</div><div style="color:#888;font-size:12px;">${t.user_email}</div></td>
+                        <td><span class="badge" style="background:rgba(0,170,255,0.15);color:#00aaff;">${t.category}</span></td>
+                        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.subject}</td>
+                        <td><span style="color:${priorityColors[t.priority]||'#fff'};font-weight:600;text-transform:uppercase;font-size:12px;">${t.priority}</span></td>
+                        <td><span class="badge" style="background:${statusColors[t.status]||'#333'}22;color:${statusColors[t.status]||'#fff'};border:1px solid ${statusColors[t.status]||'#333'}55;">${t.status.replace('_',' ')}</span></td>
+                        <td>${slaCell}</td>
+                        <td style="font-size:12px;color:#ff8800;">${t.department||'-'}</td>
+                        <td style="font-size:12px;">${t.assigned_to||'<span style="color:#666;">-</span>'}</td>
+                        <td style="font-size:12px;color:#888;">${formatDate(t.created_at)}</td>
+                        <td><button class="btn btn-secondary btn-small" onclick="event.stopPropagation();openDetail(${t.id})">Open</button></td>
+                    </tr>
+                `}).join('');
+
+            } catch(e) {
+                console.error(e);
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#ff4444;padding:40px;">Error loading tickets</td></tr>';
+            }
+        }
+
+        async function openDetail(ticketId) {
+            try {
+                const res = await fetch('/api/tickets/' + ticketId);
+                const t = await res.json();
+
+                document.getElementById('modalTitle').textContent = t.ticket_number + ' — ' + t.subject;
+
+                let html = `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+                    <div style="background:#0d0d1a;border-radius:10px;padding:12px;">
+                        <div style="color:#888;font-size:11px;text-transform:uppercase;margin-bottom:4px;">User</div>
+                        <div style="color:#fff;font-weight:600;">${t.user_name||'Unknown'}</div>
+                        <div style="color:#aaa;font-size:13px;">${t.user_email}</div>
+                    </div>
+                    <div style="background:#0d0d1a;border-radius:10px;padding:12px;">
+                        <div style="color:#888;font-size:11px;text-transform:uppercase;margin-bottom:4px;">Info</div>
+                        <div style="font-size:13px;"><span style="color:#888;">Category:</span> <span style="color:#00aaff;">${t.category}</span></div>
+                        <div style="font-size:13px;"><span style="color:#888;">Priority:</span> <span style="color:${priorityColors[t.priority]};font-weight:600;">${t.priority.toUpperCase()}</span></div>
+                        <div style="font-size:13px;"><span style="color:#888;">Department:</span> <span style="color:#ff8800;">${t.department||'N/A'}</span></div>
+                        <div style="font-size:13px;"><span style="color:#888;">Assigned:</span> ${t.assigned_to||'Unassigned'}</div>
+                    </div>
+                </div>
+
+                <!-- Update controls (admin & staff only, manager is view-only) -->
+                ${staffInfo.role !== 'manager' ? `
+                <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+                    <select id="mdStatus" style="background:#1a1a2e;color:#fff;border:1px solid #333;border-radius:8px;padding:6px 10px;font-size:13px;">
+                        <option value="open" ${t.status==='open'?'selected':''}>Open</option>
+                        <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+                        <option value="waiting_user" ${t.status==='waiting_user'?'selected':''}>Waiting User</option>
+                        <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
+                        <option value="closed" ${t.status==='closed'?'selected':''}>Closed</option>
+                    </select>
+                    <select id="mdPriority" style="background:#1a1a2e;color:#fff;border:1px solid #333;border-radius:8px;padding:6px 10px;font-size:13px;">
+                        <option value="low" ${t.priority==='low'?'selected':''}>Low</option>
+                        <option value="medium" ${t.priority==='medium'?'selected':''}>Medium</option>
+                        <option value="high" ${t.priority==='high'?'selected':''}>High</option>
+                        <option value="urgent" ${t.priority==='urgent'?'selected':''}>Urgent</option>
+                    </select>
+                    <button class="btn btn-primary btn-small" onclick="updateMyTicket(${t.id})">Update</button>
+                </div>
+                ` : `
+                <div style="background:#ff880011;border:1px solid #ff880033;border-radius:8px;padding:10px 14px;margin-bottom:20px;font-size:13px;color:#ff8800;">
+                    🔒 <strong>View Only</strong> — Managers can monitor tickets but cannot modify them. Contact Admin for changes.
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:20px;font-size:13px;">
+                    <span style="color:#888;">Status:</span> <span class="badge" style="background:${statusColors[t.status]||'#333'}22;color:${statusColors[t.status]||'#fff'};border:1px solid ${statusColors[t.status]||'#333'}55;">${t.status.replace('_',' ')}</span>
+                    <span style="color:#888;">Priority:</span> <span style="color:${priorityColors[t.priority]};font-weight:600;text-transform:uppercase;">${t.priority}</span>
+                </div>
+                `}
+
+                <!-- Conversation -->
+                <div style="border-top:1px solid #222;padding-top:16px;margin-bottom:16px;">
+                    <h4 style="color:#00ff88;margin-bottom:12px;">💬 Conversation</h4>
+                    <div style="max-height:300px;overflow-y:auto;" id="msgThread">`;
+
+                (t.messages||[]).forEach(m => {
+                    const isAdmin = m.sender_type === 'admin';
+                    const isSystem = m.sender_type === 'system';
+                    let cls = '';
+                    if (isAdmin) cls = 'msg-admin';
+                    else if (isSystem) cls = 'msg-system';
+
+                    html += `
+                    <div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-end':isSystem?'center':'flex-start'};margin-bottom:10px;">
+                        <div class="msg-box ${cls}">
+                            <div style="font-size:11px;color:${isAdmin?'#00ff88':isSystem?'#666':'#888'};margin-bottom:4px;font-weight:600;">${m.sender_name||m.sender_type} · ${formatDate(m.created_at)}</div>
+                            <div style="color:#ddd;font-size:14px;line-height:1.5;white-space:pre-wrap;">${m.message}</div>
+                        </div>
+                    </div>`;
+                });
+
+                html += `
+                    </div>
+                </div>
+
+                <!-- Reply (admin & staff only) -->
+                ${staffInfo.role !== 'manager' ? `
+                <div style="display:flex;gap:8px;">
+                    <textarea id="mdReply" placeholder="Type your reply..." rows="2" style="flex:1;background:#0d0d1a;color:#fff;border:1px solid #333;border-radius:10px;padding:10px;font-size:14px;resize:vertical;font-family:inherit;"></textarea>
+                    <button class="btn btn-primary" onclick="replyTicket(${t.id})" style="align-self:flex-end;">Send</button>
+                </div>
+                ` : ''}`;
+
+                document.getElementById('modalBody').innerHTML = html;
+                document.getElementById('ticketModal').classList.add('active');
+
+                setTimeout(() => { const el = document.getElementById('msgThread'); if(el) el.scrollTop = el.scrollHeight; }, 100);
+            } catch(e) { alert('Error loading ticket'); console.error(e); }
+        }
+
+        async function updateMyTicket(ticketId) {
+            try {
+                const res = await fetch('/api/tickets/' + ticketId, {
+                    method:'PUT',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        status: document.getElementById('mdStatus').value,
+                        priority: document.getElementById('mdPriority').value,
+                    })
+                });
+                const d = await res.json();
+                if (d.success) { loadMyTickets(); openDetail(ticketId); }
+                else alert('Error updating');
+            } catch(e) { alert('Error updating'); }
+        }
+
+        async function replyTicket(ticketId) {
+            const msg = document.getElementById('mdReply').value.trim();
+            if (!msg) return;
+            try {
+                const res = await fetch('/api/tickets/' + ticketId + '/messages', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        sender_type: 'admin',
+                        sender_name: staffInfo.name + ' (' + staffInfo.department + ')',
+                        message: msg
+                    })
+                });
+                const d = await res.json();
+                if (d.success) { openDetail(ticketId); loadMyTickets(); }
+                else alert('Error sending');
+            } catch(e) { alert('Error sending'); }
+        }
+
+        // Init — check token
+        if (staffToken && staffInfo) {
+            fetch('/api/staff/me?token=' + staffToken)
+                .then(r => r.json())
+                .then(d => { if (d.success) { staffInfo = d.staff; showApp(); } else doLogout(); })
+                .catch(() => doLogout());
+        }
+    </script>
+</body>
+</html>

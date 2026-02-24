@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metering - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item active"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>⚡</span> Metering Data</h1>
+            </div>
+            <div class="header-right">
+                <select id="meteringCharger" onchange="loadMetering()" class="filter-select" style="padding:6px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;">
+                    <option value="">Select Charger</option>
+                </select>
+                <button class="btn btn-secondary btn-small" onclick="loadMetering()">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><span>⚡</span> Live Metering</span>
+                </div>
+                <div class="card-body">
+                    <div id="meteringData">
+                        <div class="empty-state"><div class="empty-state-icon">⚡</div><div>Select a charger to view metering data</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function formatKLTime(isoString) {
+            if (!isoString) return 'N/A';
+            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+        }
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            populateChargerSelect();
+            setInterval(() => { if (document.getElementById('meteringCharger').value) loadMetering(); }, 2000);
+        });
+
+        async function populateChargerSelect() {
+            try {
+                const chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const sel = document.getElementById('meteringCharger');
+                sel.innerHTML = '<option value="">Select Charger</option>';
+                chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
+            } catch(e){ console.error('Error:',e); }
+        }
+
+        async function loadMetering() {
+            const cpId = document.getElementById('meteringCharger').value;
+            const container = document.getElementById('meteringData');
+            if (!cpId) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚡</div><div>Select a charger to view metering data</div></div>'; return; }
+            try {
+                const res = await fetch(`${API_BASE}/metering/${cpId}/latest`);
+                if (!res.ok) { container.innerHTML = '<div class="empty-state">No metering data available</div>'; return; }
+                const m = await res.json();
+                container.innerHTML = `
+                    <div class="metering-grid">
+                        <div class="metering-item"><div class="metering-label">Voltage</div><div class="metering-value">${m.voltage!=null?m.voltage.toFixed(1):'N/A'}<span class="metering-unit">${m.voltage!=null?'V':''}</span></div></div>
+                        <div class="metering-item"><div class="metering-label">Current</div><div class="metering-value">${m.current!=null?m.current.toFixed(2):'N/A'}<span class="metering-unit">${m.current!=null?'A':''}</span></div></div>
+                        <div class="metering-item"><div class="metering-label">Power</div><div class="metering-value">${m.power!=null?(m.power/1000).toFixed(2):'N/A'}<span class="metering-unit">${m.power!=null?'kW':''}</span></div></div>
+                        <div class="metering-item"><div class="metering-label">Total Energy</div><div class="metering-value">${m.total_kwh!=null?m.total_kwh.toFixed(2):'N/A'}<span class="metering-unit">${m.total_kwh!=null?'kWh':''}</span></div></div>
+                    </div>
+                    <div class="metering-timestamp">Last Update: ${m.timestamp ? formatKLTime(m.timestamp) : 'N/A'}</div>`;
+            } catch(e){ console.error('Error:',e); container.innerHTML = '<div class="empty-state">No metering data available</div>'; }
+        }
+    </script>
+</body>
+</html>

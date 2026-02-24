@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Charger Status - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item active"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>🔌</span> Charger Status</h1>
+            </div>
+            <div class="header-right">
+                <span id="chargerCount" class="header-info">Loading...</span>
+                <button class="btn btn-secondary btn-small" onclick="loadChargerStatus()">🔄 Refresh</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <div id="chargerStatusList">
+                <div class="loading-spinner">Loading chargers...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function formatKLTime(isoString) {
+            if (!isoString) return 'N/A';
+            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+        }
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { loadChargerStatus(); setInterval(loadChargerStatus, 2000); });
+
+        async function loadChargerStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/chargers`);
+                const chargers = await response.json();
+                const container = document.getElementById('chargerStatusList');
+                const countEl = document.getElementById('chargerCount');
+
+                if (chargers.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔌</div><div>No chargers registered</div></div>'; countEl.textContent = '0 chargers'; return; }
+                countEl.textContent = `${chargers.length} charger(s)`;
+
+                container.innerHTML = `<div class="grid-2">${chargers.map(charger => {
+                    const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
+                    let status = charger.status || 'offline', availability = charger.availability || 'unknown';
+                    if (hasActive) availability = 'charging';
+                    if (status === 'offline' && !hasActive && availability !== 'faulted' && availability !== 'charging') availability = 'unavailable';
+                    const statusBadge = status === 'online' ? 'badge-online' : 'badge-offline';
+                    const availBadge = `badge-${availability}`;
+                    const itemClass = status === 'offline' ? 'offline' : availability === 'charging' ? 'charging' : availability === 'faulted' ? 'faulted' : '';
+                    const lastHB = charger.last_heartbeat ? formatKLTime(charger.last_heartbeat) : 'Never';
+                    const canStart = status === 'online' && (availability === 'available' || availability === 'preparing') && !hasActive;
+                    const canStop = availability === 'charging' || hasActive;
+                    const statusDisplay = hasActive && status === 'offline' ? 'CHARGING (OFFLINE)' : status.toUpperCase();
+                    return `
+                        <div class="charger-item ${itemClass}">
+                            <div class="charger-header">
+                                <span class="charger-id">${charger.charge_point_id}</span>
+                                <div class="charger-badges">
+                                    <span class="badge ${statusBadge}">${statusDisplay}</span>
+                                    <span class="badge ${availBadge}">${availability.toUpperCase()}</span>
+                                </div>
+                            </div>
+                            <div class="charger-info">
+                                <div class="info-item"><span class="info-label">Last Heartbeat</span><span class="info-value">${lastHB}</span></div>
+                                <div class="info-item"><span class="info-label">Vendor</span><span class="info-value">${charger.vendor||'N/A'}</span></div>
+                                <div class="info-item"><span class="info-label">Model</span><span class="info-value">${charger.model||'N/A'}</span></div>
+                                <div class="info-item"><span class="info-label">Firmware</span><span class="info-value">${charger.firmware_version||'N/A'}</span></div>
+                            </div>
+                            <div class="charger-actions">
+                                ${canStart ? `<button class="btn btn-success btn-small" onclick="startCharging('${charger.charge_point_id}')">▶ Start</button>` : ''}
+                                ${canStop ? `<button class="btn btn-danger btn-small" onclick="stopCharging('${charger.charge_point_id}',${charger.active_transaction_id||'null'})">⏹ Stop</button>` : ''}
+                            </div>
+                        </div>`;
+                }).join('')}</div>`;
+            } catch(e){ console.error('Error:',e); document.getElementById('chargerStatusList').innerHTML = '<div class="empty-state">Error loading chargers</div>'; }
+        }
+
+        async function startCharging(cpId) {
+            if (!confirm(`Start charging for ${cpId}?`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/charging/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({charger_id:cpId,connector_id:1,id_tag:'DASHBOARD_USER'}) });
+                const r = await res.json();
+                if (r.success) { alert(`✅ Started!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message||'Unknown error'}`); }
+            } catch(e){ alert(`❌ Error: ${e.message}`); }
+        }
+
+        async function stopCharging(cpId) {
+            try {
+                const sessions = await (await fetch(`${API_BASE}/sessions`)).json();
+                const active = sessions.find(s => s.charge_point_id === cpId && (s.status === 'active' || s.status === 'pending'));
+                let txId = active?.transaction_id || 0;
+                if (!confirm(txId ? `Stop ${cpId}? TXN: ${txId}` : `No active session. Send stop to ${cpId}?`)) return;
+                const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({transaction_id:txId,charger_id:cpId}) });
+                const r = await res.json();
+                if (r.success) { alert(`✅ Stop requested!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message}`); }
+            } catch(e){ alert(`❌ Error: ${e.message}`); }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maintenance - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <style>
+        .mx-item { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding: clamp(8px, 0.7vw, 14px); margin-bottom: clamp(6px, 0.5vw, 10px); transition:border-color var(--transition); }
+        .mx-item:hover { border-color:var(--accent); }
+        .mx-head { display:flex; justify-content:space-between; align-items:center; margin-bottom: clamp(6px, 0.5vw, 10px); flex-wrap:wrap; gap:5px; }
+        .mx-charger { font-size: clamp(11px, 0.75vw, 14px); font-weight:700; color:var(--cyan); }
+        .mx-badges { display:flex; gap: clamp(3px, 0.3vw, 6px); flex-wrap:wrap; }
+        .mx-badge { padding:2px clamp(4px, 0.4vw, 8px); border-radius:4px; font-size: clamp(8px, 0.5vw, 10px); font-weight:700; text-transform:uppercase; }
+        .mx-badge.repair { background:rgba(239,83,80,.12); color:var(--red); }
+        .mx-badge.part_replacement { background:rgba(255,167,38,.12); color:var(--orange); }
+        .mx-badge.inspection { background:rgba(66,165,245,.12); color:var(--blue); }
+        .mx-badge.cleaning { background:rgba(0,230,118,.12); color:var(--accent); }
+        .mx-badge.firmware_update { background:rgba(171,71,188,.12); color:var(--purple); }
+        .mx-badge.other { background:rgba(90,100,120,.12); color:var(--text-muted); }
+        .mx-badge.scheduled { background:rgba(255,167,38,.12); color:var(--orange); }
+        .mx-badge.in_progress { background:rgba(66,165,245,.12); color:var(--blue); }
+        .mx-badge.completed { background:rgba(0,230,118,.12); color:var(--accent); }
+        .mx-badge.cancelled { background:rgba(90,100,120,.12); color:var(--text-muted); }
+        .mx-details { display:grid; grid-template-columns:repeat(2,1fr); gap: clamp(3px, 0.3vw, 6px); margin-bottom: clamp(4px, 0.4vw, 8px); }
+        .mx-detail-label { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); text-transform:uppercase; letter-spacing:.4px; }
+        .mx-detail-value { color:var(--text-secondary); font-size: clamp(10px, 0.65vw, 12px); }
+        .mx-work { padding-top: clamp(4px, 0.4vw, 8px); margin-top: clamp(4px, 0.4vw, 8px); border-top:1px solid var(--border); }
+        .mx-work-title { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); text-transform:uppercase; margin-bottom:2px; }
+        .mx-work-text { color:var(--text-secondary); font-size: clamp(10px, 0.65vw, 12px); }
+        .mx-actions { display:flex; gap: clamp(3px, 0.3vw, 6px); padding-top: clamp(4px, 0.4vw, 8px); margin-top: clamp(4px, 0.4vw, 8px); border-top:1px solid var(--border); }
+        @media(max-width:768px){ .mx-details{grid-template-columns:1fr;} }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item active"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <!-- Modal -->
+    <div class="modal" id="modalOverlay">
+        <div class="modal-content" style="max-width:560px;">
+            <div class="modal-header">
+                <h3 id="modalTitle">Add Maintenance Record</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="maintenanceForm" onsubmit="saveRecord(event)">
+                <input type="hidden" id="recordId">
+                <div class="form-row">
+                    <div class="form-group"><label>Charger *</label><select id="formCharger" required><option value="">Select</option></select></div>
+                    <div class="form-group"><label>Type *</label><select id="formType" required><option value="repair">🔧 Repair</option><option value="part_replacement">🔄 Part Replacement</option><option value="inspection">🔍 Inspection</option><option value="cleaning">🧹 Cleaning</option><option value="firmware_update">💾 Firmware Update</option><option value="other">📝 Other</option></select></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>Status</label><select id="formStatus"><option value="completed">✅ Completed</option><option value="in_progress">🔄 In Progress</option><option value="scheduled">📅 Scheduled</option><option value="cancelled">❌ Cancelled</option></select></div>
+                    <div class="form-group"><label>Technician</label><input type="text" id="formTechnician" placeholder="e.g. Ahmad"></div>
+                </div>
+                <div class="form-group"><label>Issue / Reason</label><textarea id="formIssue" rows="2" placeholder="Problem description..."></textarea></div>
+                <div class="form-group"><label>Work Performed *</label><textarea id="formWork" rows="2" placeholder="What was done..." required></textarea></div>
+                <div class="form-group"><label>Parts Replaced</label><textarea id="formParts" rows="2" placeholder="e.g. Connector cable, PCB..."></textarea></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Cost (RM)</label><input type="number" id="formCost" step="0.01" placeholder="0.00"></div>
+                    <div class="form-group"><label>Date Completed</label><input type="datetime-local" id="formDateCompleted"></div>
+                </div>
+                <div class="form-group"><label>Notes</label><textarea id="formNotes" rows="2" placeholder="Additional notes..."></textarea></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>🔧</span> Maintenance</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-primary btn-small" onclick="openAddModal()">+ Add Record</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <!-- Filters -->
+            <div class="user-controls">
+                <div class="search-box">
+                    <select id="filterCharger" onchange="loadRecords()"><option value="">All Chargers</option></select>
+                    <select id="filterStatus" onchange="loadRecords()"><option value="">All Status</option><option value="completed">Completed</option><option value="in_progress">In Progress</option><option value="scheduled">Scheduled</option><option value="cancelled">Cancelled</option></select>
+                </div>
+                <span id="recordCount" class="header-info">Loading...</span>
+                <button class="btn btn-secondary btn-small" onclick="loadRecords()">🔄 Refresh</button>
+            </div>
+
+            <div id="recordsList">
+                <div class="loading-spinner">Loading records...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let chargers = [];
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { loadChargers(); loadRecords(); });
+
+        async function loadChargers() {
+            try {
+                chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const f = document.getElementById('filterCharger'), s = document.getElementById('formCharger');
+                chargers.forEach(c => { f.innerHTML += `<option value="${c.charge_point_id}">${c.charge_point_id}</option>`; s.innerHTML += `<option value="${c.charge_point_id}">${c.charge_point_id}</option>`; });
+            } catch(e){ console.error('Error:',e); }
+        }
+
+        async function loadRecords() {
+            try {
+                const cId = document.getElementById('filterCharger').value;
+                const st = document.getElementById('filterStatus').value;
+                let url = `${API_BASE}/maintenance`; const p = [];
+                if (cId) p.push(`charger_id=${cId}`); if (st) p.push(`status=${st}`);
+                if (p.length) url += '?' + p.join('&');
+                const records = await (await fetch(url)).json();
+                const container = document.getElementById('recordsList');
+                const countEl = document.getElementById('recordCount');
+                if (records.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔧</div><div>No maintenance records</div></div>'; countEl.textContent = '0 records'; return; }
+                countEl.textContent = `${records.length} record(s)`;
+                container.innerHTML = records.map(r => {
+                    const dr = new Date(r.date_reported).toLocaleString('en-MY');
+                    const dc = r.date_completed ? new Date(r.date_completed).toLocaleString('en-MY') : '-';
+                    return `<div class="mx-item">
+                        <div class="mx-head">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <span class="mx-charger">${r.charge_point_id}</span>
+                                <span class="mx-badge ${r.maintenance_type}">${r.maintenance_type.replace('_',' ')}</span>
+                                <span class="mx-badge ${r.status}">${r.status.replace('_',' ')}</span>
+                            </div>
+                        </div>
+                        <div class="mx-details">
+                            <div><div class="mx-detail-label">Reported</div><div class="mx-detail-value">${dr}</div></div>
+                            <div><div class="mx-detail-label">Completed</div><div class="mx-detail-value">${dc}</div></div>
+                            <div><div class="mx-detail-label">Technician</div><div class="mx-detail-value">${r.technician_name||'-'}</div></div>
+                            <div><div class="mx-detail-label">Cost</div><div class="mx-detail-value">${r.cost?'RM '+r.cost.toFixed(2):'-'}</div></div>
+                        </div>
+                        ${r.issue_description ? `<div class="mx-work"><div class="mx-work-title">Issue</div><div class="mx-work-text">${r.issue_description}</div></div>` : ''}
+                        <div class="mx-work"><div class="mx-work-title">Work Performed</div><div class="mx-work-text">${r.work_performed}</div></div>
+                        ${r.parts_replaced ? `<div class="mx-work"><div class="mx-work-title">Parts Replaced</div><div class="mx-work-text">${r.parts_replaced}</div></div>` : ''}
+                        <div class="mx-actions">
+                            <button class="btn btn-secondary btn-xs" onclick="editRecord(${r.id})">✏️ Edit</button>
+                            <button class="btn btn-danger btn-xs" onclick="deleteRecord(${r.id})">🗑️ Delete</button>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch(e){ console.error('Error:',e); document.getElementById('recordsList').innerHTML = '<div class="empty-state">Error loading records</div>'; }
+        }
+
+        function openAddModal() { document.getElementById('modalTitle').textContent='Add Maintenance Record'; document.getElementById('recordId').value=''; document.getElementById('maintenanceForm').reset(); document.getElementById('modalOverlay').classList.add('active'); }
+
+        async function editRecord(id) {
+            try {
+                const r = await (await fetch(`${API_BASE}/maintenance/${id}`)).json();
+                document.getElementById('modalTitle').textContent = 'Edit Record';
+                document.getElementById('recordId').value = r.id;
+                document.getElementById('formCharger').value = r.charge_point_id;
+                document.getElementById('formType').value = r.maintenance_type;
+                document.getElementById('formStatus').value = r.status;
+                document.getElementById('formTechnician').value = r.technician_name || '';
+                document.getElementById('formIssue').value = r.issue_description || '';
+                document.getElementById('formWork').value = r.work_performed;
+                document.getElementById('formParts').value = r.parts_replaced || '';
+                document.getElementById('formCost').value = r.cost || '';
+                document.getElementById('formNotes').value = r.notes || '';
+                if (r.date_completed) document.getElementById('formDateCompleted').value = new Date(r.date_completed).toISOString().slice(0,16);
+                document.getElementById('modalOverlay').classList.add('active');
+            } catch(e){ alert('Error loading record'); }
+        }
+
+        function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+
+        async function saveRecord(e) {
+            e.preventDefault();
+            const rid = document.getElementById('recordId').value;
+            const data = { charger_id:document.getElementById('formCharger').value, maintenance_type:document.getElementById('formType').value, status:document.getElementById('formStatus').value, technician_name:document.getElementById('formTechnician').value||null, issue_description:document.getElementById('formIssue').value||null, work_performed:document.getElementById('formWork').value, parts_replaced:document.getElementById('formParts').value||null, cost:document.getElementById('formCost').value?parseFloat(document.getElementById('formCost').value):null, date_completed:document.getElementById('formDateCompleted').value||null, notes:document.getElementById('formNotes').value||null };
+            try {
+                const res = await fetch(rid ? `${API_BASE}/maintenance/${rid}` : `${API_BASE}/maintenance`, { method:rid?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+                if (res.ok) { closeModal(); loadRecords(); alert(rid?'✅ Updated!':'✅ Created!'); } else { const er = await res.json(); alert('Error: '+(er.detail||'Failed')); }
+            } catch(e){ alert('Error saving'); }
+        }
+
+        async function deleteRecord(id) {
+            if (!confirm('Delete this record?')) return;
+            try { const res = await fetch(`${API_BASE}/maintenance/${id}`,{method:'DELETE'}); if(res.ok){loadRecords();alert('✅ Deleted!');} else alert('Error deleting'); } catch(e){ alert('Error'); }
+        }
+    </script>
+</body>
+</html>

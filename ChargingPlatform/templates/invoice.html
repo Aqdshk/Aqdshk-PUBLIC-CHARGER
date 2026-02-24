@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice & Reports - Plag Sini</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <style>
+        .inv-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(clamp(80px, 8vw, 120px),1fr)); gap: clamp(6px, 0.5vw, 10px); margin-bottom: clamp(8px, 0.7vw, 14px); }
+        .inv-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding: clamp(6px, 0.6vw, 12px) clamp(4px, 0.4vw, 8px); text-align:center; transition:all var(--transition); }
+        .inv-card:hover { border-color:var(--accent); transform:translateY(-1px); }
+        .inv-card.hl { border-color:rgba(0,230,118,.2); }
+        .inv-card.warn { border-color:rgba(255,167,38,.2); }
+        .inv-icon { font-size: clamp(12px, 0.9vw, 16px); margin-bottom:3px; }
+        .inv-val { font-size: clamp(12px, 0.85vw, 15px); font-weight:800; color:var(--accent); line-height:1.2; }
+        .inv-card.warn .inv-val { color:var(--orange); }
+        .inv-lbl { color:var(--text-muted); font-size: clamp(7px, 0.45vw, 9px); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
+        .inv-filter { display:flex; gap: clamp(4px, 0.4vw, 8px); align-items:flex-end; flex-wrap:wrap; margin-bottom: clamp(8px, 0.7vw, 14px); }
+        .inv-filter div { display:flex; flex-direction:column; gap:2px; }
+        .inv-filter label { color:var(--text-muted); font-size: clamp(7px, 0.45vw, 9px); text-transform:uppercase; letter-spacing:.5px; }
+        .inv-filter input, .inv-filter select { padding: clamp(4px, 0.3vw, 6px) clamp(6px, 0.5vw, 10px); border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-primary); font-size: clamp(10px, 0.65vw, 12px); }
+        .inv-filter input:focus, .inv-filter select:focus { outline:none; border-color:var(--accent); }
+        .inv-tbl { width:100%; border-collapse:collapse; }
+        .inv-tbl th { background:var(--bg-elevated); color:var(--text-muted); font-size: clamp(7px, 0.45vw, 9px); font-weight:700; text-transform:uppercase; letter-spacing:.6px; padding: clamp(4px, 0.4vw, 7px) clamp(4px, 0.4vw, 8px); text-align:left; position:sticky; top:0; white-space:nowrap; }
+        .inv-tbl td { padding: clamp(4px, 0.4vw, 7px) clamp(4px, 0.4vw, 8px); border-bottom:1px solid rgba(30,42,58,.4); font-size: clamp(9px, 0.6vw, 11px); color:var(--text-secondary); }
+        .inv-tbl tr:hover { background:rgba(0,230,118,.02); }
+        .inv-tbl tr.total-row { background:rgba(0,230,118,.06); }
+        .inv-tbl tr.total-row td { color:var(--accent); font-weight:700; border-bottom:none; }
+        .text-right { text-align:right; }
+        .text-green { color:var(--accent); }
+        .text-orange { color:var(--orange); }
+        .text-blue { color:var(--blue); }
+        .tbl-grid { display:grid; grid-template-columns:1fr 1.5fr; gap: clamp(6px, 0.6vw, 12px); margin-top: clamp(8px, 0.7vw, 14px); }
+        .tbl-scroll { max-height: clamp(200px, 18vw, 280px); overflow:auto; }
+        .tbl-scroll::-webkit-scrollbar { width:4px; } .tbl-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+        .inv-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: clamp(8px, 0.7vw, 14px); padding-bottom: clamp(6px, 0.6vw, 12px); border-bottom:1px solid var(--border); }
+        .inv-logo { display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); }
+        .inv-logo img { width: clamp(24px, 2vw, 34px); height: clamp(24px, 2vw, 34px); object-fit:contain; border-radius:var(--radius-sm); }
+        .inv-logo-title { font-size: clamp(12px, 0.9vw, 16px); font-weight:700; color:var(--accent); }
+        .inv-logo-sub { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); }
+        .inv-info { text-align:right; color:var(--text-muted); font-size: clamp(9px, 0.55vw, 11px); line-height:1.6; }
+        .inv-info strong { color:var(--text-muted); font-size: clamp(7px, 0.45vw, 9px); text-transform:uppercase; letter-spacing:.3px; }
+        @media print {
+            body { background:#fff; color:#000; }
+            .sidebar,.sidebar-overlay,.top-header,.inv-filter,.no-print { display:none!important; }
+            .main-content { margin:0; padding:0; }
+            .dashboard-container { padding:0; max-width:none; }
+            .card { border:1px solid #ddd; background:#fff; }
+            .inv-card { background:#f5f5f5; border:1px solid #ddd; }
+            .inv-val,.text-green { color:#00aa55!important; } .text-orange { color:#cc6600!important; }
+            .inv-tbl th { background:#f0f0f0; color:#333; } .inv-tbl td { color:#333; }
+            .inv-logo-title { color:#00aa55; }
+            .tbl-grid { grid-template-columns:1fr; }
+        }
+        @media(max-width:1200px){ .tbl-grid{grid-template-columns:1fr;} }
+        @media(max-width:500px){ .inv-filter{flex-direction:column;align-items:stretch;} }
+    </style>
+</head>
+<body>
+    <script src="/static/auth.js"></script>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+            <div>
+                <div class="sidebar-title">Plag Sini</div>
+                <div class="sidebar-subtitle">Charging Platform</div>
+            </div>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item active"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="top-header no-print">
+            <div class="header-left">
+                <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+                <h1 class="page-title"><span>📄</span> Invoice & Reports</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary btn-small" onclick="exportCSV()">📥 CSV</button>
+                <button class="btn btn-primary btn-small" onclick="window.print()">🖨️ Print</button>
+            </div>
+        </header>
+
+        <div class="dashboard-container fade-in">
+            <!-- Filters -->
+            <div class="inv-filter no-print">
+                <div><label>From</label><input type="date" id="startDate"></div>
+                <div><label>To</label><input type="date" id="endDate"></div>
+                <div><label>Charger</label><select id="filterCharger"><option value="">All</option></select></div>
+                <button class="btn btn-primary btn-small" onclick="loadReport()">Generate</button>
+                <button class="btn btn-secondary btn-small" onclick="setThisMonth()">This Month</button>
+                <button class="btn btn-secondary btn-small" onclick="setLastMonth()">Last Month</button>
+            </div>
+
+            <!-- Report -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="inv-header">
+                        <div class="inv-logo">
+                            <img src="/static/logo.png" alt="Logo">
+                            <div><div class="inv-logo-title">Plag Sini</div><div class="inv-logo-sub">EV Charging Report</div></div>
+                        </div>
+                        <div class="inv-info">
+                            <strong>Generated</strong> <span id="reportDate">-</span><br>
+                            <strong>Period</strong> <span id="reportPeriod">-</span>
+                        </div>
+                    </div>
+
+                    <div class="inv-summary">
+                        <div class="inv-card"><div class="inv-icon">📋</div><div class="inv-val" id="totalSessions">-</div><div class="inv-lbl">Sessions</div></div>
+                        <div class="inv-card"><div class="inv-icon">⚡</div><div class="inv-val" id="totalEnergy">-</div><div class="inv-lbl">kWh</div></div>
+                        <div class="inv-card"><div class="inv-icon">⏱️</div><div class="inv-val" id="totalHours">-</div><div class="inv-lbl">Hours</div></div>
+                        <div class="inv-card"><div class="inv-icon">💵</div><div class="inv-val" id="pricePerKwh">-</div><div class="inv-lbl">RM/kWh</div></div>
+                        <div class="inv-card hl"><div class="inv-icon">💰</div><div class="inv-val" id="totalRevenue">-</div><div class="inv-lbl">Revenue</div></div>
+                        <div class="inv-card warn"><div class="inv-icon">🔧</div><div class="inv-val" id="maintenanceCost">-</div><div class="inv-lbl">Cost</div></div>
+                        <div class="inv-card hl"><div class="inv-icon">📈</div><div class="inv-val" id="netProfit">-</div><div class="inv-lbl">Net Profit</div></div>
+                    </div>
+
+                    <div class="tbl-grid">
+                        <div class="card" style="margin-bottom:0;">
+                            <div class="card-header"><span class="card-title"><span>🔌</span> By Charger</span></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>ID</th><th class="text-right">#</th><th class="text-right">kWh</th><th class="text-right">Hrs</th><th class="text-right">RM</th></tr></thead><tbody id="chargerBreakdown"><tr><td colspan="5" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                        </div>
+                        <div class="card" style="margin-bottom:0;">
+                            <div class="card-header"><span class="card-title"><span>📋</span> Session Details</span></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>TXN</th><th>Charger</th><th>Time</th><th>Dur</th><th class="text-right">kWh</th><th class="text-right">RM</th><th>Status</th></tr></thead><tbody id="sessionDetails"><tr><td colspan="7" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        const hamburger = document.getElementById('hamburger');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        function closeSidebar(){ hamburger.classList.remove('active'); sidebar.classList.remove('active'); sidebarOverlay.classList.remove('active'); }
+        hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
+        sidebarOverlay.addEventListener('click', closeSidebar);
+
+        document.addEventListener('DOMContentLoaded', () => { loadChargers(); setThisMonth(); });
+
+        async function loadChargers() {
+            try { const cs = await(await fetch(`${API_BASE}/chargers`)).json(); const s=document.getElementById('filterCharger'); cs.forEach(c=>{s.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;}); } catch(e){}
+        }
+
+        function setThisMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth(),1); const l=new Date(n.getFullYear(),n.getMonth()+1,0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
+        function setLastMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const l=new Date(n.getFullYear(),n.getMonth(),0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
+
+        let reportData = { breakdown:{}, sessions:[] };
+
+        async function loadReport() {
+            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
+            document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
+            document.getElementById('reportPeriod').textContent = `${sd||'-'} ~ ${ed||'-'}`;
+            const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
+            const qs = p.length ? '?'+p.join('&') : '';
+            try {
+                const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`)).json();
+                document.getElementById('totalSessions').textContent = sum.sessions.total;
+                document.getElementById('totalEnergy').textContent = sum.energy.total_kwh.toFixed(1);
+                document.getElementById('totalRevenue').textContent = sum.revenue.total.toFixed(2);
+                document.getElementById('maintenanceCost').textContent = sum.maintenance.total_cost.toFixed(2);
+                document.getElementById('totalHours').textContent = sum.duration.total_hours.toFixed(1);
+                document.getElementById('pricePerKwh').textContent = sum.energy.price_per_kwh.toFixed(2);
+                document.getElementById('netProfit').textContent = sum.net_profit.toFixed(2);
+
+                const bb = document.getElementById('chargerBreakdown');
+                const bd = sum.charger_breakdown; reportData.breakdown = bd;
+                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="5" class="empty-state">No data</td></tr>'; }
+                else {
+                    let ts=0,te=0,td=0,tr=0;
+                    let h = Object.entries(bd).map(([id,d])=>{ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue; return `<tr><td class="text-blue">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
+                    bb.innerHTML = h;
+                }
+
+                const sessions = await(await fetch(`${API_BASE}/invoice/sessions${qs}`)).json();
+                reportData.sessions = sessions;
+                const sb = document.getElementById('sessionDetails');
+                if (!sessions.length) { sb.innerHTML = '<tr><td colspan="7" class="empty-state">No sessions</td></tr>'; }
+                else {
+                    let ta=0;
+                    let h = sessions.map(s=>{ta+=s.amount; const st=s.start_time?new Date(s.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const dur=s.duration_minutes>0?`${Math.floor(s.duration_minutes/60)}h${Math.round(s.duration_minutes%60)}m`:'-'; const sc=s.status==='completed'?'text-green':s.status==='active'?'text-orange':''; return `<tr><td>#${s.transaction_id}</td><td class="text-blue">${s.charge_point_id}</td><td>${st}</td><td>${dur}</td><td class="text-right">${s.energy_kwh.toFixed(1)}</td><td class="text-right text-green">${s.amount.toFixed(2)}</td><td class="${sc}">${s.status.substring(0,4).toUpperCase()}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${ta.toFixed(2)}</strong></td><td></td></tr>`;
+                    sb.innerHTML = h;
+                }
+            } catch(e){ console.error('Error:',e); }
+        }
+
+        function exportCSV() {
+            if (!reportData.sessions.length) { alert('No data'); return; }
+            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
+            const now=new Date(), invDate=now.toLocaleDateString('en-GB');
+            const invNo=`INV-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`;
+            const fmt=d=>new Date(d).toLocaleDateString('en-GB');
+            let te=0,ta=0,td=0; reportData.sessions.forEach(s=>{te+=s.energy_kwh;ta+=s.amount;td+=s.duration_minutes;});
+            const up=1.20, sub=te*up;
+            let csv=`PLAG SINI SDN. BHD.\nEV Charging Platform\n\nInvoice No,: ${invNo}\nInvoice Date,: ${invDate}\nBilling Period,: ${fmt(sd)} - ${fmt(ed)}\n\n`;
+            csv+=`Total Sessions,: ${reportData.sessions.length}\nTotal Energy,: ${te.toFixed(2)} kWh\nTotal Time,: ${(td/60).toFixed(2)} hours\n\n`;
+            csv+='Session ID,Start Time,End Time,Duration (min),Energy (kWh),Unit Price (RM),Amount (RM)\n';
+            reportData.sessions.forEach((s,i)=>{const sid=`S${String(i+1).padStart(4,'0')}`; const st=s.start_time?new Date(s.start_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; const et=s.end_time?new Date(s.end_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; csv+=`${sid},${st},${et},${s.duration_minutes},${s.energy_kwh.toFixed(2)},${up.toFixed(2)},${(s.energy_kwh*up).toFixed(2)}\n`;});
+            csv+=`\nTOTAL AMOUNT,: RM ${sub.toFixed(2)}\n`;
+            if(Object.keys(reportData.breakdown).length){csv+='\nCharger ID,Sessions,Energy (kWh),Duration (hrs),Revenue (RM)\n'; Object.entries(reportData.breakdown).forEach(([id,d])=>{csv+=`${id},${d.sessions},${d.energy_kwh.toFixed(2)},${(d.duration_minutes/60).toFixed(2)},${d.revenue.toFixed(2)}\n`;});}
+            csv+='\nThank you for using Plag Sini.\n';
+            const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`PlagSini_${invNo}.csv`; a.click(); URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
