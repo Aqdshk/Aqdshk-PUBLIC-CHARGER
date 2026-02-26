@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
+import '../services/secure_storage_service.dart';
 
 class EInvoiceProfileScreen extends StatefulWidget {
   const EInvoiceProfileScreen({super.key});
@@ -29,17 +29,30 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
   }
 
   Future<void> _loadSavedProfile() async {
-    final prefs = await SharedPreferences.getInstance();
+    final name = await SecureStorageService.getString(SecureStorageService.einvoiceNameKey) ?? '';
+    final ic = await SecureStorageService.getString(SecureStorageService.einvoiceIcKey) ?? '';
+    final tin = await SecureStorageService.getString(SecureStorageService.einvoiceTinKey) ?? '';
+    final address = await SecureStorageService.getString(SecureStorageService.einvoiceAddressKey) ?? '';
+    final city = await SecureStorageService.getString(SecureStorageService.einvoiceCityKey) ?? '';
+    final postcode = await SecureStorageService.getString(SecureStorageService.einvoicePostcodeKey) ?? '';
+    final state = await SecureStorageService.getString(SecureStorageService.einvoiceStateKey) ?? '';
+    final idType = await SecureStorageService.getString(SecureStorageService.einvoiceIdTypeKey) ?? 'NRIC';
+    final verified = await SecureStorageService.getBool(
+      SecureStorageService.einvoiceVerifiedKey,
+      defaultValue: false,
+    );
+
+    if (!mounted) return;
     setState(() {
-      _nameController.text = prefs.getString('einvoice_name') ?? '';
-      _icController.text = prefs.getString('einvoice_ic') ?? '';
-      _tinController.text = prefs.getString('einvoice_tin') ?? '';
-      _addressController.text = prefs.getString('einvoice_address') ?? '';
-      _cityController.text = prefs.getString('einvoice_city') ?? '';
-      _postcodeController.text = prefs.getString('einvoice_postcode') ?? '';
-      _stateController.text = prefs.getString('einvoice_state') ?? '';
-      _selectedIdType = prefs.getString('einvoice_id_type') ?? 'NRIC';
-      _isVerified = prefs.getBool('einvoice_verified') ?? false;
+      _nameController.text = name;
+      _icController.text = ic;
+      _tinController.text = tin;
+      _addressController.text = address;
+      _cityController.text = city;
+      _postcodeController.text = postcode;
+      _stateController.text = state;
+      _selectedIdType = idType;
+      _isVerified = verified;
     });
   }
 
@@ -423,16 +436,42 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('einvoice_name', _nameController.text.trim());
-      await prefs.setString('einvoice_ic', _icController.text.trim());
-      await prefs.setString('einvoice_tin', _tinController.text.trim());
-      await prefs.setString('einvoice_address', _addressController.text.trim());
-      await prefs.setString('einvoice_city', _cityController.text.trim());
-      await prefs.setString('einvoice_postcode', _postcodeController.text.trim());
-      await prefs.setString('einvoice_state', _stateController.text.trim());
-      await prefs.setString('einvoice_id_type', _selectedIdType);
-      await prefs.setBool('einvoice_verified', true);
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceNameKey,
+        _nameController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceIcKey,
+        _icController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceTinKey,
+        _tinController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceAddressKey,
+        _addressController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceCityKey,
+        _cityController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoicePostcodeKey,
+        _postcodeController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceStateKey,
+        _stateController.text.trim(),
+      );
+      await SecureStorageService.setString(
+        SecureStorageService.einvoiceIdTypeKey,
+        _selectedIdType,
+      );
+      await SecureStorageService.setBool(
+        SecureStorageService.einvoiceVerifiedKey,
+        true,
+      );
 
       if (!mounted) return;
       setState(() => _isVerified = true);

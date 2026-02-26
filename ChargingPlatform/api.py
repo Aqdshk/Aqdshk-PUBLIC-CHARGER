@@ -47,6 +47,23 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Charging Platform Management System")
 
+def _require_callback_secret(request: Request, gateway_name: str) -> None:
+    """
+    Enforce shared-secret protection for payment callbacks.
+    Reject callbacks unless PAYMENT_CALLBACK_SECRET is configured and matches.
+    """
+    expected_secret = os.getenv("PAYMENT_CALLBACK_SECRET", "").strip()
+    if not expected_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Payment callback secret is not configured on the server",
+        )
+
+    provided_secret = request.headers.get("X-Callback-Secret", "").strip()
+    if not provided_secret or not secrets.compare_digest(provided_secret, expected_secret):
+        logger.warning("Rejected callback for gateway '%s': invalid callback secret", gateway_name)
+        raise HTTPException(status_code=401, detail="Invalid callback secret")
+
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
@@ -770,7 +787,7 @@ async def my_tickets_page():
 
 
 @app.post("/api/ocpp/{charge_point_id}/change-availability", response_model=OcppOperationResponse)
-async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db)):
+async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 ChangeAvailability"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -786,7 +803,7 @@ async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabi
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-cache", response_model=OcppOperationResponse)
-async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db)):
+async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 ClearCache"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -802,7 +819,7 @@ async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/ocpp/{charge_point_id}/reset", response_model=OcppOperationResponse)
-async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = Depends(get_db)):
+async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 Reset"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -818,7 +835,7 @@ async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = 
 
 
 @app.post("/api/ocpp/{charge_point_id}/unlock-connector", response_model=OcppOperationResponse)
-async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRequest, db: Session = Depends(get_db)):
+async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 UnlockConnector"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -834,7 +851,7 @@ async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRe
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-diagnostics", response_model=OcppOperationResponse)
-async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequest, db: Session = Depends(get_db)):
+async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 GetDiagnostics"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -854,7 +871,7 @@ async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/update-firmware", response_model=OcppOperationResponse)
-async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db)):
+async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 UpdateFirmware"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -870,7 +887,7 @@ async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/reserve-now", response_model=OcppOperationResponse)
-async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db: Session = Depends(get_db)):
+async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 ReserveNow"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -889,7 +906,7 @@ async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db:
 
 
 @app.post("/api/ocpp/{charge_point_id}/cancel-reservation", response_model=OcppOperationResponse)
-async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservationRequest, db: Session = Depends(get_db)):
+async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservationRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 CancelReservation"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -905,7 +922,7 @@ async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservati
 
 
 @app.post("/api/ocpp/{charge_point_id}/data-transfer", response_model=OcppOperationResponse)
-async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest, db: Session = Depends(get_db)):
+async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 DataTransfer"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -922,7 +939,7 @@ async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest,
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-local-list-version", response_model=OcppOperationResponse)
-async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depends(get_db)):
+async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 GetLocalListVersion"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -938,7 +955,7 @@ async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depend
 
 
 @app.post("/api/ocpp/{charge_point_id}/send-local-list", response_model=OcppOperationResponse)
-async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListRequest, db: Session = Depends(get_db)):
+async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 SendLocalList"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -957,7 +974,7 @@ async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListReque
 
 
 @app.post("/api/ocpp/{charge_point_id}/trigger-message", response_model=OcppOperationResponse)
-async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequest, db: Session = Depends(get_db)):
+async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 TriggerMessage"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -975,7 +992,7 @@ async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-composite-schedule", response_model=OcppOperationResponse)
-async def ocpp_get_composite_schedule(charge_point_id: str, request: GetCompositeScheduleRequest, db: Session = Depends(get_db)):
+async def ocpp_get_composite_schedule(charge_point_id: str, request: GetCompositeScheduleRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 GetCompositeSchedule"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -995,7 +1012,7 @@ async def ocpp_get_composite_schedule(charge_point_id: str, request: GetComposit
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-charging-profile", response_model=OcppOperationResponse)
-async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargingProfileRequest, db: Session = Depends(get_db)):
+async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargingProfileRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 ClearChargingProfile"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1015,7 +1032,7 @@ async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargi
 
 
 @app.post("/api/ocpp/{charge_point_id}/set-charging-profile", response_model=OcppOperationResponse)
-async def ocpp_set_charging_profile(charge_point_id: str, request: SetChargingProfileRequest, db: Session = Depends(get_db)):
+async def ocpp_set_charging_profile(charge_point_id: str, request: SetChargingProfileRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """OCPP 1.6 SetChargingProfile"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -2983,7 +3000,8 @@ async def maintenance_page():
 async def get_all_maintenance(
     charger_id: Optional[str] = None,
     status: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin),
 ):
     """Get all maintenance records, optionally filtered by charger or status"""
     query = db.query(MaintenanceRecord)
@@ -3024,7 +3042,7 @@ async def get_all_maintenance(
 
 
 @app.get("/api/maintenance/{record_id}", response_model=MaintenanceResponse)
-async def get_maintenance_record(record_id: int, db: Session = Depends(get_db)):
+async def get_maintenance_record(record_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Get a specific maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3053,7 +3071,7 @@ async def get_maintenance_record(record_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/maintenance", response_model=MaintenanceResponse)
-async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depends(get_db)):
+async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Create a new maintenance record"""
     # Find charger by charge_point_id
     charger = db.query(Charger).filter(Charger.charge_point_id == data.charger_id).first()
@@ -3099,7 +3117,7 @@ async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depen
 
 
 @app.put("/api/maintenance/{record_id}", response_model=MaintenanceResponse)
-async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db: Session = Depends(get_db)):
+async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Update a maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3156,7 +3174,7 @@ async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db:
 
 
 @app.delete("/api/maintenance/{record_id}")
-async def delete_maintenance_record(record_id: int, db: Session = Depends(get_db)):
+async def delete_maintenance_record(record_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Delete a maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3550,6 +3568,7 @@ async def list_tickets(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin),
 ):
     """List support tickets. Supports filtering by staff/department for hierarchy."""
     q = db.query(SupportTicket)
@@ -3609,7 +3628,7 @@ async def list_tickets(
 
 
 @app.get("/api/tickets/stats")
-async def ticket_stats(db: Session = Depends(get_db)):
+async def ticket_stats(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Get ticket statistics for admin dashboard."""
     total = db.query(SupportTicket).count()
     open_count = db.query(SupportTicket).filter(SupportTicket.status == "open").count()
@@ -3662,7 +3681,7 @@ async def ticket_stats(db: Session = Depends(get_db)):
 
 
 @app.get("/api/tickets/overdue")
-async def get_overdue_tickets(db: Session = Depends(get_db)):
+async def get_overdue_tickets(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Get all overdue and soon-due tickets for reminder dashboard."""
     now = datetime.utcnow()
     warning_deadline = now + timedelta(hours=2)
@@ -3728,7 +3747,7 @@ def _humanize_seconds(seconds: float) -> str:
 
 
 @app.get("/api/tickets/{ticket_id}")
-async def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
+async def get_ticket(ticket_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Get a single ticket with its messages."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -3771,7 +3790,7 @@ async def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/tickets/{ticket_id}")
-async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = Depends(get_db)):
+async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Update a ticket (status, priority, assignment, etc.)."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -3811,7 +3830,7 @@ async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = 
 
 
 @app.post("/api/tickets/{ticket_id}/messages")
-async def add_ticket_message(ticket_id: int, req: TicketMessageRequest, db: Session = Depends(get_db)):
+async def add_ticket_message(ticket_id: int, req: TicketMessageRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Add a message to a ticket thread."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -3991,7 +4010,7 @@ async def staff_my_tickets(
 # ─── Staff CRUD (admin only) ───
 
 @app.post("/api/staff")
-async def create_staff(req: CreateStaffRequest, db: Session = Depends(get_db)):
+async def create_staff(req: CreateStaffRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Create a new support staff member."""
     if req.department not in DEPARTMENTS:
         raise HTTPException(status_code=400, detail=f"Invalid department. Must be one of: {DEPARTMENTS}")
@@ -4026,6 +4045,7 @@ async def list_staff(
     department: Optional[str] = None,
     role: Optional[str] = None,
     db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin),
 ):
     """List all staff members."""
     q = db.query(SupportStaff)
@@ -4063,7 +4083,7 @@ async def list_staff(
 
 
 @app.get("/api/staff/{staff_id}")
-async def get_staff(staff_id: int, db: Session = Depends(get_db)):
+async def get_staff(staff_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4079,7 +4099,7 @@ async def get_staff(staff_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/staff/{staff_id}")
-async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Depends(get_db)):
+async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4100,7 +4120,7 @@ async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Dep
 
 
 @app.delete("/api/staff/{staff_id}")
-async def delete_staff(staff_id: int, db: Session = Depends(get_db)):
+async def delete_staff(staff_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4148,7 +4168,7 @@ class GatewayConfigRequest(BaseModel):
 
 
 @app.get("/api/payment/gateways")
-async def list_payment_gateways(db: Session = Depends(get_db)):
+async def list_payment_gateways(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """List all configured payment gateways."""
     gateways = db.query(PaymentGatewayConfig).order_by(PaymentGatewayConfig.created_at).all()
     result = []
@@ -4179,7 +4199,7 @@ async def list_payment_gateways(db: Session = Depends(get_db)):
 
 
 @app.post("/api/payment/gateways")
-async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depends(get_db)):
+async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Create/configure a new payment gateway."""
     existing = db.query(PaymentGatewayConfig).filter(
         PaymentGatewayConfig.gateway_name == req.gateway_name
@@ -4218,7 +4238,7 @@ async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depend
 
 
 @app.put("/api/payment/gateways/{gateway_id}")
-async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db: Session = Depends(get_db)):
+async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Update payment gateway configuration."""
     gw = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.id == gateway_id).first()
     if not gw:
@@ -4254,7 +4274,7 @@ async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db:
 
 
 @app.delete("/api/payment/gateways/{gateway_id}")
-async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db)):
+async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Delete a payment gateway configuration."""
     gw = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.id == gateway_id).first()
     if not gw:
@@ -4517,12 +4537,18 @@ async def create_topup(
 
 
 @app.post("/api/payment/callback/{gateway_name}")
-async def payment_callback(gateway_name: str, payload: dict, db: Session = Depends(get_db)):
+async def payment_callback(gateway_name: str, payload: dict, request: Request, db: Session = Depends(get_db)):
     """
     Payment gateway callback/webhook handler.
     Each gateway posts here when payment is completed.
     """
-    logger.info(f"Payment callback received from {gateway_name}: {payload}")
+    logger.info("Payment callback received from %s", gateway_name)
+
+    # Manual top-ups are approved via admin endpoint only, never by public callback.
+    if gateway_name == "manual":
+        raise HTTPException(status_code=403, detail="Manual gateway callbacks are not allowed")
+
+    _require_callback_secret(request, gateway_name)
 
     # Get gateway config
     gw_config = db.query(PaymentGatewayConfig).filter(
@@ -4550,21 +4576,29 @@ async def payment_callback(gateway_name: str, payload: dict, db: Session = Depen
 
     # Find transaction
     txn_ref = verification.get("transaction_ref", "")
-    txn = db.query(PaymentTransaction).filter(PaymentTransaction.transaction_ref == txn_ref).first()
+    txn = (
+        db.query(PaymentTransaction)
+        .filter(PaymentTransaction.transaction_ref == txn_ref)
+        .with_for_update()
+        .first()
+    )
 
     if not txn:
         # Try by gateway transaction ID
         gw_txn_id = verification.get("gateway_transaction_id", "")
-        txn = db.query(PaymentTransaction).filter(
-            PaymentTransaction.gateway_transaction_id == gw_txn_id
-        ).first()
+        txn = (
+            db.query(PaymentTransaction)
+            .filter(PaymentTransaction.gateway_transaction_id == gw_txn_id)
+            .with_for_update()
+            .first()
+        )
 
     if not txn:
         logger.error(f"Transaction not found for callback: {txn_ref}")
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    # Already processed?
-    if txn.status in ["success", "refunded"]:
+    # Already processed or already credited?
+    if txn.status in ["success", "refunded"] or txn.wallet_transaction_id:
         return {"success": True, "message": "Already processed"}
 
     # Update transaction
@@ -4590,7 +4624,26 @@ async def payment_callback(gateway_name: str, payload: dict, db: Session = Depen
 
 def _credit_wallet(db: Session, txn: PaymentTransaction):
     """Credit user's wallet after successful payment (uses Decimal)."""
-    wallet = db.query(Wallet).filter(Wallet.user_id == txn.user_id).first()
+    if txn.wallet_transaction_id:
+        return
+
+    existing_wt = (
+        db.query(WalletTransaction)
+        .filter(
+            WalletTransaction.gateway_reference == txn.transaction_ref,
+            WalletTransaction.transaction_type == "topup",
+            WalletTransaction.status == "completed",
+        )
+        .first()
+    )
+    if existing_wt:
+        txn.wallet_transaction_id = existing_wt.id
+        return
+
+    try:
+        wallet = get_wallet_with_lock(db, txn.user_id)
+    except HTTPException:
+        wallet = None
     if not wallet:
         wallet = Wallet(user_id=txn.user_id, balance=Decimal("0.00"), points=0)
         db.add(wallet)
@@ -4750,7 +4803,7 @@ async def analytics_page():
 
 
 @app.get("/api/analytics/overview")
-async def analytics_overview(db: Session = Depends(get_db)):
+async def analytics_overview(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """
     Comprehensive analytics overview — aggregates ALL platform data.
     Returns revenue, traffic, charger utilization, user growth, and more.
@@ -5053,7 +5106,7 @@ async def analytics_overview(db: Session = Depends(get_db)):
 
 
 @app.get("/api/analytics/insights")
-async def analytics_insights(db: Session = Depends(get_db)):
+async def analytics_insights(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """
     AI-powered insights and recommendations engine.
     Analyzes all platform data and generates actionable suggestions.

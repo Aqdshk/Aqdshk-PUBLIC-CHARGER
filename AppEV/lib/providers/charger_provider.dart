@@ -73,7 +73,11 @@ class ChargerProvider with ChangeNotifier {
       debugPrint('✅ Chargers loaded successfully');
     } catch (e) {
       debugPrint('❌ Error loading chargers: $e');
-      _error = e.toString();
+      if (e is AuthSessionExpiredException) {
+        _error = 'Session expired. Please login again.';
+      } else {
+        _error = e.toString();
+      }
     }
 
     _isLoading = false;

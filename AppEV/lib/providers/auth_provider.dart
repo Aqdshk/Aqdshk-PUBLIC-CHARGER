@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../services/secure_storage_service.dart';
 import '../models/user.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -20,19 +21,17 @@ class AuthProvider with ChangeNotifier {
     _loadUser();
   }
 
-  /// Save JWT tokens to SharedPreferences
+  /// Save JWT tokens to secure storage
   Future<void> _saveTokens(Map<String, dynamic> response) async {
-    final prefs = await SharedPreferences.getInstance();
-
     // Save access token (use 'access_token' first, fall back to 'token')
     final accessToken = response['access_token'] ?? response['token'];
     if (accessToken != null) {
-      await prefs.setString('auth_token', accessToken);
+      await SecureStorageService.saveAccessToken(accessToken);
     }
 
     // Save refresh token
     if (response['refresh_token'] != null) {
-      await prefs.setString('refresh_token', response['refresh_token']);
+      await SecureStorageService.saveRefreshToken(response['refresh_token']);
     }
   }
 
@@ -42,6 +41,7 @@ class AuthProvider with ChangeNotifier {
     await prefs.remove('user_id');
     await prefs.remove('auth_token');
     await prefs.remove('refresh_token');
+    await SecureStorageService.clearAuthTokens();
   }
 
   Future<void> _loadUser() async {

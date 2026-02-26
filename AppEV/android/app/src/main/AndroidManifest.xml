@@ -9,6 +9,7 @@
     <application
         android:label="EV Charging"
         android:name="${applicationName}"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

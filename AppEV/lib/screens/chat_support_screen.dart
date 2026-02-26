@@ -28,12 +28,25 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
   /// Bot API base URL — derives from the main API base URL
   String get _botBaseUrl {
     const envUrl = String.fromEnvironment('BOT_BASE_URL', defaultValue: '');
-    if (envUrl.isNotEmpty) return envUrl;
+    if (envUrl.isNotEmpty) {
+      if (kReleaseMode && envUrl.startsWith('http://')) {
+        throw StateError('BOT_BASE_URL must use HTTPS in release builds.');
+      }
+      return envUrl;
+    }
     // Derive from API_BASE_URL: replace port 8000 with 8001, remove /api
     const apiUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
     if (apiUrl.isNotEmpty) {
       final uri = Uri.parse(apiUrl);
-      return '${uri.scheme}://${uri.host}:8001';
+      final derived = '${uri.scheme}://${uri.host}:8001';
+      if (kReleaseMode && derived.startsWith('http://')) {
+        throw StateError('Derived BOT_BASE_URL must use HTTPS in release builds.');
+      }
+      return derived;
+    }
+
+    if (kReleaseMode) {
+      throw StateError('BOT_BASE_URL is required for release builds.');
     }
     // Web: use localhost; Native (Android emulator): use 10.0.2.2
     if (kIsWeb) return 'http://localhost:8001';

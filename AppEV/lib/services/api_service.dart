@@ -2,6 +2,15 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'secure_storage_service.dart';
+
+class AuthSessionExpiredException implements Exception {
+  final String message;
+  AuthSessionExpiredException([this.message = 'Session expired. Please login again.']);
+
+  @override
+  String toString() => message;
+}
 
 class ApiService {
   // API base URL
@@ -14,7 +23,14 @@ class ApiService {
     // Check for environment override first
     const envUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
     if (envUrl.isNotEmpty) {
+      if (kReleaseMode && envUrl.startsWith('http://')) {
+        throw StateError('API_BASE_URL must use HTTPS in release builds.');
+      }
       return envUrl;
+    }
+
+    if (kReleaseMode) {
+      throw StateError('API_BASE_URL is required for release builds.');
     }
     
     if (kIsWeb) {
@@ -31,8 +47,16 @@ class ApiService {
   // ── JWT Token Management ──
 
   static Future<Map<String, String>> _getHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    String? token = await SecureStorageService.getAccessToken();
+    if (token == null) {
+      // Legacy migration path from SharedPreferences.
+      final prefs = await SharedPreferences.getInstance();
+      token = prefs.getString('auth_token');
+      if (token != null) {
+        await SecureStorageService.saveAccessToken(token);
+        await prefs.remove('auth_token');
+      }
+    }
     
     return {
       'Content-Type': 'application/json',
@@ -44,8 +68,16 @@ class ApiService {
   /// Returns true if refresh was successful.
   static Future<bool> _refreshToken() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refresh_token');
+      String? refreshToken = await SecureStorageService.getRefreshToken();
+      if (refreshToken == null) {
+        // Legacy migration path from SharedPreferences.
+        final prefs = await SharedPreferences.getInstance();
+        refreshToken = prefs.getString('refresh_token');
+        if (refreshToken != null) {
+          await SecureStorageService.saveRefreshToken(refreshToken);
+          await prefs.remove('refresh_token');
+        }
+      }
       if (refreshToken == null) return false;
 
       final response = await http.post(
@@ -57,7 +89,10 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] == true && data['access_token'] != null) {
-          await prefs.setString('auth_token', data['access_token']);
+          await SecureStorageService.saveAccessToken(data['access_token']);
+          if (data['refresh_token'] != null) {
+            await SecureStorageService.saveRefreshToken(data['refresh_token']);
+          }
           debugPrint('🔄 Token refreshed successfully');
           return true;
         }
@@ -85,6 +120,9 @@ class ApiService {
         response = await http.get(Uri.parse(url), headers: headers);
       }
     }
+    if (response.statusCode == 401) {
+      throw AuthSessionExpiredException();
+    }
     return response;
   }
 
@@ -99,6 +137,9 @@ class ApiService {
         headers = await _getHeaders();
         response = await http.post(Uri.parse(url), headers: headers, body: body is String ? body : json.encode(body));
       }
+    }
+    if (response.statusCode == 401) {
+      throw AuthSessionExpiredException();
     }
     return response;
   }
@@ -115,6 +156,9 @@ class ApiService {
         response = await http.put(Uri.parse(url), headers: headers, body: body is String ? body : json.encode(body));
       }
     }
+    if (response.statusCode == 401) {
+      throw AuthSessionExpiredException();
+    }
     return response;
   }
 
@@ -129,6 +173,9 @@ class ApiService {
         headers = await _getHeaders();
         response = await http.delete(Uri.parse(url), headers: headers);
       }
+    }
+    if (response.statusCode == 401) {
+      throw AuthSessionExpiredException();
     }
     return response;
   }
@@ -158,35 +205,11 @@ class ApiService {
         }).toList();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('Error loading chargers: $e');
-      // Return mock data for development
-      return [
-        {
-          'id': 1,
-          'charge_point_id': 'CP001',
-          'availability': 'available',
-          'status': 'online',
-          'vendor': 'Tesla',
-          'model': 'Supercharger V3',
-        },
-        {
-          'id': 2,
-          'charge_point_id': 'CP002',
-          'availability': 'available',
-          'status': 'online',
-          'vendor': 'ABB',
-          'model': 'Terra AC',
-        },
-        {
-          'id': 3,
-          'charge_point_id': 'CP003',
-          'availability': 'available',
-          'status': 'online',
-          'vendor': 'ChargePoint',
-          'model': 'Express Plus',
-        },
-      ];
+      return [];
     }
   }
 
@@ -204,6 +227,8 @@ class ApiService {
         }
       }
       return null;
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       return null;
     }
@@ -218,6 +243,8 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       return [];
     }
@@ -242,18 +269,18 @@ class ApiService {
       final response = await _authPost(url, body: body);
 
       debugPrint('📥 Response status: ${response.statusCode}');
-      debugPrint('📥 Response body: ${response.body}');
-
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
         return result;
       } else {
-        debugPrint('❌ HTTP Error: ${response.statusCode} - ${response.body}');
+        debugPrint('❌ HTTP Error: ${response.statusCode}');
         return {
           'success': false,
           'message': 'Failed to start charging: HTTP ${response.statusCode}',
         };
       }
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Exception: $e');
       return {
@@ -278,6 +305,8 @@ class ApiService {
         'success': false,
         'message': 'Failed to stop charging',
       };
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       return {
         'success': false,
@@ -295,17 +324,10 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
-      // Mock data
-      return [
-        {
-          'id': 1,
-          'type': 'credit_card',
-          'name': 'Visa •••• 1234',
-          'details': 'Expires 12/25',
-          'is_default': true,
-        },
-      ];
+      return [];
     }
   }
 
@@ -325,6 +347,8 @@ class ApiService {
         }
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('Error loading transactions: $e');
       return [];
@@ -350,6 +374,8 @@ class ApiService {
         return json.decode(response.body);
       }
       return {'success': false};
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       return {'success': false, 'error': e.toString()};
     }
@@ -366,7 +392,6 @@ class ApiService {
         body: json.encode({'email': email}),
       );
 
-      debugPrint('📥 Send OTP response: ${response.body}');
       return json.decode(response.body);
     } catch (e) {
       debugPrint('❌ Send OTP error: $e');
@@ -389,7 +414,6 @@ class ApiService {
         }),
       );
 
-      debugPrint('📥 Verify OTP response: ${response.body}');
       return json.decode(response.body);
     } catch (e) {
       debugPrint('❌ Verify OTP error: $e');
@@ -479,7 +503,6 @@ class ApiService {
         }),
       );
 
-      debugPrint('📥 Register response: ${response.body}');
       return json.decode(response.body);
     } catch (e) {
       debugPrint('❌ Register error: $e');
@@ -508,7 +531,6 @@ class ApiService {
         }),
       );
 
-      debugPrint('📥 Register (OTP) response: ${response.body}');
       return json.decode(response.body);
     } catch (e) {
       debugPrint('❌ Register (OTP) error: $e');
@@ -531,7 +553,6 @@ class ApiService {
         }),
       );
 
-      debugPrint('📥 Login response: ${response.body}');
       return json.decode(response.body);
     } catch (e) {
       debugPrint('❌ Login error: $e');
@@ -547,10 +568,9 @@ class ApiService {
       if (response.statusCode == 200) {
         return json.decode(response.body);
       }
-      if (response.statusCode == 401) {
-        return {'success': false, 'message': 'Session expired', 'auth_error': true};
-      }
       return {'success': false, 'message': 'Failed to get profile'};
+    } on AuthSessionExpiredException {
+      return {'success': false, 'message': 'Session expired', 'auth_error': true};
     } catch (e) {
       debugPrint('❌ Get profile error: $e');
       return {'success': false, 'message': e.toString()};
@@ -576,6 +596,8 @@ class ApiService {
       );
 
       return json.decode(response.body);
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Update profile error: $e');
       return {'success': false, 'message': e.toString()};
@@ -593,6 +615,8 @@ class ApiService {
         return json.decode(response.body);
       }
       return {'balance': 0.0, 'points': 0, 'currency': 'MYR'};
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get wallet error: $e');
       return {'balance': 0.0, 'points': 0, 'currency': 'MYR'};
@@ -615,6 +639,8 @@ class ApiService {
       );
 
       return json.decode(response.body);
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Top up error: $e');
       return {'success': false, 'message': e.toString()};
@@ -643,6 +669,8 @@ class ApiService {
       );
 
       return json.decode(response.body);
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Payment top-up error: $e');
       return {'success': false, 'message': e.toString()};
@@ -654,6 +682,8 @@ class ApiService {
     try {
       final response = await _authGet('$baseUrl/payment/transactions/$transactionRef');
       return json.decode(response.body);
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Check payment status error: $e');
       return {'success': false, 'message': e.toString()};
@@ -669,6 +699,8 @@ class ApiService {
         return List<Map<String, dynamic>>.from(data['transactions'] ?? []);
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get payment transactions error: $e');
       return [];
@@ -691,6 +723,8 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get transactions error: $e');
       return [];
@@ -709,6 +743,8 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get rewards catalog error: $e');
       return [];
@@ -730,8 +766,9 @@ class ApiService {
         }),
       );
 
-      debugPrint('📥 Redeem response: ${response.body}');
       return json.decode(response.body);
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Redeem reward error: $e');
       return {'success': false, 'message': e.toString()};
@@ -751,6 +788,8 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get reward history error: $e');
       return [];
@@ -769,7 +808,7 @@ class ApiService {
   }) async {
     try {
       // Use ChargingPlatform API directly (same base as main API)
-      final ticketUrl = baseUrl.replaceAll('/api', '') + '/api/tickets';
+      final ticketUrl = '${baseUrl.replaceAll('/api', '')}/api/tickets';
       final response = await http.post(
         Uri.parse(ticketUrl),
         headers: {'Content-Type': 'application/json'},
@@ -802,6 +841,8 @@ class ApiService {
         return data.cast<Map<String, dynamic>>();
       }
       return [];
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Get vehicles error: $e');
       return [];
@@ -823,6 +864,8 @@ class ApiService {
         return {'success': true, 'vehicle': json.decode(response.body)};
       }
       return {'success': false, 'message': 'Failed to add vehicle'};
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Add vehicle error: $e');
       return {'success': false, 'message': e.toString()};
@@ -835,6 +878,8 @@ class ApiService {
       final response = await _authDelete('$baseUrl/users/$userId/vehicles/$vehicleId');
 
       return response.statusCode == 200;
+    } on AuthSessionExpiredException {
+      rethrow;
     } catch (e) {
       debugPrint('❌ Delete vehicle error: $e');
       return false;

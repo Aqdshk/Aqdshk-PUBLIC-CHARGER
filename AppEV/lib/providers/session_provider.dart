@@ -27,7 +27,11 @@ class SessionProvider with ChangeNotifier {
       final session = await ApiService.getActiveSession();
       _activeSession = session;
     } catch (e) {
-      debugPrint('Error loading session: $e');
+      if (e is AuthSessionExpiredException) {
+        _error = 'Session expired. Please login again.';
+      } else {
+        debugPrint('Error loading session: $e');
+      }
     }
 
     _isLoading = false;
@@ -42,7 +46,11 @@ class SessionProvider with ChangeNotifier {
       final sessions = await ApiService.getChargingHistory();
       _history = sessions;
     } catch (e) {
-      debugPrint('Error loading history: $e');
+      if (e is AuthSessionExpiredException) {
+        _error = 'Session expired. Please login again.';
+      } else {
+        debugPrint('Error loading history: $e');
+      }
     }
 
     _isLoading = false;
