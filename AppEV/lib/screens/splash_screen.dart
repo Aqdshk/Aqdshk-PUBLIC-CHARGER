@@ -331,24 +331,35 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Widget _buildBackground() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(0, -0.3),
-          radius: 1.2,
-          colors: [
-            Color(0xFF0F1B2D),
-            Color(0xFF0A0A1A),
-            Color(0xFF050510),
-          ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF12263C),
+                Color(0xFF0A1628),
+                Color(0xFF060B18),
+              ],
+            ),
+          ),
         ),
-      ),
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _BackgroundParticlePainter(
-          progress: _masterController.value,
+        CustomPaint(
+          size: Size.infinite,
+          painter: _DepthBackgroundPainter(
+            progress: _masterController.value,
+          ),
         ),
-      ),
+        CustomPaint(
+          size: Size.infinite,
+          painter: _BackgroundParticlePainter(
+            progress: _masterController.value,
+          ),
+        ),
+      ],
     );
   }
 
@@ -548,7 +559,7 @@ class _SplashScreenState extends State<SplashScreen>
         ),
         const SizedBox(height: 6),
         Text(
-          'EV Charging Platform',
+          'Charge your journey',
           style: TextStyle(
             fontSize: 12,
             color: Colors.white.withOpacity(0.4),
@@ -1110,7 +1121,7 @@ class _BackgroundParticlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final random = Random(42);
 
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 18; i++) {
       final baseX = random.nextDouble() * size.width;
       final baseY = random.nextDouble() * size.height;
       final drift = sin((progress * 2 * pi) + i * 0.5) * 10;
@@ -1131,5 +1142,100 @@ class _BackgroundParticlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BackgroundParticlePainter oldDelegate) =>
+      progress != oldDelegate.progress;
+}
+
+class _DepthBackgroundPainter extends CustomPainter {
+  final double progress;
+
+  _DepthBackgroundPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final horizonY = size.height * 0.62;
+
+    final horizonGlow = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0, 0.15),
+        radius: 0.95,
+        colors: [
+          const Color(0xFF00FF88).withOpacity(0.09),
+          const Color(0xFF4AA8FF).withOpacity(0.08),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), horizonGlow);
+
+    final road = Path()
+      ..moveTo(size.width * 0.10, size.height)
+      ..lineTo(size.width * 0.90, size.height)
+      ..lineTo(size.width * 0.66, horizonY)
+      ..lineTo(size.width * 0.34, horizonY)
+      ..close();
+
+    final roadPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Color(0x221E334C),
+          Color(0x66111929),
+        ],
+      ).createShader(Rect.fromLTWH(0, horizonY, size.width, size.height - horizonY));
+    canvas.drawPath(road, roadPaint);
+
+    final lanePaint = Paint()
+      ..color = Colors.white.withOpacity(0.08)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final dashPhase = (progress * 40) % 18;
+    for (double y = horizonY + dashPhase; y < size.height; y += 18) {
+      final t = ((y - horizonY) / (size.height - horizonY)).clamp(0.0, 1.0);
+      final x = size.width * (0.5 + (0.012 * t));
+      canvas.drawLine(Offset(x, y), Offset(x, y + 8), lanePaint);
+    }
+
+    final mountainPaintFar = Paint()..color = const Color(0xFF0E1A2B).withOpacity(0.95);
+    final mountainPaintMid = Paint()..color = const Color(0xFF16263A).withOpacity(0.8);
+
+    final far = Path()
+      ..moveTo(0, horizonY + 14)
+      ..lineTo(size.width * 0.10, horizonY - 6)
+      ..lineTo(size.width * 0.24, horizonY + 8)
+      ..lineTo(size.width * 0.40, horizonY - 10)
+      ..lineTo(size.width * 0.58, horizonY + 10)
+      ..lineTo(size.width * 0.76, horizonY - 4)
+      ..lineTo(size.width, horizonY + 16)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(far, mountainPaintFar);
+
+    final mid = Path()
+      ..moveTo(0, horizonY + 26)
+      ..lineTo(size.width * 0.16, horizonY + 12)
+      ..lineTo(size.width * 0.33, horizonY + 26)
+      ..lineTo(size.width * 0.52, horizonY + 10)
+      ..lineTo(size.width * 0.74, horizonY + 28)
+      ..lineTo(size.width, horizonY + 18)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(mid, mountainPaintMid);
+
+    final vignette = Paint()
+      ..shader = RadialGradient(
+        center: Alignment.center,
+        radius: 1.1,
+        colors: [
+          Colors.transparent,
+          Colors.black.withOpacity(0.22),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), vignette);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DepthBackgroundPainter oldDelegate) =>
       progress != oldDelegate.progress;
 }

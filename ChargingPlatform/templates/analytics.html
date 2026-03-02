@@ -290,10 +290,31 @@
             document.getElementById('analyticsContent').style.display = 'none';
 
             try {
+                const staffToken = localStorage.getItem('staffToken');
+                if (!staffToken) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const authHeaders = {
+                    'X-Staff-Token': staffToken
+                };
+
                 const [overviewRes, insightsRes] = await Promise.all([
-                    fetch('/api/analytics/overview'),
-                    fetch('/api/analytics/insights')
+                    fetch('/api/analytics/overview', { headers: authHeaders }),
+                    fetch('/api/analytics/insights', { headers: authHeaders })
                 ]);
+
+                if (overviewRes.status === 401 || insightsRes.status === 401) {
+                    localStorage.removeItem('staffToken');
+                    localStorage.removeItem('staffInfo');
+                    window.location.href = '/login';
+                    return;
+                }
+
+                if (!overviewRes.ok || !insightsRes.ok) {
+                    throw new Error(`Analytics API failed (${overviewRes.status}, ${insightsRes.status})`);
+                }
 
                 const overview = await overviewRes.json();
                 const insightsData = await insightsRes.json();

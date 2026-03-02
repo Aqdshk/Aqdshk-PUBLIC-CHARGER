@@ -2,7 +2,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -13,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import and_, desc, func, or_
+from sqlalchemy import and_, desc, func, or_, text
 from sqlalchemy.orm import Session
 
 from database import (
@@ -46,6 +49,8 @@ from security import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Charging Platform Management System")
+_RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
+_RATE_LIMIT_LOCK = threading.Lock()
 
 def _require_callback_secret(request: Request, gateway_name: str) -> None:
     """
@@ -63,6 +68,144 @@ def _require_callback_secret(request: Request, gateway_name: str) -> None:
     if not provided_secret or not secrets.compare_digest(provided_secret, expected_secret):
         logger.warning("Rejected callback for gateway '%s': invalid callback secret", gateway_name)
         raise HTTPException(status_code=401, detail="Invalid callback secret")
+
+
+def _gateway_env_prefix(gateway_name: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", (gateway_name or "").strip().lower()).strip("_")
+    return f"PAYMENT_{(normalized or 'UNKNOWN').upper()}"
+
+
+def _gateway_env_name(gateway_name: str, field: str) -> str:
+    return f"{_gateway_env_prefix(gateway_name)}_{field}"
+
+
+def _allow_legacy_db_gateway_secrets() -> bool:
+    return os.getenv("ALLOW_DB_GATEWAY_SECRETS", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _resolve_gateway_runtime_config(gw: PaymentGatewayConfig) -> Dict[str, Any]:
+    """
+    Build runtime gateway config with env-first credentials.
+    By default, DB-stored secrets are ignored for security.
+    """
+    gateway_name = (gw.gateway_name or "").strip().lower()
+    api_key_env = _gateway_env_name(gateway_name, "API_KEY")
+    api_secret_env = _gateway_env_name(gateway_name, "API_SECRET")
+
+    api_key = os.getenv(api_key_env, "").strip()
+    api_secret = os.getenv(api_secret_env, "").strip()
+
+    if _allow_legacy_db_gateway_secrets():
+        if not api_key:
+            api_key = (gw.api_key or "").strip()
+        if not api_secret:
+            api_secret = (gw.api_secret or "").strip()
+
+    return {
+        "gateway_name": gw.gateway_name,
+        "merchant_id": gw.merchant_id,
+        "api_key": api_key,
+        "api_secret": api_secret,
+        "is_sandbox": gw.is_sandbox,
+        "sandbox_url": gw.sandbox_url,
+        "production_url": gw.production_url,
+        "callback_url": gw.callback_url,
+        "redirect_url": gw.redirect_url,
+        "extra_config": gw.extra_config,
+        "api_key_env": api_key_env,
+        "api_secret_env": api_secret_env,
+    }
+
+
+def _gateway_credential_status(gw: PaymentGatewayConfig) -> Dict[str, str]:
+    runtime = _resolve_gateway_runtime_config(gw)
+    key_ok = bool((runtime.get("api_key") or "").strip())
+    secret_ok = bool((runtime.get("api_secret") or "").strip())
+    if key_ok or secret_ok:
+        source = "env" if not _allow_legacy_db_gateway_secrets() else "env_or_legacy_db"
+    else:
+        source = "missing"
+    return {
+        "api_key": "configured" if key_ok else "missing",
+        "api_secret": "configured" if secret_ok else "missing",
+        "credential_source": source,
+        "api_key_env": runtime["api_key_env"],
+        "api_secret_env": runtime["api_secret_env"],
+    }
+
+
+def _enforce_rate_limit(
+    request: Request,
+    key: str,
+    max_requests: int,
+    window_seconds: int,
+) -> None:
+    """Simple in-memory sliding-window rate limiter by IP + key."""
+    now = time.time()
+    client_ip = get_client_ip(request)
+    bucket_key = f"{key}:{client_ip}"
+    cutoff = now - float(window_seconds)
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_BUCKETS.get(bucket_key, [])
+        bucket = [ts for ts in bucket if ts >= cutoff]
+        if len(bucket) >= max_requests:
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+        bucket.append(now)
+        _RATE_LIMIT_BUCKETS[bucket_key] = bucket
+
+
+def _normalize_and_validate_email(raw_email: str) -> str:
+    """Normalize basic email input and reject obviously invalid values."""
+    email = (raw_email or "").strip().lower()
+    if not email or len(email) > 254:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    local, domain = email.rsplit("@", 1)
+    if not local or not domain or "." not in domain:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    return email
+
+
+# Active staff sessions: token → staff dict
+_staff_sessions: Dict[str, Any] = {}
+
+
+def _get_staff_session(token: str) -> Optional[dict]:
+    return _staff_sessions.get(token)
+
+
+def _extract_staff_token(request: Request) -> Optional[str]:
+    """Extract staff session token from header or query string."""
+    header_token = request.headers.get("X-Staff-Token")
+    if header_token:
+        return header_token.strip()
+    query_token = request.query_params.get("token")
+    if query_token:
+        return query_token.strip()
+    return None
+
+
+async def require_admin_or_staff_admin(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    Authorize admin APIs using either:
+    1) JWT admin user (mobile/user auth), or
+    2) Staff portal session token with admin role.
+    """
+    if current_user and current_user.is_admin:
+        return {"mode": "jwt_admin", "user_id": current_user.id}
+
+    staff_token = _extract_staff_token(request)
+    if staff_token:
+        session = _get_staff_session(staff_token)
+        if session and session.get("role") == "admin":
+            return {"mode": "staff_admin", "staff_id": session.get("id")}
+
+    raise HTTPException(status_code=401, detail="Admin authentication required")
 
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
@@ -1561,11 +1704,10 @@ class ChangePasswordRequest(BaseModel):
 
 
 @app.post("/api/auth/forgot-password")
-async def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+async def forgot_password(request: ForgotPasswordRequest, req: Request, db: Session = Depends(get_db)):
     """Send OTP for password reset."""
-    email = request.email.strip().lower()
-    if not email or "@" not in email:
-        return {"success": False, "message": "Invalid email address"}
+    _enforce_rate_limit(req, "forgot-password", max_requests=5, window_seconds=300)
+    email = _normalize_and_validate_email(request.email)
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
@@ -1588,9 +1730,10 @@ async def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(
 
 
 @app.post("/api/auth/reset-password")
-async def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+async def reset_password(request: ResetPasswordRequest, req: Request, db: Session = Depends(get_db)):
     """Reset password using OTP code."""
-    email = request.email.strip().lower()
+    _enforce_rate_limit(req, "reset-password", max_requests=8, window_seconds=300)
+    email = _normalize_and_validate_email(request.email)
     otp_code = request.otp_code.strip()
 
     if len(request.new_password) < 6:
@@ -1846,7 +1989,9 @@ async def register_user_with_otp(request: RegisterWithOTPRequest, db: Session = 
 async def login_user(request: UserLoginRequest, req: Request, db: Session = Depends(get_db)):
     """Login user — returns JWT access + refresh tokens."""
     try:
-        user = db.query(User).filter(User.email == request.email).first()
+        _enforce_rate_limit(req, "user-login", max_requests=15, window_seconds=300)
+        email = _normalize_and_validate_email(request.email)
+        user = db.query(User).filter(User.email == email).first()
         client_ip = get_client_ip(req)
 
         if not user:
@@ -3628,7 +3773,10 @@ async def list_tickets(
 
 
 @app.get("/api/tickets/stats")
-async def ticket_stats(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ticket_stats(
+    db: Session = Depends(get_db),
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+):
     """Get ticket statistics for admin dashboard."""
     total = db.query(SupportTicket).count()
     open_count = db.query(SupportTicket).filter(SupportTicket.status == "open").count()
@@ -3895,14 +4043,12 @@ class StaffLoginRequest(BaseModel):
     password: str
 
 
-# Active staff sessions: token → staff dict
-_staff_sessions: Dict[str, Any] = {}
-
-
 @app.post("/api/staff/login")
-async def staff_login(req: StaffLoginRequest, db: Session = Depends(get_db)):
+async def staff_login(req: StaffLoginRequest, request: Request, db: Session = Depends(get_db)):
     """Staff login — returns a token and role info."""
-    staff = db.query(SupportStaff).filter(SupportStaff.email == req.email).first()
+    _enforce_rate_limit(request, "staff-login", max_requests=12, window_seconds=300)
+    email = _normalize_and_validate_email(req.email)
+    staff = db.query(SupportStaff).filter(SupportStaff.email == email).first()
     if not staff or not staff.check_password(req.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not staff.is_active:
@@ -3933,11 +4079,6 @@ async def staff_logout(body: dict):
     if token and token in _staff_sessions:
         del _staff_sessions[token]
     return {"success": True}
-
-
-def _get_staff_session(token: str) -> Optional[dict]:
-    return _staff_sessions.get(token)
-
 
 @app.get("/api/staff/me")
 async def staff_me(token: str):
@@ -4151,6 +4292,7 @@ class GatewayConfigRequest(BaseModel):
     gateway_name: str
     display_name: str
     merchant_id: Optional[str] = ""
+    # Deprecated for security hardening: credentials must come from env vars.
     api_key: Optional[str] = ""
     api_secret: Optional[str] = ""
     is_sandbox: bool = True
@@ -4173,13 +4315,17 @@ async def list_payment_gateways(db: Session = Depends(get_db), admin_user: User 
     gateways = db.query(PaymentGatewayConfig).order_by(PaymentGatewayConfig.created_at).all()
     result = []
     for gw in gateways:
+        cred_status = _gateway_credential_status(gw)
         result.append({
             "id": gw.id,
             "gateway_name": gw.gateway_name,
             "display_name": gw.display_name,
             "merchant_id": gw.merchant_id or "",
-            "api_key": "••••" + (gw.api_key[-4:] if gw.api_key and len(gw.api_key) > 4 else ""),
-            "api_secret": "••••" if gw.api_secret else "",
+            "api_key": cred_status["api_key"],
+            "api_secret": cred_status["api_secret"],
+            "credential_source": cred_status["credential_source"],
+            "api_key_env": cred_status["api_key_env"],
+            "api_secret_env": cred_status["api_secret_env"],
             "is_sandbox": gw.is_sandbox,
             "sandbox_url": gw.sandbox_url or "",
             "production_url": gw.production_url or "",
@@ -4201,6 +4347,12 @@ async def list_payment_gateways(db: Session = Depends(get_db), admin_user: User 
 @app.post("/api/payment/gateways")
 async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Create/configure a new payment gateway."""
+    if req.api_key or req.api_secret:
+        logger.warning(
+            "Gateway '%s' received API credentials in request; ignored by policy. Use env vars instead.",
+            req.gateway_name,
+        )
+
     existing = db.query(PaymentGatewayConfig).filter(
         PaymentGatewayConfig.gateway_name == req.gateway_name
     ).first()
@@ -4215,8 +4367,8 @@ async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depend
         gateway_name=req.gateway_name,
         display_name=req.display_name,
         merchant_id=req.merchant_id,
-        api_key=req.api_key,
-        api_secret=req.api_secret,
+        api_key="",
+        api_secret="",
         is_sandbox=req.is_sandbox,
         sandbox_url=req.sandbox_url,
         production_url=req.production_url,
@@ -4240,6 +4392,12 @@ async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depend
 @app.put("/api/payment/gateways/{gateway_id}")
 async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     """Update payment gateway configuration."""
+    if req.api_key or req.api_secret:
+        logger.warning(
+            "Gateway '%s' received API credentials in update request; ignored by policy. Use env vars instead.",
+            req.gateway_name,
+        )
+
     gw = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.id == gateway_id).first()
     if not gw:
         raise HTTPException(status_code=404, detail="Gateway not found")
@@ -4251,10 +4409,9 @@ async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db:
 
     gw.display_name = req.display_name
     gw.merchant_id = req.merchant_id
-    if req.api_key and not req.api_key.startswith("••••"):
-        gw.api_key = req.api_key
-    if req.api_secret and not req.api_secret.startswith("••••"):
-        gw.api_secret = req.api_secret
+    # Purge DB-stored credentials; runtime reads from env vars.
+    gw.api_key = ""
+    gw.api_secret = ""
     gw.is_sandbox = req.is_sandbox
     gw.sandbox_url = req.sandbox_url
     gw.production_url = req.production_url
@@ -4463,18 +4620,7 @@ async def create_topup(
         # Fallback to manual
         gw_config_dict = {"gateway_name": "manual"}
     else:
-        gw_config_dict = {
-            "gateway_name": gw_config.gateway_name,
-            "merchant_id": gw_config.merchant_id,
-            "api_key": gw_config.api_key,
-            "api_secret": gw_config.api_secret,
-            "is_sandbox": gw_config.is_sandbox,
-            "sandbox_url": gw_config.sandbox_url,
-            "production_url": gw_config.production_url,
-            "callback_url": gw_config.callback_url,
-            "redirect_url": gw_config.redirect_url,
-            "extra_config": gw_config.extra_config,
-        }
+        gw_config_dict = _resolve_gateway_runtime_config(gw_config)
 
     # Generate transaction reference
     txn_ref = generate_transaction_ref()
@@ -4559,10 +4705,11 @@ async def payment_callback(gateway_name: str, payload: dict, request: Request, d
         logger.error(f"Unknown gateway callback: {gateway_name}")
         raise HTTPException(status_code=400, detail="Unknown gateway")
 
+    runtime_cfg = _resolve_gateway_runtime_config(gw_config)
     gw_config_dict = {
         "gateway_name": gw_config.gateway_name,
-        "api_key": gw_config.api_key,
-        "api_secret": gw_config.api_secret,
+        "api_key": runtime_cfg.get("api_key"),
+        "api_secret": runtime_cfg.get("api_secret"),
         "extra_config": gw_config.extra_config,
     }
 
@@ -4803,7 +4950,10 @@ async def analytics_page():
 
 
 @app.get("/api/analytics/overview")
-async def analytics_overview(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def analytics_overview(
+    db: Session = Depends(get_db),
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+):
     """
     Comprehensive analytics overview — aggregates ALL platform data.
     Returns revenue, traffic, charger utilization, user growth, and more.
@@ -5106,7 +5256,10 @@ async def analytics_overview(db: Session = Depends(get_db), admin_user: User = D
 
 
 @app.get("/api/analytics/insights")
-async def analytics_insights(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def analytics_insights(
+    db: Session = Depends(get_db),
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+):
     """
     AI-powered insights and recommendations engine.
     Analyzes all platform data and generates actionable suggestions.
@@ -5473,34 +5626,93 @@ async def _dev_auto_init():
 
     import threading
 
+    def _is_weak_password(password: str) -> bool:
+        p = (password or "").strip()
+        weak_values = {"", "1", "123456", "password", "admin", "admin123"}
+        return len(p) < 12 or p.lower() in weak_values
+
+    def _ensure_legacy_schema_columns():
+        """Best-effort schema patch for older databases during dev startup."""
+        db_local = SessionLocal()
+        try:
+            missing_users = []
+            failed_col = db_local.execute(
+                text("SHOW COLUMNS FROM users LIKE 'failed_login_attempts'")
+            ).first()
+            locked_col = db_local.execute(
+                text("SHOW COLUMNS FROM users LIKE 'locked_until'")
+            ).first()
+            if not failed_col:
+                missing_users.append("ADD COLUMN failed_login_attempts INT DEFAULT 0")
+            if not locked_col:
+                missing_users.append("ADD COLUMN locked_until DATETIME NULL")
+            if missing_users:
+                db_local.execute(text(f"ALTER TABLE users {', '.join(missing_users)}"))
+                db_local.commit()
+                logger.info("Patched users table with missing security columns")
+
+            # Ticket SLA/reminder fields introduced in newer versions.
+            missing_tickets = []
+            due_at_col = db_local.execute(
+                text("SHOW COLUMNS FROM support_tickets LIKE 'due_at'")
+            ).first()
+            reminder_col = db_local.execute(
+                text("SHOW COLUMNS FROM support_tickets LIKE 'reminder_sent_at'")
+            ).first()
+            escalated_col = db_local.execute(
+                text("SHOW COLUMNS FROM support_tickets LIKE 'escalated'")
+            ).first()
+            if not due_at_col:
+                missing_tickets.append("ADD COLUMN due_at DATETIME NULL")
+            if not reminder_col:
+                missing_tickets.append("ADD COLUMN reminder_sent_at DATETIME NULL")
+            if not escalated_col:
+                missing_tickets.append("ADD COLUMN escalated BOOLEAN DEFAULT FALSE")
+            if missing_tickets:
+                db_local.execute(text(f"ALTER TABLE support_tickets {', '.join(missing_tickets)}"))
+                db_local.commit()
+                logger.info("Patched support_tickets table with missing SLA columns")
+        except Exception as e:
+            db_local.rollback()
+            logger.warning(f"Could not patch legacy schema columns automatically: {e}")
+        finally:
+            db_local.close()
+
     # Initialize database tables
     init_db()
+    _ensure_legacy_schema_columns()
     logger.info("Database initialized (dev auto-init)")
 
     # Create default admin user
     db = SessionLocal()
     try:
-        admin_email = os.getenv("ADMIN_EMAIL", "1@admin.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", "1")
+        admin_email = os.getenv("ADMIN_EMAIL", "").strip()
+        admin_password = os.getenv("ADMIN_PASSWORD", "")
         admin_name = os.getenv("ADMIN_NAME", "Admin")
 
-        existing = db.query(User).filter(User.email == admin_email).first()
-        if existing:
-            existing.set_password(admin_password)
-            existing.is_admin = True
-            db.commit()
-        else:
-            admin = User(
-                email=admin_email, name=admin_name,
-                is_active=True, is_verified=True, is_admin=True,
+        if not admin_email or _is_weak_password(admin_password):
+            logger.warning(
+                "Skipping default admin auto-init: ADMIN_EMAIL/ADMIN_PASSWORD missing or weak "
+                "(password must be >=12 chars and non-default)"
             )
-            admin.set_password(admin_password)
-            db.add(admin)
-            db.flush()
-            wallet = Wallet(user_id=admin.id, balance=0.0, points=0)
-            db.add(wallet)
-            db.commit()
-            logger.info(f"Default admin created: {admin_email}")
+        else:
+            existing = db.query(User).filter(User.email == admin_email).first()
+            if existing:
+                existing.set_password(admin_password)
+                existing.is_admin = True
+                db.commit()
+            else:
+                admin = User(
+                    email=admin_email, name=admin_name,
+                    is_active=True, is_verified=True, is_admin=True,
+                )
+                admin.set_password(admin_password)
+                db.add(admin)
+                db.flush()
+                wallet = Wallet(user_id=admin.id, balance=0.0, points=0)
+                db.add(wallet)
+                db.commit()
+                logger.info(f"Default admin created: {admin_email}")
     except Exception as e:
         db.rollback()
         logger.error(f"Dev auto-init admin error: {e}")
@@ -5510,17 +5722,24 @@ async def _dev_auto_init():
     # Create default staff
     db = SessionLocal()
     try:
-        staff_email = os.getenv("STAFF_EMAIL", "ahmad@plagsini.com")
-        existing = db.query(SupportStaff).filter(SupportStaff.email == staff_email).first()
-        if not existing:
-            staff = SupportStaff(
-                name=os.getenv("STAFF_NAME", "Ahmad"),
-                email=staff_email, department="IT", role="admin", max_tickets=20,
+        staff_email = os.getenv("STAFF_EMAIL", "").strip()
+        staff_password = os.getenv("STAFF_PASSWORD", "")
+        if not staff_email or _is_weak_password(staff_password):
+            logger.warning(
+                "Skipping default staff auto-init: STAFF_EMAIL/STAFF_PASSWORD missing or weak "
+                "(password must be >=12 chars and non-default)"
             )
-            staff.set_password(os.getenv("STAFF_PASSWORD", "admin123"))
-            db.add(staff)
-            db.commit()
-            logger.info(f"Default staff created: {staff_email}")
+        else:
+            existing = db.query(SupportStaff).filter(SupportStaff.email == staff_email).first()
+            if not existing:
+                staff = SupportStaff(
+                    name=os.getenv("STAFF_NAME", "Staff Admin"),
+                    email=staff_email, department="IT", role="admin", max_tickets=20,
+                )
+                staff.set_password(staff_password)
+                db.add(staff)
+                db.commit()
+                logger.info(f"Default staff created: {staff_email}")
     except Exception as e:
         db.rollback()
         logger.error(f"Dev auto-init staff error: {e}")

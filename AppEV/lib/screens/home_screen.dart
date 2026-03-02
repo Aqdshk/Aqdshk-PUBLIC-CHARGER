@@ -158,17 +158,7 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.background,
-            Color(0xFF0D1525),
-            AppColors.background,
-          ],
-        ),
-      ),
+      color: AppColors.background,
       child: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
@@ -192,6 +182,11 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
 
+                const SizedBox(height: 4),
+
+                // ===== HUMAN-FRIENDLY WELCOME CARD =====
+                const _WelcomeCard(),
+
                 // ===== ACTIVE SESSION BANNER =====
                 Consumer<SessionProvider>(
                   builder: (context, sessionProvider, _) {
@@ -210,9 +205,9 @@ class DashboardScreen extends StatelessWidget {
                     crossAxisCount: 4,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.85,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 0.92,
                     children: [
                       CategoryIcon(
                         icon: Icons.bolt_rounded,
@@ -400,11 +395,24 @@ class DashboardScreen extends StatelessWidget {
   static Widget _sectionHeader(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Text(title,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 16,
+            decoration: BoxDecoration(
+              color: AppColors.primaryGreen.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(title,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 
@@ -441,6 +449,64 @@ class DashboardScreen extends StatelessWidget {
       ),
       child: Center(
         child: CircularProgressIndicator(color: AppColors.primaryGreen, strokeWidth: 2),
+      ),
+    );
+  }
+}
+
+class _WelcomeCard extends StatelessWidget {
+  const _WelcomeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101A2A),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.borderLight),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primaryGreen.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.handshake_rounded, color: AppColors.primaryGreen, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Welcome back',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Choose an action below to start your charging journey.',
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

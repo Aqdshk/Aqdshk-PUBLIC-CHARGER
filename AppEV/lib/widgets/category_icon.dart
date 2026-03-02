@@ -23,31 +23,41 @@ class CategoryIcon extends StatelessWidget {
       onTap: onTap,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final iconSize = constraints.maxWidth * 0.65;
-          final iconInner = iconSize * 0.45;
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          final tileRadius = 14.0;
+          final iconInner = constraints.maxWidth * 0.24;
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF111A2A),
+              borderRadius: BorderRadius.circular(tileRadius),
+              border: Border.all(
+                color: const Color(0xFF23344E),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Stack(
                 clipBehavior: Clip.none,
                 children: [
                   Container(
-                    width: iconSize,
-                    height: iconSize,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      shape: BoxShape.circle,
+                      color: const Color(0xFF0E2431),
+                      borderRadius: BorderRadius.circular(11),
                       border: Border.all(
-                        color: AppColors.primaryGreen.withOpacity(0.3),
-                        width: 1.5,
+                        color: AppColors.primaryGreen.withOpacity(0.35),
+                        width: 1.2,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primaryGreen.withOpacity(0.08),
-                          blurRadius: 8,
-                          spreadRadius: 0,
-                        ),
-                      ],
                     ),
                     child: Icon(
                       icon,
@@ -60,16 +70,16 @@ class CategoryIcon extends StatelessWidget {
                       right: -2,
                       top: -2,
                       child: Container(
-                        padding: const EdgeInsets.all(3),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: const BoxDecoration(
                           color: Color(0xFFFF006E),
-                          shape: BoxShape.circle,
+                          borderRadius: BorderRadius.all(Radius.circular(999)),
                         ),
                         child: Text(
                           badge!,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 7,
+                            fontSize: 8,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -77,28 +87,32 @@ class CategoryIcon extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Text(
                 label,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
               if (subLabel != null)
-                Text(
-                  subLabel!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontSize: 9,
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    subLabel!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontSize: 9.5,
+                    ),
                   ),
                 ),
             ],
+            ),
           );
         },
       ),

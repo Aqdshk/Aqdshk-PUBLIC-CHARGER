@@ -478,7 +478,12 @@ class TicketMessage(Base):
 # ==================== PAYMENT GATEWAY CONFIG ====================
 
 class PaymentGatewayConfig(Base):
-    """Payment gateway configuration — admin keys in credentials."""
+    """Payment gateway metadata.
+
+    Note:
+    - Runtime gateway secrets should come from environment variables.
+    - api_key/api_secret columns are kept for backward compatibility/migration only.
+    """
     __tablename__ = "payment_gateway_config"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -487,7 +492,7 @@ class PaymentGatewayConfig(Base):
     gateway_name = Column(String(50), nullable=False, unique=True)  # ocbc, fpx, billplz, stripe, manual
     display_name = Column(String(100), nullable=False)  # "OCBC Payment Gateway"
     
-    # Credentials (encrypted in production)
+    # Legacy credential fields (do not use for new deployments)
     merchant_id = Column(String(255), nullable=True)
     api_key = Column(String(500), nullable=True)
     api_secret = Column(String(500), nullable=True)

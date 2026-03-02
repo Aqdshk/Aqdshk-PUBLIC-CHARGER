@@ -23,6 +23,17 @@ Recently updated and verified:
 - **Fault & Maintenance**: fault logs and maintenance records
 - **Billing & Payments**: payment methods and charge payment processing
 - **OCPP Operations**: remote start/stop, configuration, diagnostics, reset, and more
+- **Gateway-agnostic payments**: Billplz/Fiuu/TNG/OCBC/manual plug-in model
+
+## Security Notes
+
+- Payment gateway credentials are env-first (not DB-first):
+  - `PAYMENT_<GATEWAY>_API_KEY`
+  - `PAYMENT_<GATEWAY>_API_SECRET`
+- Callback guard header is required:
+  - `PAYMENT_CALLBACK_SECRET` via `X-Callback-Secret`
+- Legacy DB credential fallback is disabled by default:
+  - `ALLOW_DB_GATEWAY_SECRETS=0`
 
 ## Run Locally
 
@@ -39,6 +50,25 @@ python main.py
 3. Access:
 - Admin UI / API host: `http://localhost:8000`
 - OCPP WebSocket: `ws://localhost:9000/{charge_point_id}`
+
+## Database Migrations (Alembic)
+
+```bash
+alembic upgrade head
+```
+
+Existing pre-Alembic DB (one-time baseline stamp):
+
+```bash
+alembic stamp 20260301_000001
+alembic upgrade head
+```
+
+## Reconciliation Utility
+
+```bash
+python reconcile_payments.py --from 2026-03-01 --to 2026-03-01 --csv reconcile.csv
+```
 
 ## Key API Endpoints (AppEV related)
 

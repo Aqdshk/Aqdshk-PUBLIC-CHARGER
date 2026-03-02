@@ -222,11 +222,19 @@
             padding:60px;position:relative;
             background:linear-gradient(180deg, rgba(10,15,25,.98) 0%, rgba(8,12,20,.99) 100%);
             border-left:1px solid rgba(0,230,118,.06);
+            overflow:hidden;
         }
         .login-panel::before{
             content:'';position:absolute;top:0;left:0;width:1px;height:100%;
             background:linear-gradient(180deg, transparent 0%, var(--accent) 50%, transparent 100%);
             opacity:.3;
+        }
+        .login-panel::after{
+            content:'';position:absolute;inset:0;pointer-events:none;
+            background:
+                radial-gradient(300px 180px at 15% 5%, rgba(0,230,118,.10), transparent 70%),
+                radial-gradient(260px 180px at 90% 85%, rgba(0,188,212,.10), transparent 70%);
+            opacity:.9;
         }
 
         /* Greeting */
@@ -238,6 +246,54 @@
             color:var(--text);margin-bottom:6px;
         }
         .greeting p{color:var(--text-muted);font-size:13px}
+
+        /* Brand header */
+        .brand-header{
+            position:relative;z-index:2;
+            display:flex;align-items:center;gap:12px;margin-bottom:20px;
+            padding:10px 12px;border:1px solid rgba(0,230,118,.08);
+            border-radius:12px;background:rgba(0,230,118,.03);
+        }
+        .brand-header img{
+            width:40px;height:40px;object-fit:contain;
+            filter:drop-shadow(0 0 8px rgba(0,230,118,.25));
+        }
+        .brand-copy{display:flex;flex-direction:column;line-height:1.2}
+        .brand-copy .brand-name{
+            font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;color:var(--text);
+        }
+        .brand-copy .brand-tag{
+            font-size:11px;color:var(--accent);letter-spacing:.4px;font-weight:600;
+        }
+
+        /* Flat illustration cards */
+        .mini-illustrations{
+            position:relative;z-index:2;
+            display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;
+        }
+        .mini-card{
+            border:1px solid rgba(0,230,118,.12);
+            background:linear-gradient(135deg, rgba(0,230,118,.08), rgba(0,188,212,.06));
+            border-radius:12px;padding:10px;display:flex;align-items:center;gap:8px;
+            transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+        }
+        .mini-card:hover{
+            transform:translateY(-2px);
+            border-color:rgba(0,230,118,.25);
+            box-shadow:0 10px 20px rgba(0,230,118,.08);
+        }
+        .mini-icon{
+            width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+            background:rgba(3,12,22,.55);border:1px solid rgba(0,230,118,.15);
+            flex-shrink:0;
+        }
+        .mini-text{display:flex;flex-direction:column;line-height:1.1}
+        .mini-title{
+            font-size:11px;font-weight:700;color:var(--text);letter-spacing:.3px;text-transform:uppercase;
+        }
+        .mini-sub{
+            font-size:10px;color:var(--text-sec);margin-top:3px;
+        }
 
         /* Motivational quote */
         .quote-box{
@@ -254,6 +310,7 @@
 
         /* Error box */
         .login-err{
+            position:relative;z-index:2;
             background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.15);
             color:#ff8a80;border-radius:var(--radius);padding:12px 16px;font-size:12px;
             margin-bottom:16px;display:none;animation:shake .4s ease;
@@ -262,7 +319,7 @@
         @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
 
         /* Form groups */
-        .fg{margin-bottom:18px;position:relative}
+        .fg{margin-bottom:18px;position:relative;z-index:2}
         .fg label{
             display:flex;align-items:center;gap:6px;
             font-size:11px;color:var(--text-muted);text-transform:uppercase;
@@ -288,16 +345,8 @@
         }
         .fg input:focus ~ .field-icon{opacity:.8}
 
-        /* Password toggle */
-        .pw-toggle{
-            position:absolute;right:14px;top:50%;transform:translateY(-50%);
-            background:none;border:none;color:var(--text-muted);cursor:pointer;
-            font-size:16px;padding:4px;transition:color .2s;
-        }
-        .pw-toggle:hover{color:var(--text)}
-
         /* Remember me */
-        .extras{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+        .extras{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;position:relative;z-index:2}
         .remember{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-sec)}
         .remember input[type="checkbox"]{
             appearance:none;width:16px;height:16px;border:1.5px solid var(--border);
@@ -314,6 +363,7 @@
 
         /* Login button */
         .btn-login{
+            position:relative;z-index:2;
             width:100%;padding:15px;border:none;border-radius:var(--radius);
             font-size:14px;font-weight:700;letter-spacing:1.5px;cursor:pointer;
             text-transform:uppercase;position:relative;overflow:hidden;
@@ -349,13 +399,14 @@
 
         /* Divider */
         .divider{
+            position:relative;z-index:2;
             display:flex;align-items:center;gap:12px;margin:20px 0;
         }
         .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
         .divider span{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px}
 
         /* Version & branding */
-        .login-footer{text-align:center;margin-top:32px}
+        .login-footer{position:relative;z-index:2;text-align:center;margin-top:32px}
         .login-footer p{font-size:10px;color:var(--text-muted);line-height:1.6}
         .footer-badge{
             display:inline-flex;align-items:center;gap:4px;
@@ -674,15 +725,44 @@
 
         <!-- ═══ RIGHT LOGIN ═══ -->
         <div class="login-panel">
+            <div class="brand-header">
+                <img src="/static/logo.png" alt="PlagSini Logo">
+                <div class="brand-copy">
+                    <span class="brand-name">PlagSini Staff Portal</span>
+                    <span class="brand-tag">Charge your journey</span>
+                </div>
+            </div>
+
             <div class="greeting">
                 <div class="greeting-emoji" id="greetEmoji">👋</div>
                 <h1 id="greetText">Good morning!</h1>
                 <p id="greetSub">Ready to power up the day?</p>
             </div>
 
-            <div class="quote-box" id="quoteBox">
-                <div class="quote-text" id="quoteText">"The future is electric."</div>
-                <div class="quote-author" id="quoteAuthor">— PlagSini Team</div>
+            <div class="mini-illustrations">
+                <div class="mini-card">
+                    <div class="mini-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M13 2L5 13h6l-1 9 9-12h-6l0-8z" fill="#00e676"/>
+                        </svg>
+                    </div>
+                    <div class="mini-text">
+                        <span class="mini-title">Fast Charge</span>
+                        <span class="mini-sub">Live station control</span>
+                    </div>
+                </div>
+                <div class="mini-card">
+                    <div class="mini-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M12 3l7 3v6c0 4.2-2.7 7.9-7 9-4.3-1.1-7-4.8-7-9V6l7-3z" fill="#00bcd4"/>
+                            <path d="M9 12l2 2 4-4" stroke="#04111f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="mini-text">
+                        <span class="mini-title">Secure Ops</span>
+                        <span class="mini-sub">Protected admin access</span>
+                    </div>
+                </div>
             </div>
 
             <div class="login-err" id="loginError"></div>
@@ -702,9 +782,6 @@
                     <span class="field-icon">🔑</span>
                     <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password"
                            onkeyup="if(event.key==='Enter')doLogin()">
-                    <button class="pw-toggle" onclick="togglePassword()" title="Show/Hide password">
-                        <span id="pwEye">👁️</span>
-                    </button>
                 </div>
             </div>
 
@@ -762,25 +839,6 @@
             }
         })();
 
-        // ═══ MOTIVATIONAL QUOTES ═══
-        (function setQuote() {
-            const quotes = [
-                { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
-                { text: "Innovation distinguishes between a leader and a follower.", author: "Steve Jobs" },
-                { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
-                { text: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
-                { text: "Every EV charged is a step towards a greener Malaysia. 🇲🇾", author: "PlagSini Team" },
-                { text: "Great things are done by a series of small things brought together.", author: "Vincent Van Gogh" },
-                { text: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
-                { text: "Alone we can do so little; together we can do so much.", author: "Helen Keller" },
-                { text: "Your work is going to fill a large part of your life. Make it great.", author: "Steve Jobs" },
-                { text: "Plug in, power up, move forward. That's the PlagSini way. ⚡", author: "PlagSini Team" },
-            ];
-            const q = quotes[Math.floor(Math.random() * quotes.length)];
-            document.getElementById('quoteText').textContent = `"${q.text}"`;
-            document.getElementById('quoteAuthor').textContent = `— ${q.author}`;
-        })();
-
         // ═══ PARTICLES ═══
         (function createParticles() {
             const container = document.getElementById('particles');
@@ -826,19 +884,6 @@
                 if (current >= target) { current = target; clearInterval(timer); }
                 el.textContent = current.toLocaleString();
             }, 40);
-        }
-
-        // ═══ PASSWORD TOGGLE ═══
-        function togglePassword() {
-            const input = document.getElementById('loginPassword');
-            const eye = document.getElementById('pwEye');
-            if (input.type === 'password') {
-                input.type = 'text';
-                eye.textContent = '🙈';
-            } else {
-                input.type = 'password';
-                eye.textContent = '👁️';
-            }
         }
 
         // ═══ AUTO-LOGIN CHECK ═══

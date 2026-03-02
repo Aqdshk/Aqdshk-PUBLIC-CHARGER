@@ -1,0 +1,297 @@
+Project "PUBLIC CHARGER RND" {
+  database_type: "MySQL"
+}
+
+Table users {
+  id int [pk, increment]
+  email varchar(255) [not null, unique]
+  phone varchar(20) [unique]
+  password_hash varchar(255) [not null]
+  name varchar(255)
+  avatar_url varchar(500)
+  is_active bool
+  is_verified bool
+  is_admin bool
+  failed_login_attempts int
+  locked_until datetime
+  created_at datetime
+  updated_at datetime
+  last_login datetime
+}
+
+Table wallets {
+  id int [pk, increment]
+  user_id int [not null, unique]
+  balance decimal(12,2)
+  points int
+  currency varchar(10)
+  created_at datetime
+  updated_at datetime
+}
+
+Table wallet_transactions {
+  id int [pk, increment]
+  user_id int [not null]
+  wallet_id int [not null]
+  transaction_type varchar(50) [not null]
+  amount decimal(12,2) [not null]
+  balance_before decimal(12,2) [not null]
+  balance_after decimal(12,2) [not null]
+  points_amount int
+  points_before int
+  points_after int
+  session_id int
+  idempotency_key varchar(100) [unique]
+  payment_method varchar(50)
+  payment_gateway varchar(50)
+  gateway_reference varchar(255)
+  status varchar(50)
+  description text
+  created_at datetime
+}
+
+Table vehicles {
+  id int [pk, increment]
+  user_id int [not null]
+  plate_number varchar(20)
+  brand varchar(100)
+  model varchar(100)
+  year int
+  battery_capacity_kwh float
+  connector_type varchar(50)
+  is_primary bool
+  created_at datetime
+}
+
+Table otp_verifications {
+  id int [pk, increment]
+  email varchar(255) [not null]
+  otp_code varchar(6) [not null]
+  is_verified bool
+  attempts int
+  expires_at datetime [not null]
+  created_at datetime
+}
+
+Table chargers {
+  id int [pk, increment]
+  charge_point_id varchar(255) [not null, unique]
+  vendor varchar(255)
+  model varchar(255)
+  firmware_version varchar(255)
+  status varchar(50)
+  availability varchar(50)
+  last_heartbeat datetime
+  created_at datetime
+  number_of_connectors int
+  heartbeat_interval int
+  meter_value_sample_interval int
+  transaction_message_attempts int
+  transaction_message_retry_interval int
+}
+
+Table charging_sessions {
+  id int [pk, increment]
+  charger_id int
+  transaction_id int [not null, unique]
+  start_time datetime [not null]
+  stop_time datetime
+  energy_consumed float
+  status varchar(50)
+  user_id varchar(255)
+  payment_id int
+}
+
+Table payments {
+  id int [pk, increment]
+  user_id varchar(255) [not null]
+  amount decimal(12,2) [not null]
+  currency varchar(10)
+  payment_method varchar(100)
+  payment_status varchar(50)
+  payment_gateway varchar(100)
+  gateway_transaction_id varchar(255)
+  created_at datetime
+  completed_at datetime
+}
+
+Table pricing {
+  id int [pk, increment]
+  charger_id int
+  price_per_kwh decimal(8,4) [not null]
+  price_per_minute decimal(8,4)
+  minimum_charge decimal(8,2)
+  is_active bool
+  created_at datetime
+}
+
+Table meter_values {
+  id int [pk, increment]
+  charger_id int
+  transaction_id int
+  timestamp datetime [not null]
+  voltage float
+  current float
+  power float
+  total_kwh float
+}
+
+Table faults {
+  id int [pk, increment]
+  charger_id int
+  fault_type varchar(100) [not null]
+  message text
+  timestamp datetime [not null]
+  cleared bool
+  cleared_at datetime
+}
+
+Table maintenance_records {
+  id int [pk, increment]
+  charger_id int [not null]
+  maintenance_type varchar(50) [not null]
+  issue_description text
+  work_performed text [not null]
+  parts_replaced text
+  cost decimal(10,2)
+  technician_name varchar(255)
+  status varchar(50)
+  date_reported datetime
+  date_scheduled datetime
+  date_completed datetime
+  notes text
+  created_at datetime
+  updated_at datetime
+}
+
+Table support_staff {
+  id int [pk, increment]
+  user_id int
+  name varchar(255) [not null]
+  email varchar(255) [not null, unique]
+  password_hash varchar(255) [not null]
+  department varchar(50) [not null]
+  role varchar(20) [not null]
+  is_active bool
+  max_tickets int
+  created_at datetime
+  last_login datetime
+}
+
+Table support_tickets {
+  id int [pk, increment]
+  ticket_number varchar(20) [not null, unique]
+  user_id int
+  user_email varchar(255) [not null]
+  user_name varchar(255)
+  category varchar(50) [not null]
+  subject varchar(255) [not null]
+  description text [not null]
+  priority varchar(20)
+  status varchar(20)
+  assigned_to varchar(255)
+  assigned_staff_id int
+  department varchar(50)
+  source varchar(30)
+  resolution_notes text
+  satisfaction_rating int
+  created_at datetime
+  updated_at datetime
+  resolved_at datetime
+  first_response_at datetime
+  due_at datetime
+  reminder_sent_at datetime
+  escalated bool
+}
+
+Table ticket_messages {
+  id int [pk, increment]
+  ticket_id int [not null]
+  sender_type varchar(20) [not null]
+  sender_name varchar(255)
+  message text [not null]
+  attachment_url varchar(500)
+  created_at datetime
+}
+
+Table payment_gateway_config {
+  id int [pk, increment]
+  gateway_name varchar(50) [not null, unique]
+  display_name varchar(100) [not null]
+  merchant_id varchar(255)
+  api_key varchar(500)
+  api_secret varchar(500)
+  is_sandbox bool
+  sandbox_url varchar(500)
+  production_url varchar(500)
+  callback_url varchar(500)
+  redirect_url varchar(500)
+  supports_fpx bool
+  supports_card bool
+  supports_ewallet bool
+  supports_duitnow bool
+  extra_config text
+  is_active bool
+  is_default bool
+  created_at datetime
+  updated_at datetime
+}
+
+Table payment_transactions {
+  id int [pk, increment]
+  transaction_ref varchar(50) [not null, unique]
+  user_id int [not null]
+  user_email varchar(255) [not null]
+  amount decimal(12,2) [not null]
+  currency varchar(10)
+  payment_method varchar(50)
+  gateway_name varchar(50) [not null]
+  gateway_transaction_id varchar(255)
+  gateway_reference varchar(255)
+  gateway_status varchar(50)
+  gateway_response text
+  status varchar(20)
+  purpose varchar(50)
+  idempotency_key varchar(100) [unique]
+  wallet_transaction_id int
+  payment_url varchar(1000)
+  created_at datetime
+  paid_at datetime
+  expired_at datetime
+  ip_address varchar(50)
+  user_agent varchar(500)
+}
+
+Table audit_logs {
+  id int [pk, increment]
+  timestamp datetime [not null]
+  user_id int
+  user_email varchar(255)
+  staff_id int
+  action varchar(100) [not null]
+  resource_type varchar(50)
+  resource_id int
+  description text
+  amount decimal(12,2)
+  ip_address varchar(50)
+  user_agent varchar(500)
+  old_value text
+  new_value text
+}
+
+Ref: wallets.user_id > users.id
+Ref: wallet_transactions.user_id > users.id
+Ref: wallet_transactions.wallet_id > wallets.id
+Ref: wallet_transactions.session_id > charging_sessions.id
+Ref: vehicles.user_id > users.id
+Ref: charging_sessions.charger_id > chargers.id
+Ref: charging_sessions.payment_id > payments.id
+Ref: pricing.charger_id > chargers.id
+Ref: meter_values.charger_id > chargers.id
+Ref: faults.charger_id > chargers.id
+Ref: maintenance_records.charger_id > chargers.id
+Ref: support_staff.user_id > users.id
+Ref: support_tickets.assigned_staff_id > support_staff.id
+Ref: ticket_messages.ticket_id > support_tickets.id
+Ref: payment_transactions.user_id > users.id
+Ref: payment_transactions.wallet_transaction_id > wallet_transactions.id

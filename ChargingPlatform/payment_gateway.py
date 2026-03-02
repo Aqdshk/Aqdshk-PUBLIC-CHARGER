@@ -5,6 +5,7 @@ Supports plugging in any Malaysian payment gateway:
   - OCBC Payment Gateway
   - Billplz (FPX)
   - Fiuu / Razer Merchant Services
+  - TNG Digital / eWallet providers
   - Stripe
   - Manual top-up (admin approved)
 
@@ -347,6 +348,101 @@ class BillplzGateway(BasePaymentGateway):
 
 
 # ═══════════════════════════════════════════
+#  FIUU GATEWAY (Provider-ready scaffold)
+# ═══════════════════════════════════════════
+
+class FiuuGateway(BasePaymentGateway):
+    """
+    Fiuu gateway scaffold.
+
+    This class is intentionally provider-agnostic and ready for wiring
+    once official endpoint + signature docs are confirmed.
+    """
+
+    async def create_payment(
+        self,
+        transaction_ref: str,
+        amount: float,
+        currency: str,
+        description: str,
+        customer_email: str,
+        customer_name: str,
+        payment_method: Optional[str] = None,
+    ) -> dict:
+        # Integration point:
+        # 1) Build provider payload from standard request
+        # 2) Sign request using provider algorithm
+        # 3) POST to FIUU endpoint and normalize response keys
+        return {
+            "success": False,
+            "payment_url": None,
+            "gateway_transaction_id": None,
+            "gateway_reference": None,
+            "message": "Fiuu gateway scaffold is ready. Waiting for final API spec mapping.",
+            "raw_response": {},
+        }
+
+    def verify_callback(self, payload: dict, headers: dict = None) -> dict:
+        # Integration point:
+        # 1) Verify callback signature/header checksum
+        # 2) Normalize to standard fields
+        return {
+            "valid": False,
+            "message": "Fiuu callback verification scaffold is ready. Waiting for final API spec mapping.",
+        }
+
+    async def check_status(self, gateway_transaction_id: str) -> dict:
+        return {
+            "status": "pending",
+            "message": "Fiuu status check scaffold is ready. Waiting for final API spec mapping.",
+        }
+
+
+# ═══════════════════════════════════════════
+#  TNG GATEWAY (Provider-ready scaffold)
+# ═══════════════════════════════════════════
+
+class TngGateway(BasePaymentGateway):
+    """
+    Touch 'n Go / eWallet provider scaffold.
+
+    Keep this class even if final integration goes through a PSP route
+    so business flow remains unchanged.
+    """
+
+    async def create_payment(
+        self,
+        transaction_ref: str,
+        amount: float,
+        currency: str,
+        description: str,
+        customer_email: str,
+        customer_name: str,
+        payment_method: Optional[str] = None,
+    ) -> dict:
+        return {
+            "success": False,
+            "payment_url": None,
+            "gateway_transaction_id": None,
+            "gateway_reference": None,
+            "message": "TNG gateway scaffold is ready. Waiting for final API spec mapping.",
+            "raw_response": {},
+        }
+
+    def verify_callback(self, payload: dict, headers: dict = None) -> dict:
+        return {
+            "valid": False,
+            "message": "TNG callback verification scaffold is ready. Waiting for final API spec mapping.",
+        }
+
+    async def check_status(self, gateway_transaction_id: str) -> dict:
+        return {
+            "status": "pending",
+            "message": "TNG status check scaffold is ready. Waiting for final API spec mapping.",
+        }
+
+
+# ═══════════════════════════════════════════
 #  MANUAL TOP-UP (Admin Approved)
 # ═══════════════════════════════════════════
 
@@ -389,7 +485,19 @@ class ManualGateway(BasePaymentGateway):
 GATEWAY_REGISTRY = {
     "ocbc": OcbcGateway,
     "billplz": BillplzGateway,
+    "fiuu": FiuuGateway,
+    "tng": TngGateway,
     "manual": ManualGateway,
+}
+
+
+_GATEWAY_ALIASES = {
+    "razer": "fiuu",
+    "razerms": "fiuu",
+    "fiuu_vt": "fiuu",
+    "touchngo": "tng",
+    "touch_n_go": "tng",
+    "tng_ewallet": "tng",
 }
 
 
@@ -403,7 +511,8 @@ def get_gateway(config: dict) -> BasePaymentGateway:
     Returns:
         Gateway instance
     """
-    gateway_name = config.get("gateway_name", "manual")
+    gateway_name = str(config.get("gateway_name", "manual")).strip().lower()
+    gateway_name = _GATEWAY_ALIASES.get(gateway_name, gateway_name)
     gateway_class = GATEWAY_REGISTRY.get(gateway_name, ManualGateway)
     return gateway_class(config)
 

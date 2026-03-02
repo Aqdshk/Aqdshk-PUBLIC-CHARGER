@@ -19,7 +19,8 @@ services:
       - MYSQL_USER=${MYSQL_USER:-charging_user}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-charging_password}
     ports:
-      - "3307:3306"
+      # Bind MySQL to localhost only (not externally reachable).
+      - "127.0.0.1:3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./init_docker_mysql.sql:/docker-entrypoint-initdb.d/02-init-extra.sql:ro
@@ -55,11 +56,30 @@ services:
       - DEV_AUTO_INIT=1
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_EMAIL=${SMTP_EMAIL:-aqidishak28@gmail.com}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-uvcz akom aiul jjct}
+      - SMTP_EMAIL=${SMTP_EMAIL:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME:-PlagSini EV}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-plagsini-ev-jwt-secret-change-me-in-production-2026}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - OCPP_REQUIRE_AUTH=${OCPP_REQUIRE_AUTH:-1}
+      - OCPP_SHARED_TOKEN=${OCPP_SHARED_TOKEN:-}
+      - OCPP_CHARGER_TOKENS=${OCPP_CHARGER_TOKENS:-}
+      - PAYMENT_CALLBACK_SECRET=${PAYMENT_CALLBACK_SECRET:-}
+      - PAYMENT_BILLPLZ_API_KEY=${PAYMENT_BILLPLZ_API_KEY:-}
+      - PAYMENT_BILLPLZ_API_SECRET=${PAYMENT_BILLPLZ_API_SECRET:-}
+      - PAYMENT_FIUU_API_KEY=${PAYMENT_FIUU_API_KEY:-}
+      - PAYMENT_FIUU_API_SECRET=${PAYMENT_FIUU_API_SECRET:-}
+      - PAYMENT_TNG_API_KEY=${PAYMENT_TNG_API_KEY:-}
+      - PAYMENT_TNG_API_SECRET=${PAYMENT_TNG_API_SECRET:-}
+      - PAYMENT_OCBC_API_KEY=${PAYMENT_OCBC_API_KEY:-}
+      - PAYMENT_OCBC_API_SECRET=${PAYMENT_OCBC_API_SECRET:-}
+      - ALLOW_DB_GATEWAY_SECRETS=${ALLOW_DB_GATEWAY_SECRETS:-0}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_NAME=${ADMIN_NAME:-Admin}
+      - STAFF_EMAIL=${STAFF_EMAIL:-}
+      - STAFF_PASSWORD=${STAFF_PASSWORD:-}
+      - STAFF_NAME=${STAFF_NAME:-Staff Admin}
     networks:
       - ev-network
     depends_on:

@@ -1,6 +1,10 @@
 import logging
+import os
+import re
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs
 
 import websockets.exceptions
 from sqlalchemy import desc
@@ -14,6 +18,54 @@ logger = logging.getLogger(__name__)
 
 # Global dictionary to track active charge point connections
 active_charge_points: Dict[str, 'ChargePoint'] = {}
+_CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
+
+
+def _parse_token_map(raw_tokens: str) -> Dict[str, str]:
+    """
+    Parse OCPP charger token map from env:
+    OCPP_CHARGER_TOKENS="CP001:tokenA,CP002:tokenB"
+    """
+    token_map: Dict[str, str] = {}
+    if not raw_tokens:
+        return token_map
+    for pair in raw_tokens.split(","):
+        item = pair.strip()
+        if not item or ":" not in item:
+            continue
+        cp_id, token = item.split(":", 1)
+        cp_id = cp_id.strip()
+        token = token.strip()
+        if cp_id and token:
+            token_map[cp_id] = token
+    return token_map
+
+
+def _extract_ws_token(websocket: Any, raw_path: str) -> Optional[str]:
+    """Extract charger token from query string or headers."""
+    # 1) Query string: ws://host:9000/CP001?token=xxx
+    token = None
+    if "?" in raw_path:
+        query = raw_path.split("?", 1)[1]
+        parsed = parse_qs(query, keep_blank_values=False)
+        values = parsed.get("token")
+        if values:
+            token = values[0].strip()
+    if token:
+        return token
+
+    # 2) Header: X-CP-Token: xxx
+    headers = getattr(websocket, "request_headers", None)
+    if headers:
+        x_cp_token = headers.get("X-CP-Token")
+        if x_cp_token:
+            return x_cp_token.strip()
+
+        # 3) Authorization: Bearer xxx
+        auth_header = headers.get("Authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            return auth_header[7:].strip()
+    return None
 
 def utc_now_iso_z() -> str:
     """RFC3339 UTC timestamp with 'Z' suffix (better charger compatibility)."""
@@ -791,13 +843,42 @@ async def on_connect(websocket, path):
     Example: ws://localhost:9000/0748911403000154
     """
     try:
-        # Extract charge point ID from path
-        charge_point_id = path.strip('/')
+        # Extract charge point ID from path (ignore query string if present)
+        raw_path = path or ""
+        clean_path = raw_path.split("?", 1)[0]
+        charge_point_id = clean_path.strip("/")
         if not charge_point_id:
             logger.warning("Connection attempt without charge point ID")
-            await websocket.close()
+            await websocket.close(code=1008, reason="Missing charge_point_id")
             return
-        
+        if not _CP_ID_PATTERN.match(charge_point_id):
+            logger.warning("Rejected OCPP connection with invalid charge_point_id format: %s", charge_point_id)
+            await websocket.close(code=1008, reason="Invalid charge_point_id format")
+            return
+
+        # Optional OCPP auth hardening (recommended for production).
+        # - OCPP_REQUIRE_AUTH=1 (default): token required.
+        # - OCPP_SHARED_TOKEN=...      : one shared token for all chargers.
+        # - OCPP_CHARGER_TOKENS=CP1:t1,CP2:t2 : per-charger token map.
+        require_auth = os.getenv("OCPP_REQUIRE_AUTH", "1").strip().lower() not in ("0", "false", "no")
+        shared_token = os.getenv("OCPP_SHARED_TOKEN", "").strip()
+        charger_tokens = _parse_token_map(os.getenv("OCPP_CHARGER_TOKENS", ""))
+        provided_token = _extract_ws_token(websocket, raw_path)
+
+        if require_auth:
+            expected_token = charger_tokens.get(charge_point_id) or shared_token
+            if not expected_token:
+                logger.warning(
+                    "Rejected charger %s: OCPP auth enabled but no token configured (set OCPP_SHARED_TOKEN or OCPP_CHARGER_TOKENS)",
+                    charge_point_id,
+                )
+                await websocket.close(code=1008, reason="Charger token not configured")
+                return
+            if not provided_token or not secrets.compare_digest(provided_token, expected_token):
+                logger.warning("Rejected charger %s: invalid or missing OCPP token", charge_point_id)
+                await websocket.close(code=1008, reason="Invalid charger token")
+                return
+
         logger.info(f"🔌 New OCPP connection from charge point: {charge_point_id}")
         
         # Create charge point instance and start handling messages
