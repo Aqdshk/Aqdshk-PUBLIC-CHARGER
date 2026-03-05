@@ -328,63 +328,59 @@ class ChargePoint(cp):
     
     @on('StartTransaction')
     async def on_start_transaction(self, connector_id: int, id_tag: str, meter_start: int, timestamp: str, **kwargs):
-        """Handle StartTransaction from charging station"""
-        logger.info(f"StartTransaction from {self.id}: transaction {kwargs.get('transaction_id')}")
-        
+        """Handle StartTransaction from charging station.
+
+        NOTE: In OCPP 1.6, the Central System (server) generates and assigns the
+        transaction_id — the charger does NOT provide one in StartTransaction.req.
+        We use the session's auto-increment DB id as the transaction_id.
+        """
         charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
         if charger:
-            transaction_id = kwargs.get('transaction_id')
-            
-            # Check if session already exists (from remote start)
+            start_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+            # Check if a pending/active session already exists (created by RemoteStart)
             existing_session = self.db.query(ChargingSession).filter(
                 ChargingSession.charger_id == charger.id,
                 ChargingSession.status.in_(["pending", "active"])
             ).order_by(desc(ChargingSession.start_time)).first()
-            
+
             if existing_session:
-                # Update existing session with transaction_id
-                # Handle negative transaction_id (temporary placeholder)
-                if existing_session.transaction_id < 0:
-                    # Delete old session and create new one with real transaction_id
-                    self.db.delete(existing_session)
-                    self.db.commit()
-                    session = ChargingSession(
-                        charger_id=charger.id,
-                        transaction_id=transaction_id,
-                        start_time=datetime.fromisoformat(timestamp.replace('Z', '+00:00')),
-                        status="active",
-                        user_id=id_tag
-                    )
-                    self.db.add(session)
-                else:
-                    # Update existing session
-                    existing_session.transaction_id = transaction_id
-                    existing_session.status = "active"
-                    existing_session.start_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                    if existing_session.user_id == "LOCAL_CHARGING":
-                        existing_session.user_id = id_tag  # Update from placeholder
+                existing_session.status = "active"
+                existing_session.start_time = start_dt
+                existing_session.meter_start = meter_start
+                if not existing_session.user_id or existing_session.user_id in ("LOCAL_CHARGING", "DASHBOARD_USER"):
+                    existing_session.user_id = id_tag
+                # Assign transaction_id from DB id if not already a valid one
+                if not existing_session.transaction_id or existing_session.transaction_id <= 0:
+                    self.db.flush()
+                    existing_session.transaction_id = existing_session.id
+                transaction_id = existing_session.transaction_id
             else:
-                # Create new session
+                # New session — flush to get auto-increment id, use it as transaction_id
                 session = ChargingSession(
                     charger_id=charger.id,
-                    transaction_id=transaction_id,
-                    start_time=datetime.fromisoformat(timestamp.replace('Z', '+00:00')),
+                    transaction_id=0,  # placeholder; will be replaced with DB id below
+                    start_time=start_dt,
+                    meter_start=meter_start,
                     status="active",
                     user_id=id_tag
                 )
                 self.db.add(session)
-            
+                self.db.flush()  # populate session.id
+                session.transaction_id = session.id
+                transaction_id = session.transaction_id
+
             charger.availability = "charging"
-            charger.status = "online"  # Ensure status is online when charging starts
+            charger.status = "online"
             self.db.commit()
-            
-            logger.info(f"Charger {self.id} started charging with transaction {transaction_id}")
-            
+
+            logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
+
             return call_result.StartTransaction(
                 transaction_id=transaction_id,
                 id_tag_info={'status': AuthorizationStatus.accepted}
             )
-        
+
         return call_result.StartTransaction(
             transaction_id=0,
             id_tag_info={'status': AuthorizationStatus.invalid}
