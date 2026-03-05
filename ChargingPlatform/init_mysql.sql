@@ -170,6 +170,19 @@ CREATE TABLE IF NOT EXISTS faults (
     INDEX idx_cleared (cleared)
 );
 
+-- Staff Sessions (persistent — survives container restarts)
+CREATE TABLE IF NOT EXISTS staff_sessions (
+    id INTEGER PRIMARY KEY AUTO_INCREMENT,
+    staff_id INTEGER NOT NULL,
+    token VARCHAR(128) UNIQUE NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (staff_id) REFERENCES support_staff(id) ON DELETE CASCADE,
+    INDEX idx_token (token),
+    INDEX idx_staff_id (staff_id),
+    INDEX idx_expires_at (expires_at)
+);
+
 -- Maintenance Records
 CREATE TABLE IF NOT EXISTS maintenance_records (
     id INTEGER PRIMARY KEY AUTO_INCREMENT,

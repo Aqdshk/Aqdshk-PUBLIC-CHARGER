@@ -411,6 +411,19 @@ class SupportStaff(Base):
         return False
 
 
+class StaffSession(Base):
+    """Persistent staff login sessions stored in DB (survives container restarts)."""
+    __tablename__ = "staff_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    staff_id = Column(Integer, ForeignKey("support_staff.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(128), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    staff = relationship("SupportStaff", backref="sessions")
+
+
 # ==================== SUPPORT TICKETS ====================
 
 class SupportTicket(Base):

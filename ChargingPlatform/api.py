@@ -24,7 +24,7 @@ from database import (
     AuditLog,
     Charger, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     OTPVerification, PaymentGatewayConfig, PaymentTransaction,
-    Pricing, SupportStaff, SupportTicket, TicketMessage,
+    Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db,
 )
@@ -210,12 +210,7 @@ def _normalize_and_validate_email(raw_email: str) -> str:
     return email
 
 
-# Active staff sessions: token → staff dict
-_staff_sessions: Dict[str, Any] = {}
-
-
-def _get_staff_session(token: str) -> Optional[dict]:
-    return _staff_sessions.get(token)
+_STAFF_SESSION_TTL_DAYS = 7  # sessions last 7 days
 
 
 def _extract_staff_token(request: Request) -> Optional[str]:
@@ -227,6 +222,28 @@ def _extract_staff_token(request: Request) -> Optional[str]:
     if query_token:
         return query_token.strip()
     return None
+
+
+def _get_staff_session_db(token: str, db: Session) -> Optional[dict]:
+    """Look up a staff session from the database. Returns staff info dict or None."""
+    now = datetime.utcnow()
+    row = (
+        db.query(StaffSession)
+        .filter(StaffSession.token == token, StaffSession.expires_at > now)
+        .first()
+    )
+    if not row:
+        return None
+    staff = db.query(SupportStaff).filter(SupportStaff.id == row.staff_id).first()
+    if not staff or not staff.is_active:
+        return None
+    return {
+        "id": staff.id,
+        "name": staff.name,
+        "email": staff.email,
+        "department": staff.department,
+        "role": staff.role,
+    }
 
 
 async def require_admin_or_staff_admin(
@@ -244,7 +261,7 @@ async def require_admin_or_staff_admin(
 
     staff_token = _extract_staff_token(request)
     if staff_token:
-        session = _get_staff_session(staff_token)
+        session = _get_staff_session_db(staff_token, db)
         if session and session.get("role") == "admin":
             return {"mode": "staff_admin", "staff_id": session.get("id")}
 
@@ -551,7 +568,7 @@ async def get_chargers(db: Session = Depends(get_db)):
         ).order_by(desc(ChargingSession.start_time)).first()
 
         # Compute effective status: active WebSocket = online; no connection = offline (live)
-        effective_status = "offline"
+                    effective_status = "offline"
         if charger.charge_point_id in active_charge_points:
             effective_status = "online"
 
@@ -1012,7 +1029,7 @@ async def my_tickets_page():
 
 
 @app.post("/api/ocpp/{charge_point_id}/change-availability", response_model=OcppOperationResponse)
-async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ChangeAvailability"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1028,7 +1045,7 @@ async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabi
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-cache", response_model=OcppOperationResponse)
-async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ClearCache"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1044,7 +1061,7 @@ async def ocpp_clear_cache(charge_point_id: str, db: Session = Depends(get_db), 
 
 
 @app.post("/api/ocpp/{charge_point_id}/reset", response_model=OcppOperationResponse)
-async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 Reset"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1060,7 +1077,7 @@ async def ocpp_reset(charge_point_id: str, request: ResetRequest, db: Session = 
 
 
 @app.post("/api/ocpp/{charge_point_id}/unlock-connector", response_model=OcppOperationResponse)
-async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 UnlockConnector"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1076,7 +1093,7 @@ async def ocpp_unlock_connector(charge_point_id: str, request: UnlockConnectorRe
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-diagnostics", response_model=OcppOperationResponse)
-async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 GetDiagnostics"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1096,7 +1113,7 @@ async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/update-firmware", response_model=OcppOperationResponse)
-async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 UpdateFirmware"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1112,7 +1129,7 @@ async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/reserve-now", response_model=OcppOperationResponse)
-async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ReserveNow"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1131,7 +1148,7 @@ async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db:
 
 
 @app.post("/api/ocpp/{charge_point_id}/cancel-reservation", response_model=OcppOperationResponse)
-async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservationRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservationRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 CancelReservation"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1147,7 +1164,7 @@ async def ocpp_cancel_reservation(charge_point_id: str, request: CancelReservati
 
 
 @app.post("/api/ocpp/{charge_point_id}/data-transfer", response_model=OcppOperationResponse)
-async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 DataTransfer"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1164,7 +1181,7 @@ async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest,
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-local-list-version", response_model=OcppOperationResponse)
-async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 GetLocalListVersion"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1180,7 +1197,7 @@ async def ocpp_get_local_list_version(charge_point_id: str, db: Session = Depend
 
 
 @app.post("/api/ocpp/{charge_point_id}/send-local-list", response_model=OcppOperationResponse)
-async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 SendLocalList"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1199,7 +1216,7 @@ async def ocpp_send_local_list(charge_point_id: str, request: SendLocalListReque
 
 
 @app.post("/api/ocpp/{charge_point_id}/trigger-message", response_model=OcppOperationResponse)
-async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 TriggerMessage"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1217,7 +1234,7 @@ async def ocpp_trigger_message(charge_point_id: str, request: TriggerMessageRequ
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-composite-schedule", response_model=OcppOperationResponse)
-async def ocpp_get_composite_schedule(charge_point_id: str, request: GetCompositeScheduleRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_get_composite_schedule(charge_point_id: str, request: GetCompositeScheduleRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 GetCompositeSchedule"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1237,7 +1254,7 @@ async def ocpp_get_composite_schedule(charge_point_id: str, request: GetComposit
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-charging-profile", response_model=OcppOperationResponse)
-async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargingProfileRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargingProfileRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ClearChargingProfile"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1257,7 +1274,7 @@ async def ocpp_clear_charging_profile(charge_point_id: str, request: ClearChargi
 
 
 @app.post("/api/ocpp/{charge_point_id}/set-charging-profile", response_model=OcppOperationResponse)
-async def ocpp_set_charging_profile(charge_point_id: str, request: SetChargingProfileRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def ocpp_set_charging_profile(charge_point_id: str, request: SetChargingProfileRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 SetChargingProfile"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
@@ -1371,16 +1388,20 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 ).first()
                 
                 if not existing_pending:
-                    # Create pending session - will be updated when StartTransaction received
-                    # Use a temporary negative transaction_id to avoid unique constraint
+                    # Create pending session using a unique negative transaction_id.
+                    # We flush first to get the auto-increment PK, then set
+                    # transaction_id = -session.id so it's unique and clearly temporary.
+                    # on_start_transaction will overwrite it with the real assigned ID.
                     session = ChargingSession(
                         charger_id=charger.id,
-                        transaction_id=-1,  # Temporary negative ID - will be updated by StartTransaction
+                        transaction_id=0,  # placeholder; replaced below after flush
                         start_time=datetime.utcnow(),
-                        status="pending",  # Pending until StartTransaction received
+                        status="pending",
                         user_id=request.id_tag
                     )
                     db.add(session)
+                    db.flush()  # populate session.id from auto-increment
+                    session.transaction_id = -session.id  # unique negative value
                     db.commit()
                 
                 # Update charger availability to "charging" or "unavailable" since it's now in use
@@ -2079,10 +2100,10 @@ async def login_user(request: UserLoginRequest, req: Request, db: Session = Depe
         email = _normalize_and_validate_email(request.email)
         user = db.query(User).filter(User.email == email).first()
         client_ip = get_client_ip(req)
-
+        
         if not user:
             return AuthResponse(success=False, message="Invalid email or password")
-
+        
         # Check if account is locked
         if user.is_locked():
             audit_log("login_locked", user.id, f"Account locked, IP={client_ip}", client_ip)
@@ -2722,25 +2743,22 @@ admin_sessions = {}
 
 def verify_admin_token(admin_token: str, db: Session) -> Optional[User]:
     """Verify admin token and return admin user if valid.
-    
-    Checks both old admin_sessions AND the new centralized _staff_sessions
-    so the admin page works after logging in via /login.
+
+    Checks legacy admin_sessions dict AND the DB-backed staff sessions.
     """
     if not admin_token:
         return None
 
-    # 1. Check legacy admin_sessions
+    # 1. Check legacy admin_sessions (in-memory, kept for backwards compat)
     if admin_token in admin_sessions:
         user_id = admin_sessions[admin_token]
         user = db.query(User).filter(User.id == user_id, User.is_admin == True).first()
         if user:
             return user
 
-    # 2. Check centralized staff sessions (admin role)
-    staff_session = _staff_sessions.get(admin_token)
+    # 2. Check DB-backed staff sessions (admin role)
+    staff_session = _get_staff_session_db(admin_token, db)
     if staff_session and staff_session.get("role") == "admin":
-        # Staff-admin authenticated — return a synthetic User-like object or the first admin user
-        # We need a User object; find an admin user to satisfy the return type
         admin_user = db.query(User).filter(User.is_admin == True).first()
         return admin_user
 
@@ -3232,7 +3250,7 @@ async def get_all_maintenance(
     charger_id: Optional[str] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin),
+    _auth: dict = Depends(require_admin_or_staff_admin),
 ):
     """Get all maintenance records, optionally filtered by charger or status"""
     query = db.query(MaintenanceRecord)
@@ -3273,7 +3291,7 @@ async def get_all_maintenance(
 
 
 @app.get("/api/maintenance/{record_id}", response_model=MaintenanceResponse)
-async def get_maintenance_record(record_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def get_maintenance_record(record_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Get a specific maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3302,7 +3320,7 @@ async def get_maintenance_record(record_id: int, db: Session = Depends(get_db), 
 
 
 @app.post("/api/maintenance", response_model=MaintenanceResponse)
-async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Create a new maintenance record"""
     # Find charger by charge_point_id
     charger = db.query(Charger).filter(Charger.charge_point_id == data.charger_id).first()
@@ -3348,7 +3366,7 @@ async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depen
 
 
 @app.put("/api/maintenance/{record_id}", response_model=MaintenanceResponse)
-async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Update a maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3405,7 +3423,7 @@ async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db:
 
 
 @app.delete("/api/maintenance/{record_id}")
-async def delete_maintenance_record(record_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def delete_maintenance_record(record_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Delete a maintenance record"""
     record = db.query(MaintenanceRecord).filter(MaintenanceRecord.id == record_id).first()
     if not record:
@@ -3799,7 +3817,7 @@ async def list_tickets(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin),
+    _auth: dict = Depends(require_admin_or_staff_admin),
 ):
     """List support tickets. Supports filtering by staff/department for hierarchy."""
     q = db.query(SupportTicket)
@@ -3915,7 +3933,7 @@ async def ticket_stats(
 
 
 @app.get("/api/tickets/overdue")
-async def get_overdue_tickets(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def get_overdue_tickets(db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Get all overdue and soon-due tickets for reminder dashboard."""
     now = datetime.utcnow()
     warning_deadline = now + timedelta(hours=2)
@@ -3981,7 +3999,7 @@ def _humanize_seconds(seconds: float) -> str:
 
 
 @app.get("/api/tickets/{ticket_id}")
-async def get_ticket(ticket_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def get_ticket(ticket_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Get a single ticket with its messages."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -4024,7 +4042,7 @@ async def get_ticket(ticket_id: int, db: Session = Depends(get_db), admin_user: 
 
 
 @app.put("/api/tickets/{ticket_id}")
-async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Update a ticket (status, priority, assignment, etc.)."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -4064,7 +4082,7 @@ async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = 
 
 
 @app.post("/api/tickets/{ticket_id}/messages")
-async def add_ticket_message(ticket_id: int, req: TicketMessageRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def add_ticket_message(ticket_id: int, req: TicketMessageRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Add a message to a ticket thread."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
@@ -4141,35 +4159,35 @@ async def staff_login(req: StaffLoginRequest, request: Request, db: Session = De
         raise HTTPException(status_code=403, detail="Account disabled")
 
     staff.last_login = datetime.utcnow()
-    db.commit()
 
     token = secrets.token_hex(32)
-    _staff_sessions[token] = {
+    expires = datetime.utcnow() + timedelta(days=_STAFF_SESSION_TTL_DAYS)
+    db.add(StaffSession(staff_id=staff.id, token=token, expires_at=expires))
+    db.commit()
+
+    staff_info = {
         "id": staff.id,
         "name": staff.name,
         "email": staff.email,
         "department": staff.department,
         "role": staff.role,
     }
-
-    return {
-        "success": True,
-        "token": token,
-        "staff": _staff_sessions[token],
-    }
+    return {"success": True, "token": token, "staff": staff_info}
 
 
 @app.post("/api/staff/logout")
-async def staff_logout(body: dict):
+async def staff_logout(body: dict, db: Session = Depends(get_db)):
     token = body.get("token")
-    if token and token in _staff_sessions:
-        del _staff_sessions[token]
+    if token:
+        db.query(StaffSession).filter(StaffSession.token == token).delete()
+        db.commit()
     return {"success": True}
 
+
 @app.get("/api/staff/me")
-async def staff_me(token: str):
+async def staff_me(token: str, db: Session = Depends(get_db)):
     """Get current staff info from token."""
-    session = _get_staff_session(token)
+    session = _get_staff_session_db(token, db)
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"success": True, "staff": session}
@@ -4183,7 +4201,7 @@ async def staff_my_tickets(
     db: Session = Depends(get_db),
 ):
     """Get tickets visible to the current staff based on their role."""
-    session = _get_staff_session(token)
+    session = _get_staff_session_db(token, db)
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -4237,7 +4255,7 @@ async def staff_my_tickets(
 # ─── Staff CRUD (admin only) ───
 
 @app.post("/api/staff")
-async def create_staff(req: CreateStaffRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def create_staff(req: CreateStaffRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Create a new support staff member."""
     if req.department not in DEPARTMENTS:
         raise HTTPException(status_code=400, detail=f"Invalid department. Must be one of: {DEPARTMENTS}")
@@ -4272,7 +4290,7 @@ async def list_staff(
     department: Optional[str] = None,
     role: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin),
+    _auth: dict = Depends(require_admin_or_staff_admin),
 ):
     """List all staff members."""
     q = db.query(SupportStaff)
@@ -4310,7 +4328,7 @@ async def list_staff(
 
 
 @app.get("/api/staff/{staff_id}")
-async def get_staff(staff_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def get_staff(staff_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4326,7 +4344,7 @@ async def get_staff(staff_id: int, db: Session = Depends(get_db), admin_user: Us
 
 
 @app.put("/api/staff/{staff_id}")
-async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4347,7 +4365,7 @@ async def update_staff(staff_id: int, req: UpdateStaffRequest, db: Session = Dep
 
 
 @app.delete("/api/staff/{staff_id}")
-async def delete_staff(staff_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def delete_staff(staff_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
@@ -4396,7 +4414,7 @@ class GatewayConfigRequest(BaseModel):
 
 
 @app.get("/api/payment/gateways")
-async def list_payment_gateways(db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def list_payment_gateways(db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """List all configured payment gateways."""
     gateways = db.query(PaymentGatewayConfig).order_by(PaymentGatewayConfig.created_at).all()
     result = []
@@ -4431,7 +4449,7 @@ async def list_payment_gateways(db: Session = Depends(get_db), admin_user: User 
 
 
 @app.post("/api/payment/gateways")
-async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Create/configure a new payment gateway."""
     if req.api_key or req.api_secret:
         logger.warning(
@@ -4471,13 +4489,13 @@ async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depend
     db.add(gw)
     db.commit()
     db.refresh(gw)
-    audit_log("admin_gateway_create", admin_user.id, f"Created payment gateway '{req.gateway_name}'")
+    audit_log("admin_gateway_create", _auth.get("user_id") or _auth.get("staff_id"), f"Created payment gateway '{req.gateway_name}'")
     logger.info(f"Payment gateway configured: {req.gateway_name}")
     return {"success": True, "message": f"Gateway '{req.display_name}' configured", "id": gw.id}
 
 
 @app.put("/api/payment/gateways/{gateway_id}")
-async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Update payment gateway configuration."""
     if req.api_key or req.api_secret:
         logger.warning(
@@ -4513,13 +4531,13 @@ async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db:
     gw.is_default = req.is_default
     
     db.commit()
-    audit_log("admin_gateway_update", admin_user.id, f"Updated payment gateway '{gw.gateway_name}'")
+    audit_log("admin_gateway_update", _auth.get("user_id") or _auth.get("staff_id"), f"Updated payment gateway '{gw.gateway_name}'")
     logger.info(f"Payment gateway updated: {gw.gateway_name}")
     return {"success": True, "message": f"Gateway '{gw.display_name}' updated"}
 
 
 @app.delete("/api/payment/gateways/{gateway_id}")
-async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
+async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Delete a payment gateway configuration."""
     gw = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.id == gateway_id).first()
     if not gw:
@@ -4527,7 +4545,7 @@ async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db),
     gateway_name = gw.gateway_name
     db.delete(gw)
     db.commit()
-    audit_log("admin_gateway_delete", admin_user.id, f"Deleted payment gateway '{gateway_name}'")
+    audit_log("admin_gateway_delete", _auth.get("user_id") or _auth.get("staff_id"), f"Deleted payment gateway '{gateway_name}'")
     return {"success": True, "message": f"Gateway '{gw.display_name}' deleted"}
 
 
@@ -4943,7 +4961,7 @@ def _credit_wallet(db: Session, txn: PaymentTransaction):
 @app.post("/api/payment/approve/{transaction_ref}")
 async def approve_manual_payment(
     transaction_ref: str,
-    admin_user: User = Depends(require_admin),
+    _auth: dict = Depends(require_admin_or_staff_admin),
     db: Session = Depends(get_db),
 ):
     """Admin approves a manual/bank transfer top-up."""
@@ -4963,7 +4981,7 @@ async def approve_manual_payment(
 
     _credit_wallet(db, txn)
     db.commit()
-    audit_log("admin_manual_payment_approve", admin_user.id, f"Approved manual payment {txn.transaction_ref}", amount=float(txn.amount or 0))
+    audit_log("admin_manual_payment_approve", _auth.get("user_id") or _auth.get("staff_id"), f"Approved manual payment {txn.transaction_ref}", amount=float(txn.amount or 0))
 
     logger.info(f"✅ Manual payment approved: {txn.transaction_ref} RM{txn.amount} for user {txn.user_id}")
     return {"success": True, "message": f"Payment approved. RM{txn.amount:.2f} credited to user."}
