@@ -29,8 +29,13 @@ from database import (
     SessionLocal, get_db, init_db,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder
-from ocpp_server import get_active_charge_point
-from payment_gateway import get_gateway, generate_transaction_ref, GATEWAY_REGISTRY
+from ocpp_server import get_active_charge_point, active_charge_points
+from payment_gateway import (
+    get_gateway,
+    generate_transaction_ref,
+    GATEWAY_REGISTRY,
+    is_callback_already_processed,
+)
 from security import (
     create_tokens,
     verify_access_token,
@@ -134,6 +139,44 @@ def _gateway_credential_status(gw: PaymentGatewayConfig) -> Dict[str, str]:
     }
 
 
+def _request_headers_to_dict(request: Request) -> Dict[str, str]:
+    """Normalize request headers to a case-insensitive plain dict."""
+    out: Dict[str, str] = {}
+    for k, v in request.headers.items():
+        out[k] = v
+        out[k.lower()] = v
+    return out
+
+
+async def _extract_callback_payload(request: Request) -> Dict[str, Any]:
+    """
+    Support JSON and form-url-encoded callback payloads.
+    Some providers send callbacks as application/x-www-form-urlencoded.
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+
+    if "application/json" in content_type:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        return {str(k): str(v) for k, v in form.items()}
+
+    try:
+        data = await request.json()
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    try:
+        form = await request.form()
+        return {str(k): str(v) for k, v in form.items()}
+    except Exception:
+        return {}
+
+
 def _enforce_rate_limit(
     request: Request,
     key: str,
@@ -210,7 +253,11 @@ async def require_admin_or_staff_admin(
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
-if not _allowed_origins:
+_app_env = os.getenv("APP_ENV", "development").strip().lower()
+if not _allowed_origins and _app_env in {"prod", "production"}:
+    # Production fail-safe: deny cross-origin unless explicitly configured.
+    _allowed_origins = []
+elif not _allowed_origins:
     # Default: allow localhost for development
     _allowed_origins = [
         "http://localhost",
@@ -227,11 +274,15 @@ app.add_middleware(
     allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Idempotency-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Idempotency-Key", "X-Staff-Token"],
 )
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# OCPI 2.2.1 - CPO interface for roaming (TNG integration)
+from ocpi import router as ocpi_router
+app.include_router(ocpi_router)
 
 
 # Pydantic models for API responses
@@ -248,6 +299,14 @@ class ChargerStatus(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class CreateChargerRequest(BaseModel):
+    """Request to manually register a charger (e.g. before OCPP BootNotification)."""
+    charge_point_id: str
+    vendor: Optional[str] = None
+    model: Optional[str] = None
+    firmware_version: Optional[str] = None
 
 
 class ChargingSessionResponse(BaseModel):
@@ -491,22 +550,10 @@ async def get_chargers(db: Session = Depends(get_db)):
             )
         ).order_by(desc(ChargingSession.start_time)).first()
 
-        # Compute effective status based on heartbeat age.
-        # This avoids showing OFFLINE when chargers frequently drop/reconnect WS without sending a Close frame.
-        effective_status = charger.status or "offline"
-        if charger.last_heartbeat:
-            try:
-                age_seconds = (datetime.utcnow() - charger.last_heartbeat).total_seconds()
-                # Consider online if we heard anything recently (StatusNotification/Heartbeat updates last_heartbeat)
-                # NOTE: Many chargers do not send Heartbeat frequently (some are configured to 7200s),
-                # and some drop/reconnect websockets often. Use a more tolerant window to avoid flapping.
-                if age_seconds <= 900:
-                    effective_status = "online"
-                else:
-                    effective_status = "offline"
-            except Exception:
-                # If something odd about datetime, fall back to stored status
-                pass
+        # Compute effective status: active WebSocket = online; no connection = offline (live)
+        effective_status = "offline"
+        if charger.charge_point_id in active_charge_points:
+            effective_status = "online"
 
         # Only expose a valid active transaction id (>0). Pending placeholders (<=0) shouldn't drive UI.
         active_txn_id = None
@@ -514,10 +561,11 @@ async def get_chargers(db: Session = Depends(get_db)):
             if int(active_session.transaction_id) > 0:
                 active_txn_id = int(active_session.transaction_id)
 
-        # If we have a valid active transaction, reflect charging state in availability
+        # Trust charger.availability from StatusNotification (source of truth from device)
+        # Don't use active_txn_id to force "charging" - session can be stale if charger stopped locally
         effective_availability = charger.availability or "unknown"
-        if active_txn_id is not None:
-            effective_availability = "charging"
+        if effective_status == "offline":
+            effective_availability = "unavailable"
         
         charger_dict = {
             "id": charger.id,
@@ -541,6 +589,40 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
+    return charger
+
+
+@app.post("/api/admin/chargers", response_model=ChargerStatus)
+async def admin_create_charger(
+    req: CreateChargerRequest,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Manually register a charger (e.g. ESP32) before it connects via OCPP.
+    Charger will appear in dashboard; status becomes 'online' when it sends BootNotification.
+    """
+    import re
+    cp_id = (req.charge_point_id or "").strip()
+    if not cp_id or len(cp_id) < 3:
+        raise HTTPException(status_code=400, detail="charge_point_id required (min 3 chars)")
+    if not re.match(r"^[A-Za-z0-9._:-]{3,64}$", cp_id):
+        raise HTTPException(status_code=400, detail="charge_point_id: alphanumeric, dots, _, -, : only")
+    existing = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Charger {cp_id} already exists")
+    charger = Charger(
+        charge_point_id=cp_id,
+        vendor=req.vendor or "Manual",
+        model=req.model or "ESP32",
+        firmware_version=req.firmware_version or "Unknown",
+        status="offline",
+        availability="unknown",
+    )
+    db.add(charger)
+    db.commit()
+    db.refresh(charger)
+    logger.info(f"Charger {cp_id} manually registered by admin")
     return charger
 
 
@@ -1716,7 +1798,11 @@ async def forgot_password(request: ForgotPasswordRequest, req: Request, db: Sess
 
     try:
         otp_code = generate_otp()
-        otp_record = OTPVerification(email=email, otp_code=otp_code)
+        otp_record = OTPVerification(
+            email=email,
+            otp_code=otp_code,
+            expires_at=datetime.utcnow() + timedelta(minutes=5),
+        )
         db.add(otp_record)
         db.commit()
 
@@ -4385,6 +4471,7 @@ async def create_payment_gateway(req: GatewayConfigRequest, db: Session = Depend
     db.add(gw)
     db.commit()
     db.refresh(gw)
+    audit_log("admin_gateway_create", admin_user.id, f"Created payment gateway '{req.gateway_name}'")
     logger.info(f"Payment gateway configured: {req.gateway_name}")
     return {"success": True, "message": f"Gateway '{req.display_name}' configured", "id": gw.id}
 
@@ -4426,6 +4513,7 @@ async def update_payment_gateway(gateway_id: int, req: GatewayConfigRequest, db:
     gw.is_default = req.is_default
     
     db.commit()
+    audit_log("admin_gateway_update", admin_user.id, f"Updated payment gateway '{gw.gateway_name}'")
     logger.info(f"Payment gateway updated: {gw.gateway_name}")
     return {"success": True, "message": f"Gateway '{gw.display_name}' updated"}
 
@@ -4436,8 +4524,10 @@ async def delete_payment_gateway(gateway_id: int, db: Session = Depends(get_db),
     gw = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.id == gateway_id).first()
     if not gw:
         raise HTTPException(status_code=404, detail="Gateway not found")
+    gateway_name = gw.gateway_name
     db.delete(gw)
     db.commit()
+    audit_log("admin_gateway_delete", admin_user.id, f"Deleted payment gateway '{gateway_name}'")
     return {"success": True, "message": f"Gateway '{gw.display_name}' deleted"}
 
 
@@ -4683,7 +4773,7 @@ async def create_topup(
 
 
 @app.post("/api/payment/callback/{gateway_name}")
-async def payment_callback(gateway_name: str, payload: dict, request: Request, db: Session = Depends(get_db)):
+async def payment_callback(gateway_name: str, request: Request, db: Session = Depends(get_db)):
     """
     Payment gateway callback/webhook handler.
     Each gateway posts here when payment is completed.
@@ -4695,6 +4785,10 @@ async def payment_callback(gateway_name: str, payload: dict, request: Request, d
         raise HTTPException(status_code=403, detail="Manual gateway callbacks are not allowed")
 
     _require_callback_secret(request, gateway_name)
+    payload = await _extract_callback_payload(request)
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty or unsupported callback payload")
+    headers = _request_headers_to_dict(request)
 
     # Get gateway config
     gw_config = db.query(PaymentGatewayConfig).filter(
@@ -4715,7 +4809,7 @@ async def payment_callback(gateway_name: str, payload: dict, request: Request, d
 
     # Verify callback
     gateway = get_gateway(gw_config_dict)
-    verification = gateway.verify_callback(payload)
+    verification = gateway.verify_callback(payload, headers=headers)
 
     if not verification.get("valid"):
         logger.warning(f"Invalid callback from {gateway_name}: {verification.get('message')}")
@@ -4745,7 +4839,13 @@ async def payment_callback(gateway_name: str, payload: dict, request: Request, d
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     # Already processed or already credited?
-    if txn.status in ["success", "refunded"] or txn.wallet_transaction_id:
+    if is_callback_already_processed(txn):
+        audit_log(
+            "payment_callback_replay",
+            txn.user_id,
+            f"Replay callback ignored for {txn.transaction_ref} ({gateway_name})",
+            amount=float(txn.amount or 0),
+        )
         return {"success": True, "message": "Already processed"}
 
     # Update transaction
@@ -4765,6 +4865,12 @@ async def payment_callback(gateway_name: str, payload: dict, request: Request, d
         txn.status = "failed"
         logger.warning(f"❌ Payment failed: {txn.transaction_ref}")
 
+    audit_log(
+        "payment_callback_processed",
+        txn.user_id,
+        f"Callback processed for {txn.transaction_ref}: status={txn.status}, gateway={gateway_name}",
+        amount=float(txn.amount or 0),
+    )
     db.commit()
     return {"success": True, "status": txn.status}
 
@@ -4857,6 +4963,7 @@ async def approve_manual_payment(
 
     _credit_wallet(db, txn)
     db.commit()
+    audit_log("admin_manual_payment_approve", admin_user.id, f"Approved manual payment {txn.transaction_ref}", amount=float(txn.amount or 0))
 
     logger.info(f"✅ Manual payment approved: {txn.transaction_ref} RM{txn.amount} for user {txn.user_id}")
     return {"success": True, "message": f"Payment approved. RM{txn.amount:.2f} credited to user."}

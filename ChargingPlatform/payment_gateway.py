@@ -20,7 +20,7 @@ import os
 import secrets
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -105,6 +105,33 @@ class BasePaymentGateway(ABC):
             }
         """
         pass
+
+
+def _as_str(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_status(value: str) -> str:
+    raw = _as_str(value).lower()
+    if raw in {"success", "paid", "completed", "settled", "approved", "ok", "true", "1"}:
+        return "success"
+    if raw in {"pending", "processing", "in_progress", "authorized"}:
+        return "pending"
+    if raw in {"failed", "fail", "error", "declined", "cancelled", "canceled", "expired", "0", "false"}:
+        if raw == "expired":
+            return "expired"
+        return "failed"
+    return "pending"
+
+
+def is_callback_already_processed(txn: Any) -> bool:
+    """
+    Idempotency guard for callback retries:
+    once settled/credited, repeated callbacks should become no-ops.
+    """
+    return getattr(txn, "status", None) in ["success", "refunded"] or bool(getattr(txn, "wallet_transaction_id", None))
 
 
 # ═══════════════════════════════════════════
@@ -295,7 +322,9 @@ class BillplzGateway(BasePaymentGateway):
 
     def verify_callback(self, payload: dict, headers: dict = None) -> dict:
         """Verify Billplz callback using x_signature."""
-        x_signature = payload.get("x_signature", "")
+        x_signature = _as_str(payload.get("x_signature"))
+        if not x_signature and headers:
+            x_signature = _as_str(headers.get("x-signature"))
         
         # Billplz v4 callback verification
         signing_keys = ["amount", "collection_id", "email", "id", "name", 
@@ -313,11 +342,15 @@ class BillplzGateway(BasePaymentGateway):
         if not hmac.compare_digest(x_signature, expected_sig):
             return {"valid": False, "message": "Invalid Billplz signature"}
 
+        paid_value = payload.get("paid")
+        paid_normalized = _as_str(paid_value).lower()
+        is_paid = paid_normalized in {"true", "1", "paid", "yes"} or paid_value is True
+
         return {
             "valid": True,
             "transaction_ref": payload.get("reference_1", ""),
             "gateway_transaction_id": payload.get("id", ""),
-            "status": "success" if payload.get("paid") == "true" else "failed",
+            "status": "success" if is_paid else "failed",
             "amount": float(payload.get("paid_amount", 0)) / 100,
             "payment_method": "fpx",
             "raw_response": payload,
@@ -383,12 +416,68 @@ class FiuuGateway(BasePaymentGateway):
         }
 
     def verify_callback(self, payload: dict, headers: dict = None) -> dict:
-        # Integration point:
-        # 1) Verify callback signature/header checksum
-        # 2) Normalize to standard fields
+        """
+        Verify Fiuu callback signature.
+
+        Default supported mode:
+        - md5(amount + merchant_id + orderid + verify_key) == skey
+
+        Configurable via extra_config:
+        - signature_mode: md5_concat | hmac_sha256
+        - signature_field: skey (default)
+        - signature_fields: ["amount", "merchant_id", "orderid"] (default)
+        - verify_key: override key (fallback: api_secret)
+        - transaction_ref_field: orderid (default)
+        - gateway_txn_field: tranID (default)
+        - status_field: status (default)
+        - success_values: ["00","success","paid"] (default union)
+        """
+        cfg = self.extra_config or {}
+        verify_key = _as_str(cfg.get("verify_key") or self.api_secret)
+        if not verify_key:
+            return {"valid": False, "message": "Fiuu verify key not configured"}
+
+        signature_field = _as_str(cfg.get("signature_field") or "skey")
+        provided_sig = _as_str(payload.get(signature_field))
+        if not provided_sig and headers:
+            provided_sig = _as_str(headers.get(signature_field)) or _as_str(headers.get(signature_field.lower()))
+        if not provided_sig:
+            return {"valid": False, "message": f"Missing Fiuu signature field '{signature_field}'"}
+
+        signature_fields = cfg.get("signature_fields") or ["amount", "merchant_id", "orderid"]
+        sign_raw = "".join(_as_str(payload.get(k)) for k in signature_fields) + verify_key
+        mode = _as_str(cfg.get("signature_mode") or "md5_concat").lower()
+        if mode == "hmac_sha256":
+            expected_sig = hmac.new(verify_key.encode(), sign_raw.encode(), hashlib.sha256).hexdigest()
+        else:
+            expected_sig = hashlib.md5(sign_raw.encode()).hexdigest()  # nosec B324 (provider-compatible)
+
+        if not secrets.compare_digest(provided_sig.lower(), expected_sig.lower()):
+            return {"valid": False, "message": "Invalid Fiuu signature"}
+
+        txn_field = _as_str(cfg.get("transaction_ref_field") or "orderid")
+        gw_txn_field = _as_str(cfg.get("gateway_txn_field") or "tranID")
+        status_field = _as_str(cfg.get("status_field") or "status")
+        paid_amount_field = _as_str(cfg.get("paid_amount_field") or "amount")
+        payment_method_field = _as_str(cfg.get("payment_method_field") or "channel")
+
+        success_values = {v.lower() for v in (cfg.get("success_values") or ["00", "success", "paid", "1", "true"])}
+        raw_status = _as_str(payload.get(status_field))
+        normalized_status = "success" if raw_status.lower() in success_values else _normalize_status(raw_status)
+
+        try:
+            amount = float(_as_str(payload.get(paid_amount_field) or "0"))
+        except ValueError:
+            amount = 0.0
+
         return {
-            "valid": False,
-            "message": "Fiuu callback verification scaffold is ready. Waiting for final API spec mapping.",
+            "valid": True,
+            "transaction_ref": _as_str(payload.get(txn_field)),
+            "gateway_transaction_id": _as_str(payload.get(gw_txn_field)),
+            "status": normalized_status,
+            "amount": amount,
+            "payment_method": _as_str(payload.get(payment_method_field) or "fiuu"),
+            "raw_response": payload,
         }
 
     async def check_status(self, gateway_transaction_id: str) -> dict:
@@ -430,9 +519,57 @@ class TngGateway(BasePaymentGateway):
         }
 
     def verify_callback(self, payload: dict, headers: dict = None) -> dict:
+        """
+        Verify TNG/eWallet callback signature (configurable).
+
+        Default mode:
+        - HMAC-SHA256 over concatenated fields using api_secret / signature_key.
+        """
+        cfg = self.extra_config or {}
+        signature_field = _as_str(cfg.get("signature_field") or "signature")
+        provided_sig = _as_str(payload.get(signature_field))
+        if not provided_sig and headers:
+            provided_sig = _as_str(headers.get(signature_field)) or _as_str(headers.get(signature_field.lower()))
+        if not provided_sig:
+            return {"valid": False, "message": f"Missing TNG signature field '{signature_field}'"}
+
+        signing_key = _as_str(cfg.get("signature_key") or self.api_secret)
+        if not signing_key:
+            return {"valid": False, "message": "TNG signature key not configured"}
+
+        sign_fields = cfg.get("signature_fields") or ["transaction_ref", "amount", "status"]
+        separator = _as_str(cfg.get("signature_separator"))
+        if separator:
+            sign_raw = separator.join(_as_str(payload.get(k)) for k in sign_fields)
+        else:
+            sign_raw = "".join(_as_str(payload.get(k)) for k in sign_fields)
+
+        expected_sig = hmac.new(signing_key.encode(), sign_raw.encode(), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(provided_sig.lower(), expected_sig.lower()):
+            return {"valid": False, "message": "Invalid TNG signature"}
+
+        txn_field = _as_str(cfg.get("transaction_ref_field") or "transaction_ref")
+        gw_txn_field = _as_str(cfg.get("gateway_txn_field") or "gateway_transaction_id")
+        status_field = _as_str(cfg.get("status_field") or "status")
+        amount_field = _as_str(cfg.get("amount_field") or "amount")
+        payment_method_field = _as_str(cfg.get("payment_method_field") or "payment_method")
+
+        success_values = {v.lower() for v in (cfg.get("success_values") or ["success", "paid", "completed", "1", "true"])}
+        raw_status = _as_str(payload.get(status_field))
+        normalized_status = "success" if raw_status.lower() in success_values else _normalize_status(raw_status)
+        try:
+            amount = float(_as_str(payload.get(amount_field) or "0"))
+        except ValueError:
+            amount = 0.0
+
         return {
-            "valid": False,
-            "message": "TNG callback verification scaffold is ready. Waiting for final API spec mapping.",
+            "valid": True,
+            "transaction_ref": _as_str(payload.get(txn_field)),
+            "gateway_transaction_id": _as_str(payload.get(gw_txn_field)),
+            "status": normalized_status,
+            "amount": amount,
+            "payment_method": _as_str(payload.get(payment_method_field) or "tng"),
+            "raw_response": payload,
         }
 
     async def check_status(self, gateway_transaction_id: str) -> dict:

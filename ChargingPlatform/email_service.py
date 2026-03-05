@@ -249,7 +249,7 @@ async def send_ticket_reminder(to_email: str, staff_name: str, ticket_number: st
       <p style="margin:4px 0;"><strong style="color:#00FF88;">Priority:</strong> <span style="color:{status_color};font-weight:bold;">{priority.upper()}</span></p>
       <p style="margin:4px 0;"><strong style="color:#00FF88;">SLA Deadline:</strong> {due_at_str}</p>
     </div>
-    <p>Please log in to the <a href="http://localhost:8000/staff-portal" style="color:#00FF88;">Staff Portal</a> to handle this ticket.</p>
+    <p>Please log in to the <a href="{os.getenv('APP_BASE_URL', 'http://localhost:8000')}/staff-portal" style="color:#00FF88;">Staff Portal</a> to handle this ticket.</p>
     """
     email_subject = f"[{status_icon} {status_label}] {ticket_number} - {subject}"
     return await asyncio.to_thread(_send_generic_email, to_email, email_subject, body)

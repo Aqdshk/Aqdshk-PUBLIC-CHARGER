@@ -44,18 +44,29 @@ def _parse_token_map(raw_tokens: str) -> Dict[str, str]:
 def _extract_ws_token(websocket: Any, raw_path: str) -> Optional[str]:
     """Extract charger token from query string or headers."""
     # 1) Query string: ws://host:9000/CP001?token=xxx
+    # Note: MicroOcpp may append /charge_point_id to path, giving token=xxx/CP001
     token = None
     if "?" in raw_path:
         query = raw_path.split("?", 1)[1]
         parsed = parse_qs(query, keep_blank_values=False)
         values = parsed.get("token")
         if values:
-            token = values[0].strip()
+            raw_val = values[0].strip()
+            # If token value contains "/" (e.g. "token123/ESP32-CP-01"), use only the token part
+            if "/" in raw_val:
+                token = raw_val.split("/", 1)[0].strip()
+            else:
+                token = raw_val
     if token:
         return token
 
-    # 2) Header: X-CP-Token: xxx
-    headers = getattr(websocket, "request_headers", None)
+    # 2) Header: X-CP-Token: xxx (websockets 12+: request.headers; legacy: request_headers)
+    headers = None
+    req = getattr(websocket, "request", None)
+    if req and hasattr(req, "headers"):
+        headers = req.headers
+    if not headers:
+        headers = getattr(websocket, "request_headers", None)
     if headers:
         x_cp_token = headers.get("X-CP-Token")
         if x_cp_token:
@@ -153,8 +164,9 @@ class ChargePoint(cp):
         self.db.commit()
         
         # Get charger configuration for heartbeat interval
-        # Use charger's configured interval or default to 7200 seconds (2 hours)
-        heartbeat_interval = charger.heartbeat_interval if hasattr(charger, 'heartbeat_interval') and charger.heartbeat_interval else 7200
+        # Cap at 30s so ESP32 sends heartbeats frequently - DB default 7200 causes "offline" after 90s
+        raw_interval = getattr(charger, 'heartbeat_interval', None) or 10
+        heartbeat_interval = min(int(raw_interval), 30)
         
         return call_result.BootNotification(
             current_time=utc_now_iso_z(),
@@ -227,36 +239,16 @@ class ChargePoint(cp):
                     new_availability = status_map.get(status, 'unknown')
                     
                     if status in ['Available', 'Preparing']:
-                        # Charger is not charging - sync availability
-                        # BUT: If we have a very recent active session (started within last 2 minutes),
-                        # the charger might not have synced yet after reconnection - be cautious
+                        # Charger says it's NOT charging - trust the device (source of truth)
+                        # Don't keep 'charging' based on stale session - user may have stopped locally
+                        charger.availability = new_availability
                         if active_session:
-                            session_age_seconds = (datetime.utcnow() - active_session.start_time).total_seconds()
-                            
-                            # If session is very recent (< 2 minutes), charger might still be syncing after reconnect
-                            # Keep availability as 'charging' temporarily, but log a warning
-                            if session_age_seconds < 120:  # 2 minutes
-                                logger.warning(
-                                    f"Charger {self.id} reports status '{status}' but has recent active session "
-                                    f"{active_session.transaction_id} (started {session_age_seconds:.0f}s ago). "
-                                    f"Keeping availability as 'charging' - charger might still be syncing after reconnect."
-                                )
-                                # Keep availability as 'charging' - don't override yet
-                                charger.availability = 'charging'
-                            else:
-                                # Session is old enough - charger has had time to sync, trust its status
-                                logger.warning(
-                                    f"Charger {self.id} reports status '{status}' but has active session "
-                                    f"{active_session.transaction_id} (started {session_age_seconds:.0f}s ago). "
-                                    f"Marking session as completed (charger stopped charging)."
-                                )
-                                charger.availability = new_availability
-                                active_session.status = 'completed'
-                                active_session.stop_time = datetime.utcnow()
-                                logger.info(f"Completed stale session {active_session.transaction_id} for charger {self.id}")
-                        else:
-                            # No active session - safe to update availability
-                            charger.availability = new_availability
+                            logger.info(
+                                f"Charger {self.id} reports '{status}' - completing stale session "
+                                f"{active_session.transaction_id} (charger stopped charging)"
+                            )
+                            active_session.status = 'completed'
+                            active_session.stop_time = datetime.utcnow()
                     else:
                         # Other statuses (Unavailable, Faulted, etc.) - update availability
                         charger.availability = new_availability
@@ -835,16 +827,18 @@ class ChargePoint(cp):
             return None
 
 
-async def on_connect(websocket, path):
+async def on_connect(websocket):
     """
     Handle new WebSocket connection from charger
     
     Charger connects to: ws://your-server:9000/{charge_point_id}
     Example: ws://localhost:9000/0748911403000154
+    
+    Note: websockets 12+ passes only (connection); path is in connection.request.path
     """
     try:
-        # Extract charge point ID from path (ignore query string if present)
-        raw_path = path or ""
+        # Extract charge point ID from path (websockets 12+: path in request.path)
+        raw_path = getattr(getattr(websocket, "request", None), "path", None) or ""
         clean_path = raw_path.split("?", 1)[0]
         charge_point_id = clean_path.strip("/")
         if not charge_point_id:
@@ -865,6 +859,14 @@ async def on_connect(websocket, path):
         charger_tokens = _parse_token_map(os.getenv("OCPP_CHARGER_TOKENS", ""))
         provided_token = _extract_ws_token(websocket, raw_path)
 
+        # Fallback: try full request target if path lacks query (some clients send it separately)
+        if not provided_token and hasattr(websocket, "request"):
+            req = websocket.request
+            if hasattr(req, "request_target"):
+                provided_token = _extract_ws_token(websocket, getattr(req, "request_target", "") or "")
+            elif hasattr(req, "uri"):
+                provided_token = _extract_ws_token(websocket, getattr(req, "uri", "") or "")
+
         if require_auth:
             expected_token = charger_tokens.get(charge_point_id) or shared_token
             if not expected_token:
@@ -875,11 +877,32 @@ async def on_connect(websocket, path):
                 await websocket.close(code=1008, reason="Charger token not configured")
                 return
             if not provided_token or not secrets.compare_digest(provided_token, expected_token):
-                logger.warning("Rejected charger %s: invalid or missing OCPP token", charge_point_id)
+                # Debug: log request attributes to diagnose token extraction
+                req = getattr(websocket, "request", None)
+                req_info = ""
+                if req:
+                    req_info = " req.path=%r" % (getattr(req, "path", None),)
+                logger.warning(
+                    "Rejected charger %s: invalid or missing OCPP token (path=%r, token_received=%s)%s",
+                    charge_point_id, raw_path[:100], "yes" if provided_token else "no", req_info,
+                )
                 await websocket.close(code=1008, reason="Invalid charger token")
                 return
 
         logger.info(f"🔌 New OCPP connection from charge point: {charge_point_id}")
+        
+        # Update last_heartbeat immediately for existing chargers (before BootNotification)
+        try:
+            db = SessionLocal()
+            charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+            if charger:
+                charger.last_heartbeat = datetime.utcnow()
+                charger.status = "online"
+                db.commit()
+                logger.info(f"Updated last_heartbeat for {charge_point_id} on connect")
+            db.close()
+        except Exception as e:
+            logger.warning(f"Could not update heartbeat on connect for {charge_point_id}: {e}")
         
         # Create charge point instance and start handling messages
         charge_point = ChargePoint(charge_point_id, websocket)
@@ -929,7 +952,7 @@ async def on_connect(websocket, path):
             except Exception as e:
                 logger.error(f"Error updating charger status on disconnect: {e}", exc_info=True)
     except UnicodeDecodeError as e:
-        logger.error(f"Unicode decode error in connection handler for {charge_point_id}: {e}")
+        logger.error(f"Unicode decode error in connection handler: {e}")
         try:
             await websocket.close()
         except Exception:

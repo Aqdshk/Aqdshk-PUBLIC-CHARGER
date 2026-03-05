@@ -25,12 +25,12 @@
         }
 
         /* ═══ FULL-SCREEN LAYOUT ═══ */
-        .page{display:flex;height:100vh;width:100vw}
+        .page{display:flex;height:100dvh;width:100vw}
 
         /* ═══ LEFT: HERO PANEL ═══ */
         .hero{
             flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;
-            position:relative;overflow:hidden;padding:60px;
+            position:relative;overflow:hidden;padding:clamp(24px, 4vw, 60px);
         }
         .hero::before{
             content:'';position:absolute;inset:0;
@@ -139,6 +139,9 @@
             position:relative;width:100%;max-width:520px;height:260px;
             margin:0 auto 36px;
         }
+        @media (max-width: 1280px){
+            .ev-scene{max-width:460px;height:230px}
+        }
         .ev-scene svg{width:100%;height:100%;overflow:visible}
 
         /* Car body glow */
@@ -218,11 +221,13 @@
 
         /* ═══ RIGHT: LOGIN PANEL ═══ */
         .login-panel{
-            width:480px;display:flex;flex-direction:column;justify-content:center;
-            padding:60px;position:relative;
+            width:min(100%, clamp(360px, 38vw, 520px));
+            display:flex;flex-direction:column;justify-content:flex-start;
+            gap:clamp(8px, 1.2vh, 14px);
+            padding:clamp(24px, 4vw, 60px);position:relative;
             background:linear-gradient(180deg, rgba(10,15,25,.98) 0%, rgba(8,12,20,.99) 100%);
             border-left:1px solid rgba(0,230,118,.06);
-            overflow:hidden;
+            overflow-y:auto;
         }
         .login-panel::before{
             content:'';position:absolute;top:0;left:0;width:1px;height:100%;
@@ -238,7 +243,7 @@
         }
 
         /* Greeting */
-        .greeting{margin-bottom:32px}
+        .greeting{margin-bottom:clamp(10px, 1.8vh, 20px)}
         .greeting-emoji{font-size:36px;margin-bottom:8px;display:inline-block;animation:wave 2s ease-in-out infinite}
         @keyframes wave{0%,100%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-8deg)}45%{transform:rotate(10deg)}60%{transform:rotate(0)}}
         .greeting h1{
@@ -250,7 +255,7 @@
         /* Brand header */
         .brand-header{
             position:relative;z-index:2;
-            display:flex;align-items:center;gap:12px;margin-bottom:20px;
+            display:flex;align-items:center;gap:12px;margin-bottom:clamp(8px, 1.5vh, 16px);
             padding:10px 12px;border:1px solid rgba(0,230,118,.08);
             border-radius:12px;background:rgba(0,230,118,.03);
         }
@@ -265,11 +270,15 @@
         .brand-copy .brand-tag{
             font-size:11px;color:var(--accent);letter-spacing:.4px;font-weight:600;
         }
+        .brand-tagline-inline{
+            margin-top:8px;font-size:12px;font-weight:700;letter-spacing:.3px;
+            color:var(--accent);
+        }
 
         /* Flat illustration cards */
         .mini-illustrations{
             position:relative;z-index:2;
-            display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;
+            display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:clamp(8px, 1.2vh, 14px);
         }
         .mini-card{
             border:1px solid rgba(0,230,118,.12);
@@ -319,7 +328,7 @@
         @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
 
         /* Form groups */
-        .fg{margin-bottom:18px;position:relative;z-index:2}
+        .fg{margin-bottom:clamp(10px, 1.2vh, 14px);position:relative;z-index:2}
         .fg label{
             display:flex;align-items:center;gap:6px;
             font-size:11px;color:var(--text-muted);text-transform:uppercase;
@@ -346,7 +355,7 @@
         .fg input:focus ~ .field-icon{opacity:.8}
 
         /* Remember me */
-        .extras{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;position:relative;z-index:2}
+        .extras{display:flex;justify-content:space-between;align-items:center;margin-bottom:clamp(12px, 1.6vh, 18px);position:relative;z-index:2}
         .remember{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-sec)}
         .remember input[type="checkbox"]{
             appearance:none;width:16px;height:16px;border:1.5px solid var(--border);
@@ -422,6 +431,13 @@
             .page{flex-direction:column}
             .hero{display:none}
             .login-panel{width:100%;border-left:none;padding:40px 24px}
+        }
+        @media(max-height:780px){
+            .login-panel{padding:16px 18px}
+            .greeting h1{font-size:clamp(20px, 3.2vh, 24px)}
+            .greeting p{font-size:12px}
+            .mini-sub{display:none}
+            .btn{padding:12px}
         }
         @media(max-width:480px){
             .login-panel{padding:30px 20px}
@@ -726,7 +742,7 @@
         <!-- ═══ RIGHT LOGIN ═══ -->
         <div class="login-panel">
             <div class="brand-header">
-                <img src="/static/logo.png" alt="PlagSini Logo">
+                <img src="/static/logo.png" onerror="this.onerror=null;this.src='/static/PLAGSINI%20LOGO.png';" alt="PlagSini Logo">
                 <div class="brand-copy">
                     <span class="brand-name">PlagSini Staff Portal</span>
                     <span class="brand-tag">Charge your journey</span>
@@ -737,6 +753,7 @@
                 <div class="greeting-emoji" id="greetEmoji">👋</div>
                 <h1 id="greetText">Good morning!</h1>
                 <p id="greetSub">Ready to power up the day?</p>
+                <p class="brand-tagline-inline">Charge your journey</p>
             </div>
 
             <div class="mini-illustrations">

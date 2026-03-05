@@ -1,26 +1,51 @@
 #include "OcppClient.h"
 #include "EvseController.h"
 #include "HardwareConfig.h"
+#include "EvseConfig.h"  // WiFi & OCPP config (avoids Windows build_flags quoting issues)
 
 #include <WiFi.h>
+#include <Arduino.h>
 
 // ==============================
 //  WiFi & OCPP configuration
 // ==============================
-//
-// EDIT: masukkan SSID, password dan ID charge point yang sama dengan
-// yang kau set dalam steve (`ChargeBoxId`).
+// EvseConfig.h defines EV_* macros. Fallbacks below if not defined.
+#ifndef EV_WIFI_SSID
+#define EV_WIFI_SSID "CHANGE_WIFI_SSID"
+#endif
 
-static const char *WIFI_SSID     = "MESRA DECO";
-static const char *WIFI_PASSWORD = "mesb1234";
+#ifndef EV_WIFI_PASSWORD
+#define EV_WIFI_PASSWORD "CHANGE_WIFI_PASSWORD"
+#endif
 
-// WebSocket URL ke pelayan steve (OCPP 1.6J)
-// Contoh asas MicroOcpp: ws://host:port/steve/websocket/CentralSystemService
-// Charge Point ID dihantar berasingan, jadi TIDAK perlu tambah di hujung URL.
-static const char *OCPP_WS_URL   = "ws://34.143.146.176:8180/steve/websocket/CentralSystemService";
+#ifndef EV_OCPP_HOST
+#define EV_OCPP_HOST "192.168.0.100"
+#endif
 
-// MESTI sama dengan ChargeBoxId dalam konfigurasi steve
-static const char *CHARGE_POINT_ID = "ESP32-CP-01";
+#ifndef EV_OCPP_PORT
+#define EV_OCPP_PORT 9000
+#endif
+
+#ifndef EV_OCPP_USE_TLS
+#define EV_OCPP_USE_TLS 0
+#endif
+
+// Optional prefix before charge point id.
+// Example for custom endpoint path:
+//   EV_OCPP_PATH_PREFIX "ocpp"
+// resulting URL: ws://host:port/ocpp/<cpid>?token=...
+#ifndef EV_OCPP_PATH_PREFIX
+#define EV_OCPP_PATH_PREFIX ""
+#endif
+
+#ifndef EV_OCPP_TOKEN
+#define EV_OCPP_TOKEN ""
+#endif
+
+// Must match charge point id expected on backend
+#ifndef EV_CHARGE_POINT_ID
+#define EV_CHARGE_POINT_ID "ESP32-CP-01"
+#endif
 
 // IdTag untuk button manual transaction
 // NOTE: IdTag ni MESTI valid dalam steve (dah register dalam OCPP Tags)
@@ -31,13 +56,55 @@ static const char *CHARGE_POINT_ID = "ESP32-CP-01";
 //   - TESTCARD01
 //   - BUTTON001  ← Recommended untuk button manual
 //   - TEST001
-static const char *BUTTON_IDTAG = "BUTTON001"; // Guna idTag yang dah register dalam steve
+#ifndef EV_BUTTON_IDTAG
+#define EV_BUTTON_IDTAG "BUTTON001"
+#endif
+
+static const char *WIFI_SSID = EV_WIFI_SSID;
+static const char *WIFI_PASSWORD = EV_WIFI_PASSWORD;
+static const char *CHARGE_POINT_ID = EV_CHARGE_POINT_ID;
+static const char *BUTTON_IDTAG = EV_BUTTON_IDTAG;
+static String OCPP_WS_URL;
 
 // Guna MicroOcpp sebagai client OCPP
 #include <MicroOcpp.h>
 
+static String buildOcppWsUrl() {
+    String scheme = (EV_OCPP_USE_TLS == 1) ? "wss://" : "ws://";
+    String host = String(EV_OCPP_HOST);
+    String pathPrefix = String(EV_OCPP_PATH_PREFIX);
+    pathPrefix.trim();
+    while (pathPrefix.startsWith("/")) {
+        pathPrefix.remove(0, 1);
+    }
+    while (pathPrefix.endsWith("/")) {
+        pathPrefix.remove(pathPrefix.length() - 1);
+    }
+
+    String path = "/";
+    if (pathPrefix.length() > 0) {
+        path += pathPrefix + "/";
+    }
+    path += CHARGE_POINT_ID;
+
+    String url = scheme + host + ":" + String(EV_OCPP_PORT) + path;
+    String token = String(EV_OCPP_TOKEN);
+    token.trim();
+    if (token.length() > 0) {
+        url += "?token=" + token;
+    }
+    return url;
+}
+
 void OcppClient::begin(EvseController *evse) {
     evseCtrl = evse;
+
+    if (String(WIFI_SSID) == "CHANGE_WIFI_SSID") {
+        Serial.println(F("[OCPP] WARNING: EV_WIFI_SSID not configured"));
+    }
+    if (String(WIFI_PASSWORD) == "CHANGE_WIFI_PASSWORD") {
+        Serial.println(F("[OCPP] WARNING: EV_WIFI_PASSWORD not configured"));
+    }
 
     Serial.println(F("[OCPP] Initializing WiFi ..."));
     WiFi.mode(WIFI_STA);
@@ -66,8 +133,13 @@ void OcppClient::begin(EvseController *evse) {
     // mocpp_initialize akan buka WebSocket ke pelayan steve dan uruskan
     // BootNotification, Heartbeat, RemoteStartTransaction, dsb.
     // Kita akan guna ocppPermitsCharge() dalam loop untuk ON/OFF contactor.
+    OCPP_WS_URL = buildOcppWsUrl();
+    Serial.print(F("[OCPP] WS URL: "));
+    Serial.println(OCPP_WS_URL);
+    Serial.print(F("[OCPP] Charge Point ID: "));
+    Serial.println(CHARGE_POINT_ID);
 
-    mocpp_initialize(OCPP_WS_URL, CHARGE_POINT_ID, "ESP32 Charger", "YourCompany");
+    mocpp_initialize(OCPP_WS_URL.c_str(), CHARGE_POINT_ID, "ESP32 Charger", "YourCompany");
 
     ocppConnected = true;
 }

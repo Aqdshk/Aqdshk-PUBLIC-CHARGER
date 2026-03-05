@@ -1,0 +1,18 @@
+/**
+ * EV Charger runtime config - EXAMPLE
+ * Copy to EvseConfig.h and edit for your setup.
+ */
+#ifndef EVSE_CONFIG_H
+#define EVSE_CONFIG_H
+
+#define EV_WIFI_SSID       "YOUR_WIFI_SSID"
+#define EV_WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
+#define EV_OCPP_HOST       "192.168.4.126"
+#define EV_OCPP_PORT       9000
+#define EV_OCPP_USE_TLS    0
+#define EV_OCPP_PATH_PREFIX ""
+#define EV_OCPP_TOKEN      "your-ocpp-token"
+#define EV_CHARGE_POINT_ID "ESP32-CP-01"
+#define EV_BUTTON_IDTAG    "BUTTON001"
+
+#endif

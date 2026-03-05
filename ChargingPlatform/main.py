@@ -18,21 +18,31 @@ logger = logging.getLogger(__name__)
 
 
 def create_default_admin():
-    """Create default admin user if no admin exists, or update if credentials changed."""
+    """Create default admin user only if no admin exists yet."""
     db = SessionLocal()
     try:
-        admin_email = os.getenv("ADMIN_EMAIL", "1@admin.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", "1")
+        admin_email = os.getenv("ADMIN_EMAIL", "").strip()
+        admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
         admin_name = os.getenv("ADMIN_NAME", "Admin")
-        
+
+        if not admin_email or not admin_password:
+            logger.warning(
+                "ADMIN_EMAIL or ADMIN_PASSWORD not set in environment — skipping default admin creation. "
+                "Set these in your .env file before first run."
+            )
+            return
+
+        if len(admin_password) < 8:
+            logger.error(
+                "ADMIN_PASSWORD is too short (must be at least 8 characters) — skipping admin creation."
+            )
+            return
+
         existing = db.query(User).filter(User.email == admin_email).first()
         if existing:
-            existing.set_password(admin_password)
-            existing.is_admin = True
-            db.commit()
-            logger.info(f"Admin user updated: {existing.email}")
+            logger.info(f"Admin user already exists: {existing.email} — skipping creation.")
             return
-        
+
         admin = User(
             email=admin_email,
             name=admin_name,
@@ -43,11 +53,11 @@ def create_default_admin():
         admin.set_password(admin_password)
         db.add(admin)
         db.flush()
-        
+
         wallet = Wallet(user_id=admin.id, balance=0.0, points=0)
         db.add(wallet)
         db.commit()
-        
+
         logger.info(f"Default admin created: {admin_email}")
         logger.info("  ⚠️  Please change the default admin password after first login!")
     except Exception as e:
@@ -61,8 +71,21 @@ def create_default_staff():
     """Create default staff admin if support_staff table is empty."""
     db = SessionLocal()
     try:
-        staff_email = os.getenv("STAFF_EMAIL", "ahmad@plagsini.com")
-        staff_password = os.getenv("STAFF_PASSWORD", "admin123")
+        staff_email = os.getenv("STAFF_EMAIL", "").strip()
+        staff_password = os.getenv("STAFF_PASSWORD", "").strip()
+
+        if not staff_email or not staff_password:
+            logger.warning(
+                "STAFF_EMAIL or STAFF_PASSWORD not set in environment — skipping default staff creation."
+            )
+            return
+
+        if len(staff_password) < 8:
+            logger.error(
+                "STAFF_PASSWORD is too short (must be at least 8 characters) — skipping staff creation."
+            )
+            return
+
         staff_name = os.getenv("STAFF_NAME", "Ahmad")
 
         existing = db.query(SupportStaff).filter(SupportStaff.email == staff_email).first()

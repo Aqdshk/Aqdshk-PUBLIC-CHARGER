@@ -71,20 +71,30 @@ On the SteVe server (e.g., `http://34.143.146.176:8180/steve/manager/signin`):
 
 ### WiFi & OCPP Client Setup
 
-1. Edit `src/OcppClient.cpp`:
-   - Enter `WIFI_SSID` and `WIFI_PASSWORD`
-   - Ensure `OCPP_WS_URL` is correct:
-     - Example: `ws://34.143.146.176:8180/steve/websocket/CentralSystemService`
-   - Ensure `CHARGE_POINT_ID` matches the one in SteVe (default: `ESP32-CP-01`)
+1. Configure build flags in `platformio.ini` (recommended):
+   - `EV_WIFI_SSID`
+   - `EV_WIFI_PASSWORD`
+   - `EV_OCPP_HOST` (local server IP, e.g. `192.168.0.50`)
+   - `EV_OCPP_PORT` (default `9000`)
+   - `EV_OCPP_TOKEN` (must match backend `OCPP_SHARED_TOKEN` / `OCPP_CHARGER_TOKENS`)
+   - `EV_CHARGE_POINT_ID` (must match backend expected charge point ID)
 
-2. Edit `src/HardwareConfig.h` if needed:
+2. Local ChargingPlatform URL format used by firmware:
+   - `ws://<EV_OCPP_HOST>:<EV_OCPP_PORT>/<EV_CHARGE_POINT_ID>?token=<EV_OCPP_TOKEN>`
+   - Example:
+     - `ws://192.168.0.50:9000/ESP32-CP-01?token=abc123`
+
+3. Ensure `OCPP_REQUIRE_AUTH=1` is configured on backend and token is valid.
+
+4. Edit `src/HardwareConfig.h` if needed:
    - Pin mapping for your hardware
    - LCD I2C address (default: 0x27)
    - Simulated meter values for testing
 
-3. Flash ESP32 and open Serial Monitor (`115200 baud`):
+5. Flash ESP32 and open Serial Monitor (`115200 baud`):
    - You should see WiFi connection logs
-   - Once OCPP is connected, `BootNotification` will appear in SteVe UI and the charge point will show as **online**
+   - You should see printed OCPP WS URL and charge point ID
+   - Once OCPP is connected, charger appears **online** in ChargingPlatform/central system logs
 
 ### OTA (Over-The-Air) Update
 

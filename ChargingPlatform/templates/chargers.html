@@ -53,11 +53,22 @@
             </div>
             <div class="header-right">
                 <span id="chargerCount" class="header-info">Loading...</span>
+                <button class="btn btn-success btn-small" onclick="toggleAddCharger()">➕ Add Charger</button>
                 <button class="btn btn-secondary btn-small" onclick="loadChargerStatus()">🔄 Refresh</button>
             </div>
         </header>
 
         <div class="dashboard-container fade-in">
+            <div id="addChargerCard" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;">
+                <div style="font-weight:600;margin-bottom:12px;">➕ Add Charger Manually</div>
+                <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px;">Add ESP32 or charger before it connects via OCPP.</p>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:220px;font-size:13px;">
+                    <button class="btn btn-success btn-small" onclick="addChargerManual()">Add</button>
+                    <button class="btn btn-secondary btn-small" onclick="toggleAddCharger()">Cancel</button>
+                </div>
+                <div id="addChargerMsg" style="margin-top:10px;font-size:12px;"></div>
+            </div>
             <div id="chargerStatusList">
                 <div class="loading-spinner">Loading chargers...</div>
             </div>
@@ -79,7 +90,7 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
-        document.addEventListener('DOMContentLoaded', () => { loadChargerStatus(); setInterval(loadChargerStatus, 2000); });
+        document.addEventListener('DOMContentLoaded', () => { loadChargerStatus(); setInterval(loadChargerStatus, 5000); });
 
         async function loadChargerStatus() {
             try {
@@ -88,14 +99,28 @@
                 const container = document.getElementById('chargerStatusList');
                 const countEl = document.getElementById('chargerCount');
 
-                if (chargers.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔌</div><div>No chargers registered</div></div>'; countEl.textContent = '0 chargers'; return; }
+                if (chargers.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔌</div>
+                            <div>No chargers registered</div>
+                            <p style="margin-top:12px;font-size:13px;color:rgba(255,255,255,0.6);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
+                            <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
+                                <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
+                                <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
+                            </div>
+                            <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
+                        </div>`;
+                    countEl.textContent = '0 chargers';
+                    return;
+                }
                 countEl.textContent = `${chargers.length} charger(s)`;
 
                 container.innerHTML = `<div class="grid-2">${chargers.map(charger => {
                     const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
                     let status = charger.status || 'offline', availability = charger.availability || 'unknown';
-                    if (hasActive) availability = 'charging';
-                    if (status === 'offline' && !hasActive && availability !== 'faulted' && availability !== 'charging') availability = 'unavailable';
+                    if (status === 'offline') availability = 'unavailable';
+                    else if (hasActive && (availability === 'charging' || status === 'online')) availability = 'charging';
                     const statusBadge = status === 'online' ? 'badge-online' : 'badge-offline';
                     const availBadge = `badge-${availability}`;
                     const itemClass = status === 'offline' ? 'offline' : availability === 'charging' ? 'charging' : availability === 'faulted' ? 'faulted' : '';
@@ -134,6 +159,40 @@
                 const r = await res.json();
                 if (r.success) { alert(`✅ Started!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message||'Unknown error'}`); }
             } catch(e){ alert(`❌ Error: ${e.message}`); }
+        }
+
+        function toggleAddCharger() {
+            const card = document.getElementById('addChargerCard');
+            if (card) card.style.display = card.style.display === 'none' ? 'block' : 'none';
+            const msg = document.getElementById('addChargerMsg');
+            if (msg) msg.textContent = '';
+        }
+
+        async function addChargerManual() {
+            const cpId = document.getElementById('addCpId')?.value?.trim();
+            const msgEl = document.getElementById('addChargerMsg');
+            if (!cpId) { if (msgEl) msgEl.textContent = 'Enter Charge Point ID'; return; }
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { if (msgEl) msgEl.textContent = 'Login required'; return; }
+            if (msgEl) msgEl.textContent = 'Adding...';
+            try {
+                const res = await fetch(`${API_BASE}/admin/chargers`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
+                    body: JSON.stringify({ charge_point_id: cpId, vendor: 'ESP32', model: 'EV Charger' })
+                });
+                const data = await res.json();
+                if (res.ok && !data.detail) {
+                    if (msgEl) msgEl.innerHTML = '<span style="color:var(--accent)">✅ Charger added!</span>';
+                    document.getElementById('addCpId').value = '';
+                    loadChargerStatus();
+                    setTimeout(() => { toggleAddCharger(); }, 1500);
+                } else {
+                    if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">❌ ' + (data.detail || data.message || 'Failed') + '</span>';
+                }
+            } catch (e) {
+                if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">❌ ' + (e.message || 'Error') + '</span>';
+            }
         }
 
         async function stopCharging(cpId) {

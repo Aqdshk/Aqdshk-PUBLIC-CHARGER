@@ -12,7 +12,7 @@ import csv
 import os
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sqlalchemy import create_engine, text
 
@@ -129,6 +129,90 @@ def run_reconciliation(start_date: datetime, end_date: datetime) -> Dict:
     }
 
 
+def _load_settlement_csv(path: str, ref_col: str, amount_col: str, status_col: str) -> Dict[str, Dict[str, str]]:
+    data: Dict[str, Dict[str, str]] = {}
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ref = _to_ref_key(row.get(ref_col, ""))
+            if not ref:
+                continue
+            data[ref] = {
+                "raw_ref": row.get(ref_col, ""),
+                "amount": row.get(amount_col, ""),
+                "status": row.get(status_col, ""),
+            }
+    return data
+
+
+def _to_ref_key(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _settlement_ok(status_value: str) -> bool:
+    status = (status_value or "").strip().lower()
+    return status in {"success", "paid", "completed", "settled", "approved", "ok", "00", "1", "true"}
+
+
+def merge_settlement(
+    report: Dict,
+    settlement_csv: str,
+    ref_col: str,
+    amount_col: str,
+    status_col: str,
+) -> Dict:
+    settlement = _load_settlement_csv(settlement_csv, ref_col, amount_col, status_col)
+    rows = report["rows"]
+
+    matched_settlement = 0
+    missing_in_settlement = 0
+    status_mismatch = 0
+    amount_mismatch = 0
+
+    for row in rows:
+        tx_ref = _to_ref_key(row.get("transaction_ref", ""))
+        st = settlement.get(tx_ref)
+        if not st:
+            row["settlement_status"] = "missing"
+            row["settlement_amount"] = ""
+            row["settlement_match"] = "no"
+            row["reason"] = ",".join(filter(None, [row.get("reason", ""), "missing_in_settlement"]))
+            missing_in_settlement += 1
+            continue
+
+        row["settlement_status"] = st["status"]
+        row["settlement_amount"] = st["amount"]
+
+        internal_success = (row.get("payment_status") or "").lower() == "success"
+        settlement_success = _settlement_ok(st["status"])
+        if internal_success != settlement_success:
+            row["settlement_match"] = "no"
+            row["reason"] = ",".join(filter(None, [row.get("reason", ""), "settlement_status_mismatch"]))
+            status_mismatch += 1
+            continue
+
+        try:
+            internal_amount = _to_decimal(row.get("payment_amount", "0"))
+            st_amount = _to_decimal(st.get("amount", "0"))
+        except Exception:
+            internal_amount = Decimal("0.00")
+            st_amount = Decimal("0.00")
+        if internal_amount != st_amount:
+            row["settlement_match"] = "no"
+            row["reason"] = ",".join(filter(None, [row.get("reason", ""), "settlement_amount_mismatch"]))
+            amount_mismatch += 1
+            continue
+
+        row["settlement_match"] = "yes"
+        matched_settlement += 1
+
+    report["totals"]["settlement_matched_count"] = matched_settlement
+    report["totals"]["settlement_missing_count"] = missing_in_settlement
+    report["totals"]["settlement_status_mismatch_count"] = status_mismatch
+    report["totals"]["settlement_amount_mismatch_count"] = amount_mismatch
+    return report
+
+
 def _explain_mismatch(is_success: bool, is_wallet_credit_ok: bool, amount_match: bool) -> str:
     if is_success and is_wallet_credit_ok and amount_match:
         return ""
@@ -154,6 +238,9 @@ def _write_csv(path: str, rows: List[Dict]) -> None:
         "wallet_amount",
         "matched",
         "reason",
+        "settlement_status",
+        "settlement_amount",
+        "settlement_match",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -166,6 +253,10 @@ def main() -> None:
     parser.add_argument("--from", dest="start", required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--to", dest="end", required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--csv", dest="csv_path", default="", help="Optional CSV output path")
+    parser.add_argument("--settlement-csv", dest="settlement_csv", default="", help="Optional gateway settlement CSV")
+    parser.add_argument("--settlement-ref-col", dest="settlement_ref_col", default="transaction_ref", help="Settlement reference column name")
+    parser.add_argument("--settlement-amount-col", dest="settlement_amount_col", default="amount", help="Settlement amount column name")
+    parser.add_argument("--settlement-status-col", dest="settlement_status_col", default="status", help="Settlement status column name")
     args = parser.parse_args()
 
     start_date = _parse_date(args.start)
@@ -174,6 +265,14 @@ def main() -> None:
         raise SystemExit("--to date must be >= --from date")
 
     report = run_reconciliation(start_date, end_date)
+    if args.settlement_csv:
+        report = merge_settlement(
+            report,
+            settlement_csv=args.settlement_csv,
+            ref_col=args.settlement_ref_col,
+            amount_col=args.settlement_amount_col,
+            status_col=args.settlement_status_col,
+        )
     totals = report["totals"]
 
     print(f"Reconciliation window: {report['from']} -> {report['to']}")
@@ -182,6 +281,11 @@ def main() -> None:
     print(f"Gateway success amount: RM {totals['gateway_success_amount']}")
     print(f"Wallet credited amount: RM {totals['wallet_credit_amount']}")
     print(f"Variance: RM {totals['variance']}")
+    if args.settlement_csv:
+        print(f"Settlement matched: {totals.get('settlement_matched_count', 0)}")
+        print(f"Settlement missing: {totals.get('settlement_missing_count', 0)}")
+        print(f"Settlement status mismatches: {totals.get('settlement_status_mismatch_count', 0)}")
+        print(f"Settlement amount mismatches: {totals.get('settlement_amount_mismatch_count', 0)}")
 
     if args.csv_path:
         _write_csv(args.csv_path, report["rows"])

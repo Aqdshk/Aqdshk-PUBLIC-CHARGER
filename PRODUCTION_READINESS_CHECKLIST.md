@@ -18,9 +18,9 @@ Status legend:
 ### 2.1 Payment (Provider-agnostic gateway integration)
 - [x] Gateway abstraction supports multi-provider plug-in (Fiuu/TnG/OCBC/Billplz/manual)
 - [ ] Map gateway statuses to internal statuses (`pending/success/failed/expired/refunded`)
-- [-] Enforce callback authenticity (signature/secret validation per provider spec)
+- [x] Enforce callback authenticity (signature/secret validation per provider spec)
 - [x] Idempotency protection for callback retries (no duplicate wallet credit)
-- [-] Reconciliation script/report (gateway settlements vs `payment_transactions`)
+- [x] Reconciliation script/report (gateway settlements vs `payment_transactions`)
 - [ ] Refund and chargeback flow tested end-to-end
 
 **Pass criteria**
@@ -31,8 +31,8 @@ Status legend:
 ### 2.2 Database migrations
 - [x] Introduce formal migration workflow (versioned migrations)
 - [x] Baseline migration generated from current schema
-- [ ] Staging migration dry-run completed
-- [ ] Rollback procedure documented and tested
+- [x] Staging migration dry-run completed
+- [x] Rollback procedure documented and tested
 
 **Pass criteria**
 - Fresh DB + migrated DB both pass smoke tests
@@ -50,7 +50,7 @@ Status legend:
 ### 2.4 Security baseline
 - [-] All secrets loaded from env/secret manager (no hardcoded secrets)
 - [ ] OCPP over secure channel (`wss`) in production
-- [ ] Rate limiting enabled for sensitive endpoints
+- [x] Rate limiting enabled for sensitive endpoints
 - [ ] Final security test pass (critical/high findings closed)
 
 **Pass criteria**
@@ -91,9 +91,9 @@ Status legend:
 ## 4) Environment and Infrastructure
 
 ### 4.1 Environment separation
-- [ ] Distinct `dev`, `staging`, `production` configs
-- [ ] Production env audited for required variables
-- [ ] TLS certificates and renewals validated
+- [-] Distinct `dev`, `staging`, `production` configs
+- [-] Production env audited for required variables
+- [-] TLS certificates and renewals validated
 
 ### 4.2 Capacity sizing
 - [ ] Pilot server sizing approved
@@ -127,11 +127,11 @@ Status legend:
 
 ## 6) Go-Live Gates
 
-- [ ] Change freeze enabled 24-48h before launch
-- [ ] Final backup taken before release
-- [ ] Rollback release plan prepared
+- [-] Change freeze enabled 24-48h before launch
+- [-] Final backup taken before release
+- [-] Rollback release plan prepared
 - [ ] Launch day owner roster confirmed
-- [ ] Post-launch monitoring war-room active for first 24h
+- [-] Post-launch monitoring war-room active for first 24h
 
 **Go decision**
 - [ ] `GO` approved by Product + Engineering + Ops + Security
@@ -141,8 +141,8 @@ Status legend:
 ## 7) Immediate Next Actions (Recommended this week)
 
 1. ~~Convert ad-hoc schema patching to formal migrations.~~ (baseline + Alembic scaffold added)
-2. Finalize payment callback verification + idempotency test suite.
-3. ~~Add reconciliation report for payment settlements.~~ (internal reconciliation script added; gateway settlement adapter pending)
+2. ~~Finalize payment callback verification + idempotency test suite.~~ (callback verification + regression tests added)
+3. ~~Add reconciliation report for payment settlements.~~ (settlement-aware reconciliation script added)
 4. Complete backup restore drill and write runbook.
 5. Run final staging UAT and security regression check.
 
