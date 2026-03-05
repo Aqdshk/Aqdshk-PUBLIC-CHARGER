@@ -212,12 +212,30 @@ class ChargePoint(cp):
                     ).first()
                     
                     if not active_session:
-                        # Charger is charging but no session exists - might be local charging
-                        # Don't create session here - wait for StartTransaction
-                        # Just update availability to charging
-                        logger.info(f"Charger {self.id} is charging but no active session found. Will wait for StartTransaction.")
-                        # Don't create placeholder session - it causes database conflicts
-                        # Session will be created when StartTransaction is received
+                        # Charger is charging but no session in DB.
+                        # Some commercial chargers (e.g. AION, Perodua) auto-start locally
+                        # without sending StartTransaction — they only send StatusNotification("Charging").
+                        # Create a session now so the dashboard shows Stop button and metering works.
+                        logger.info(f"Charger {self.id} is charging with no active session — creating local session.")
+                        try:
+                            local_session = ChargingSession(
+                                charger_id=charger.id,
+                                transaction_id=0,       # placeholder; assigned below
+                                start_time=datetime.utcnow(),
+                                status="active",
+                                user_id="LOCAL_CHARGING"
+                            )
+                            self.db.add(local_session)
+                            self.db.flush()             # populate local_session.id
+                            local_session.transaction_id = local_session.id
+                            self.db.commit()
+                            logger.info(
+                                f"Local session created for {self.id}: "
+                                f"transaction_id={local_session.transaction_id}"
+                            )
+                        except Exception as se:
+                            self.db.rollback()
+                            logger.error(f"Failed to create local session for {self.id}: {se}")
                 except Exception as e:
                     logger.error(f"Error checking sessions for charger {self.id}: {e}", exc_info=True)
                     # Don't fail the StatusNotification - just log the error
