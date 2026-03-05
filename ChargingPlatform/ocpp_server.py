@@ -418,26 +418,29 @@ class ChargePoint(cp):
         
         for mv in meter_value:
             timestamp = datetime.fromisoformat(mv['timestamp'].replace('Z', '+00:00'))
-            sampled_value = mv.get('sampledValue', [])
-            
+            # python-ocpp converts camelCase → snake_case, so sampledValue → sampled_value
+            sampled_value = mv.get('sampled_value', mv.get('sampledValue', []))
+
             voltage = None
             current = None
             power = None
             total_kwh = None
-            
+
             for sv in sampled_value:
-                value = float(sv.get('value', 0))
+                try:
+                    value = float(sv.get('value', 0) or 0)
+                except (ValueError, TypeError):
+                    value = 0.0
                 measurand = sv.get('measurand', '')
-                unit = sv.get('unit', '')
-                
+
                 if measurand == 'Voltage':
                     voltage = value
                 elif measurand == 'Current.Import':
                     current = value
                 elif measurand == 'Power.Active.Import':
-                    power = value
+                    power = value / 1000.0 if value > 1000 else value  # normalise W→kW if needed
                 elif measurand == 'Energy.Active.Import.Register':
-                    total_kwh = value / 1000.0  # Convert Wh to kWh
+                    total_kwh = value / 1000.0  # Wh → kWh
             
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
