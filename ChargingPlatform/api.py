@@ -4149,14 +4149,38 @@ class StaffLoginRequest(BaseModel):
 
 @app.post("/api/staff/login")
 async def staff_login(req: StaffLoginRequest, request: Request, db: Session = Depends(get_db)):
-    """Staff login — returns a token and role info."""
+    """Staff login — accepts SupportStaff accounts OR admin User accounts (is_admin=True)."""
     _enforce_rate_limit(request, "staff-login", max_requests=12, window_seconds=300)
     email = _normalize_and_validate_email(req.email)
+
+    # 1. Try SupportStaff table first
     staff = db.query(SupportStaff).filter(SupportStaff.email == email).first()
-    if not staff or not staff.check_password(req.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not staff.is_active:
-        raise HTTPException(status_code=403, detail="Account disabled")
+    if staff and staff.check_password(req.password):
+        if not staff.is_active:
+            raise HTTPException(status_code=403, detail="Account disabled")
+    else:
+        # 2. Fallback: check User table for is_admin=True (unified admin login)
+        admin_user = db.query(User).filter(User.email == email, User.is_admin == True).first()
+        if not admin_user or not admin_user.check_password(req.password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not admin_user.is_active:
+            raise HTTPException(status_code=403, detail="Account disabled")
+
+        # Auto-create or sync a SupportStaff record for this admin User
+        staff = db.query(SupportStaff).filter(SupportStaff.email == email).first()
+        if not staff:
+            staff = SupportStaff(
+                name=admin_user.name or "Admin",
+                email=admin_user.email,
+                department="Management",
+                role="admin",
+                is_active=True,
+            )
+            staff.set_password(req.password)
+            db.add(staff)
+            db.flush()
+        elif not staff.is_active:
+            raise HTTPException(status_code=403, detail="Account disabled")
 
     staff.last_login = datetime.utcnow()
 
