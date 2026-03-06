@@ -4161,7 +4161,7 @@ async def staff_login(req: StaffLoginRequest, request: Request, db: Session = De
     else:
         # 2. Fallback: check User table for is_admin=True (unified admin login)
         admin_user = db.query(User).filter(User.email == email, User.is_admin == True).first()
-        if not admin_user or not admin_user.check_password(req.password):
+        if not admin_user or not admin_user.verify_password(req.password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not admin_user.is_active:
             raise HTTPException(status_code=403, detail="Account disabled")
