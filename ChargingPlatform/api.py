@@ -568,7 +568,7 @@ async def get_chargers(db: Session = Depends(get_db)):
         ).order_by(desc(ChargingSession.start_time)).first()
 
         # Compute effective status: active WebSocket = online; no connection = offline (live)
-                    effective_status = "offline"
+        effective_status = "offline"
         if charger.charge_point_id in active_charge_points:
             effective_status = "online"
 
