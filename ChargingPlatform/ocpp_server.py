@@ -466,6 +466,22 @@ class ChargePoint(cp):
         return call_result.MeterValues()
     
     @on('Heartbeat')
+    async def on_firmware_status_notification(self, status: str, **kwargs):
+        """Handle FirmwareStatusNotification from charging station."""
+        logger.info(f"FirmwareStatusNotification from {self.id}: status={status}")
+        try:
+            charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
+            if charger and status == "Installed":
+                logger.info(f"Charger {self.id} firmware installed successfully")
+        except Exception as e:
+            logger.error(f"Error handling FirmwareStatusNotification for {self.id}: {e}")
+        return call_result.FirmwareStatusNotification()
+
+    async def on_diagnostics_status_notification(self, status: str, **kwargs):
+        """Handle DiagnosticsStatusNotification from charging station."""
+        logger.info(f"DiagnosticsStatusNotification from {self.id}: status={status}")
+        return call_result.DiagnosticsStatusNotification()
+
     async def on_heartbeat(self):
         """Handle Heartbeat from charging station"""
         try:
