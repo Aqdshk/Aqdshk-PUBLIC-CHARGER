@@ -112,55 +112,39 @@ class ChargePoint(cp):
             )
             self.db.add(charger)
         else:
-            # Check if charger was offline (reconnected) and has active charging sessions
-            was_offline = charger.status == 'offline'
-            
             charger.vendor = charge_point_vendor
             charger.model = charge_point_model
             charger.firmware_version = kwargs.get('firmware_version', charger.firmware_version)
             charger.status = "online"
             charger.last_heartbeat = datetime.utcnow()
-            
-            # If charger reconnected, check for active charging sessions
-            # If there are active sessions, trust the database and set availability to 'charging'
-            # StatusNotification will correct it later if charger sends different status
-            if was_offline:
-                # Check for active sessions with valid transaction_id (> 0)
-                active_sessions = self.db.query(ChargingSession).filter(
-                    ChargingSession.charger_id == charger.id,
-                    ChargingSession.status.in_(['active', 'pending']),
-                    ChargingSession.transaction_id > 0  # Only consider valid sessions (transaction_id > 0)
-                ).all()
-                
-                # Also check for recent pending sessions (transaction_id = -1) that were created recently
-                # This handles case where charger disconnected right after RemoteStartTransaction
-                # but before StartTransaction was received
-                recent_pending_sessions = self.db.query(ChargingSession).filter(
-                    ChargingSession.charger_id == charger.id,
-                    ChargingSession.status == 'pending',
-                    ChargingSession.transaction_id <= 0,  # Pending sessions with -1 or 0
-                    ChargingSession.start_time >= datetime.utcnow() - timedelta(minutes=10)  # Created within last 10 minutes
-                ).all()
-                
-                if active_sessions:
-                    logger.info(f"Charger {self.id} reconnected with {len(active_sessions)} active charging session(s)")
-                    # Trust the database - if we have active sessions, charger is likely still charging
-                    # Set availability to 'charging' immediately so dashboard shows correct state
-                    # StatusNotification will correct it later if charger sends different status
-                    charger.availability = 'charging'
-                    logger.info(f"Charger {self.id} reconnected with active sessions - setting availability to 'charging' (will be corrected by StatusNotification if needed)")
-                elif recent_pending_sessions:
-                    logger.info(f"Charger {self.id} reconnected with {len(recent_pending_sessions)} recent pending session(s) - charger likely still charging")
-                    # If we have recent pending sessions, charger might still be charging
-                    # Set availability to 'charging' to be safe - StatusNotification will correct if wrong
-                    charger.availability = 'charging'
-                    logger.info(f"Charger {self.id} reconnected with recent pending sessions - setting availability to 'charging' (will be corrected by StatusNotification if needed)")
-                else:
-                    # No valid active sessions or recent pending sessions - charger is not charging
-                    # Set availability to 'available' or 'preparing' (will be updated by StatusNotification)
-                    if charger.availability == 'charging':
-                        charger.availability = 'preparing'  # Temporary, will be updated by StatusNotification
-                        logger.info(f"Charger {self.id} reconnected with no active/recent sessions - resetting availability")
+
+            # BootNotification means charger just rebooted — any active/pending sessions
+            # from before the reboot are orphaned (StopTransaction was never received).
+            # Close them now using the last known meter value as final energy reading.
+            orphaned = self.db.query(ChargingSession).filter(
+                ChargingSession.charger_id == charger.id,
+                ChargingSession.status.in_(['active', 'pending'])
+            ).all()
+
+            if orphaned:
+                now = datetime.utcnow()
+                for s in orphaned:
+                    last_meter = (
+                        self.db.query(MeterValue)
+                        .filter(MeterValue.transaction_id == s.transaction_id)
+                        .order_by(desc(MeterValue.timestamp))
+                        .first()
+                    )
+                    final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
+                    s.status = "interrupted"
+                    s.stop_time = now
+                    s.energy_consumed = final_energy
+                    logger.warning(
+                        f"Orphan session {s.id} (tx={s.transaction_id}) closed on charger reboot — "
+                        f"energy={final_energy:.3f} kWh"
+                    )
+                charger.availability = "available"
+                logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
         
         self.db.commit()
         
@@ -984,4 +968,70 @@ async def on_connect(websocket):
 def get_active_charge_point(charge_point_id: str) -> ChargePoint:
     """Get active charge point connection"""
     return active_charge_points.get(charge_point_id)
+
+
+async def orphan_session_watchdog(interval_seconds: int = 600):
+    """
+    Background task — runs every `interval_seconds` (default 10 min).
+    Closes any charging session that:
+      - Is still 'active' or 'pending'
+      - Has had no MeterValue update for > 30 minutes
+      - The charger is currently offline (not in active_charge_points)
+    This catches sessions that were never properly stopped due to abrupt disconnects.
+    """
+    logger.info("Orphan session watchdog started (interval=%ds)", interval_seconds)
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            db = SessionLocal()
+            cutoff = datetime.utcnow() - timedelta(minutes=30)
+
+            stuck_sessions = db.query(ChargingSession).filter(
+                ChargingSession.status.in_(["active", "pending"]),
+                ChargingSession.start_time <= cutoff
+            ).all()
+
+            closed = 0
+            for s in stuck_sessions:
+                charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
+                cp_id = charger.charge_point_id if charger else None
+
+                # Only close if the charger is not currently connected
+                if cp_id and cp_id in active_charge_points:
+                    continue
+
+                # Check last meter value timestamp
+                last_meter = (
+                    db.query(MeterValue)
+                    .filter(MeterValue.transaction_id == s.transaction_id)
+                    .order_by(desc(MeterValue.timestamp))
+                    .first()
+                )
+                if last_meter and last_meter.timestamp > cutoff:
+                    continue  # Still receiving meter updates, skip
+
+                final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
+                s.status = "interrupted"
+                s.stop_time = datetime.utcnow()
+                s.energy_consumed = final_energy
+
+                if charger:
+                    charger.availability = "available"
+
+                closed += 1
+                logger.warning(
+                    f"Watchdog closed orphan session {s.id} (charger={cp_id}, "
+                    f"tx={s.transaction_id}, energy={final_energy:.3f} kWh)"
+                )
+
+            if closed:
+                db.commit()
+                logger.info(f"Orphan watchdog: closed {closed} stuck session(s)")
+            db.close()
+        except Exception as e:
+            logger.error(f"Orphan session watchdog error: {e}", exc_info=True)
+            try:
+                db.close()
+            except Exception:
+                pass
 

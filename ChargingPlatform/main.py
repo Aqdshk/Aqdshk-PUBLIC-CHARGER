@@ -12,7 +12,7 @@ except ImportError:
 
 from api import app
 from database import init_db, SessionLocal, User, Wallet, SupportStaff
-from ocpp_server import on_connect
+from ocpp_server import on_connect, orphan_session_watchdog
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def create_default_staff():
 
 
 async def ocpp_server():
-    """Start OCPP WebSocket server."""
+    """Start OCPP WebSocket server and background watchdog."""
     logger.info("Starting OCPP WebSocket server on ws://0.0.0.0:9000")
     async with serve(
         on_connect,
@@ -125,6 +125,7 @@ async def ocpp_server():
         close_timeout=10,
         compression=None,
     ):
+        asyncio.create_task(orphan_session_watchdog(interval_seconds=600))
         await asyncio.Future()  # run forever
 
 
