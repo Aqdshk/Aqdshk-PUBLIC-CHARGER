@@ -79,8 +79,9 @@ def _extract_ws_token(websocket: Any, raw_path: str) -> Optional[str]:
     return None
 
 def utc_now_iso_z() -> str:
-    """RFC3339 UTC timestamp with 'Z' suffix (better charger compatibility)."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    """RFC3339 timestamp — uses Malaysia time (UTC+8) so charger display shows correct local time."""
+    myt = timezone(timedelta(hours=8))
+    return datetime.now(myt).isoformat()
 
 
 class ChargePoint(cp):
@@ -465,7 +466,7 @@ class ChargePoint(cp):
         self.db.commit()
         return call_result.MeterValues()
     
-    @on('Heartbeat')
+    @on('FirmwareStatusNotification')
     async def on_firmware_status_notification(self, status: str, **kwargs):
         """Handle FirmwareStatusNotification from charging station."""
         logger.info(f"FirmwareStatusNotification from {self.id}: status={status}")
@@ -477,11 +478,13 @@ class ChargePoint(cp):
             logger.error(f"Error handling FirmwareStatusNotification for {self.id}: {e}")
         return call_result.FirmwareStatusNotification()
 
+    @on('DiagnosticsStatusNotification')
     async def on_diagnostics_status_notification(self, status: str, **kwargs):
         """Handle DiagnosticsStatusNotification from charging station."""
         logger.info(f"DiagnosticsStatusNotification from {self.id}: status={status}")
         return call_result.DiagnosticsStatusNotification()
 
+    @on('Heartbeat')
     async def on_heartbeat(self):
         """Handle Heartbeat from charging station"""
         try:
