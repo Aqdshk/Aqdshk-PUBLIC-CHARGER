@@ -2786,10 +2786,10 @@ def verify_admin_token(admin_token: str, db: Session) -> Optional[User]:
     
     # 1. Check legacy admin_sessions (in-memory, kept for backwards compat)
     if admin_token in admin_sessions:
-    user_id = admin_sessions[admin_token]
-    user = db.query(User).filter(User.id == user_id, User.is_admin == True).first()
+        user_id = admin_sessions[admin_token]
+        user = db.query(User).filter(User.id == user_id, User.is_admin == True).first()
         if user:
-    return user
+            return user
 
     # 2. Check DB-backed staff sessions (admin role)
     staff_session = _get_staff_session_db(admin_token, db)
