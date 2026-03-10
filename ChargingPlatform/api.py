@@ -567,10 +567,19 @@ async def get_chargers(db: Session = Depends(get_db)):
             )
         ).order_by(desc(ChargingSession.start_time)).first()
 
-        # Compute effective status: active WebSocket = online; no connection = offline (live)
-        effective_status = "offline"
-        if charger.charge_point_id in active_charge_points:
+        # Compute effective status:
+        # 1. Must have active WebSocket connection in active_charge_points
+        # 2. AND last heartbeat must be within 5 minutes (guards against stale/zombie connections)
+        OFFLINE_THRESHOLD_MINUTES = 5
+        heartbeat_age_ok = False
+        if charger.last_heartbeat:
+            age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
+            heartbeat_age_ok = age.total_seconds() < (OFFLINE_THRESHOLD_MINUTES * 60)
+
+        if charger.charge_point_id in active_charge_points and heartbeat_age_ok:
             effective_status = "online"
+        else:
+            effective_status = "offline"
 
         # Only expose a valid active transaction id (>0). Pending placeholders (<=0) shouldn't drive UI.
         active_txn_id = None
@@ -606,7 +615,33 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
-    return charger
+
+    OFFLINE_THRESHOLD_MINUTES = 5
+    heartbeat_age_ok = False
+    if charger.last_heartbeat:
+        age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
+        heartbeat_age_ok = age.total_seconds() < (OFFLINE_THRESHOLD_MINUTES * 60)
+
+    if charge_point_id in active_charge_points and heartbeat_age_ok:
+        effective_status = "online"
+    else:
+        effective_status = "offline"
+
+    effective_availability = charger.availability or "unknown"
+    if effective_status == "offline":
+        effective_availability = "unavailable"
+
+    return ChargerStatus(
+        id=charger.id,
+        charge_point_id=charger.charge_point_id,
+        vendor=charger.vendor,
+        model=charger.model,
+        firmware_version=charger.firmware_version,
+        status=effective_status,
+        availability=effective_availability,
+        last_heartbeat=charger.last_heartbeat,
+        active_transaction_id=None,
+    )
 
 
 @app.post("/api/admin/chargers", response_model=ChargerStatus)
@@ -2108,7 +2143,7 @@ async def login_user(request: UserLoginRequest, req: Request, db: Session = Depe
         if user.is_locked():
             audit_log("login_locked", user.id, f"Account locked, IP={client_ip}", client_ip)
             return AuthResponse(success=False, message="Account temporarily locked. Please try again in 15 minutes.")
-
+        
         if not user.verify_password(request.password):
             user.record_failed_login()
             db.commit()
@@ -2748,13 +2783,13 @@ def verify_admin_token(admin_token: str, db: Session) -> Optional[User]:
     """
     if not admin_token:
         return None
-
+    
     # 1. Check legacy admin_sessions (in-memory, kept for backwards compat)
     if admin_token in admin_sessions:
-        user_id = admin_sessions[admin_token]
-        user = db.query(User).filter(User.id == user_id, User.is_admin == True).first()
+    user_id = admin_sessions[admin_token]
+    user = db.query(User).filter(User.id == user_id, User.is_admin == True).first()
         if user:
-            return user
+    return user
 
     # 2. Check DB-backed staff sessions (admin role)
     staff_session = _get_staff_session_db(admin_token, db)

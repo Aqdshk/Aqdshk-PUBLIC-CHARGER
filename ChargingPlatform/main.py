@@ -121,7 +121,8 @@ async def ocpp_server():
         "0.0.0.0",
         9000,
         subprotocols=["ocpp1.6"],
-        ping_interval=None,
+        ping_interval=60,   # send WS ping every 60s — detects dead/powered-off chargers
+        ping_timeout=30,    # if no pong within 30s, close connection
         close_timeout=10,
         compression=None,
     ):
