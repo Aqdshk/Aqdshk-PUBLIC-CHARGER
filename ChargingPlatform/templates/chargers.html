@@ -75,8 +75,83 @@
         </div>
     </div>
 
+    <style>
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+        .toast {
+            background: #1a1a2e;
+            border: 1px solid #00c853;
+            border-left: 4px solid #00c853;
+            color: #fff;
+            padding: 14px 18px;
+            border-radius: 8px;
+            min-width: 280px;
+            max-width: 360px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            pointer-events: all;
+            animation: slideIn 0.3s ease;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .toast.toast-offline {
+            border-color: #ff5252;
+            border-left-color: #ff5252;
+        }
+        .toast.toast-online {
+            border-color: #00c853;
+            border-left-color: #00c853;
+        }
+        .toast-title { font-weight: 600; margin-bottom: 3px; font-size: 14px; }
+        .toast-close {
+            float: right;
+            cursor: pointer;
+            opacity: 0.6;
+            margin-left: 10px;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .toast-close:hover { opacity: 1; }
+        @keyframes slideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to   { transform: translateX(0);    opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to   { opacity: 0; transform: translateX(120%); }
+        }
+    </style>
+
+    <div id="toast-container"></div>
+
     <script>
         const API_BASE = '/api';
+
+        // Track previous charger states for change detection
+        const _prevFirmware = {};
+        const _prevStatus = {};
+        let _firstLoad = true;
+
+        function showToast(title, message, type = 'online', duration = 7000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span class="toast-close" onclick="this.parentElement.remove()">✕</span>
+                <div class="toast-title">${title}</div>
+                <div>${message}</div>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'fadeOut 0.4s ease forwards';
+                setTimeout(() => toast.remove(), 400);
+            }, duration);
+        }
 
         function formatKLTime(isoString) {
             if (!isoString) return 'N/A';
@@ -115,6 +190,52 @@
                     return;
                 }
                 countEl.textContent = `${chargers.length} charger(s)`;
+
+                // Detect firmware update and status changes (skip on first load)
+                if (!_firstLoad) {
+                    chargers.forEach(c => {
+                        const cpId = c.charge_point_id;
+                        const fw = c.firmware_version || '';
+                        const st = c.status || '';
+
+                        // Firmware version changed → update complete
+                        if (_prevFirmware[cpId] && _prevFirmware[cpId] !== fw && fw) {
+                            showToast(
+                                '✅ Firmware Update Complete',
+                                `<b>${cpId}</b><br>New version: <code style="color:#00e676">${fw}</code>`,
+                                'online', 10000
+                            );
+                        }
+
+                        // Charger came back online
+                        if (_prevStatus[cpId] === 'offline' && st === 'online') {
+                            showToast(
+                                '🔌 Charger Online',
+                                `<b>${cpId}</b> is back online`,
+                                'online', 6000
+                            );
+                        }
+
+                        // Charger went offline
+                        if (_prevStatus[cpId] === 'online' && st === 'offline') {
+                            showToast(
+                                '🔴 Charger Offline',
+                                `<b>${cpId}</b> has gone offline`,
+                                'offline', 8000
+                            );
+                        }
+
+                        _prevFirmware[cpId] = fw;
+                        _prevStatus[cpId] = st;
+                    });
+                } else {
+                    // First load — just store current state, don't show toast
+                    chargers.forEach(c => {
+                        _prevFirmware[c.charge_point_id] = c.firmware_version || '';
+                        _prevStatus[c.charge_point_id] = c.status || '';
+                    });
+                    _firstLoad = false;
+                }
 
                 container.innerHTML = `<div class="grid-2">${chargers.map(charger => {
                     const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
