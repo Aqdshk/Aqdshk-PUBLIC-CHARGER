@@ -134,10 +134,14 @@
     <script>
         const API_BASE = '/api';
 
-        // Track previous charger states for change detection
-        const _prevFirmware = {};
-        const _prevStatus = {};
-        let _firstLoad = true;
+        // Track previous charger states using localStorage so it persists across page navigation
+        function _loadStored() {
+            try { return JSON.parse(localStorage.getItem('charger_states') || '{}'); } catch(e) { return {}; }
+        }
+        function _saveStored(data) {
+            try { localStorage.setItem('charger_states', JSON.stringify(data)); } catch(e) {}
+        }
+        let _firstLoad = !localStorage.getItem('charger_states');
 
         function showToast(title, message, type = 'online', duration = 7000) {
             const container = document.getElementById('toast-container');
@@ -191,24 +195,28 @@
                 }
                 countEl.textContent = `${chargers.length} charger(s)`;
 
-                // Detect firmware update and status changes (skip on first load)
+                // Detect firmware update and status changes using localStorage
+                const stored = _loadStored();
+                const updated = { ...stored };
+
                 if (!_firstLoad) {
                     chargers.forEach(c => {
                         const cpId = c.charge_point_id;
                         const fw = c.firmware_version || '';
                         const st = c.status || '';
+                        const prev = stored[cpId] || {};
 
                         // Firmware version changed → update complete
-                        if (_prevFirmware[cpId] && _prevFirmware[cpId] !== fw && fw) {
+                        if (prev.fw && prev.fw !== fw && fw) {
                             showToast(
                                 '✅ Firmware Update Complete',
                                 `<b>${cpId}</b><br>New version: <code style="color:#00e676">${fw}</code>`,
-                                'online', 10000
+                                'online', 12000
                             );
                         }
 
                         // Charger came back online
-                        if (_prevStatus[cpId] === 'offline' && st === 'online') {
+                        if (prev.st === 'offline' && st === 'online') {
                             showToast(
                                 '🔌 Charger Online',
                                 `<b>${cpId}</b> is back online`,
@@ -217,7 +225,7 @@
                         }
 
                         // Charger went offline
-                        if (_prevStatus[cpId] === 'online' && st === 'offline') {
+                        if (prev.st === 'online' && st === 'offline') {
                             showToast(
                                 '🔴 Charger Offline',
                                 `<b>${cpId}</b> has gone offline`,
@@ -225,17 +233,19 @@
                             );
                         }
 
-                        _prevFirmware[cpId] = fw;
-                        _prevStatus[cpId] = st;
+                        updated[cpId] = { fw, st };
                     });
                 } else {
-                    // First load — just store current state, don't show toast
+                    // First load — store current state only, no toast
                     chargers.forEach(c => {
-                        _prevFirmware[c.charge_point_id] = c.firmware_version || '';
-                        _prevStatus[c.charge_point_id] = c.status || '';
+                        updated[c.charge_point_id] = {
+                            fw: c.firmware_version || '',
+                            st: c.status || ''
+                        };
                     });
                     _firstLoad = false;
                 }
+                _saveStored(updated);
 
                 container.innerHTML = `<div class="grid-2">${chargers.map(charger => {
                     const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
