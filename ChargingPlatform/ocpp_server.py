@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 
 # Global dictionary to track active charge point connections
 active_charge_points: Dict[str, 'ChargePoint'] = {}
+
+# Recent firmware events (last 50) — shared with API layer
+firmware_events: List[Dict] = []
+
+def _add_firmware_event(charger_id: str, status: str, firmware_version: str = ""):
+    """Store a firmware event so the dashboard can poll and show toast."""
+    from datetime import datetime, timezone, timedelta
+    myt = timezone(timedelta(hours=8))
+    firmware_events.append({
+        "charger_id": charger_id,
+        "status": status,
+        "firmware_version": firmware_version,
+        "timestamp": datetime.now(myt).isoformat(),
+    })
+    # Keep only last 50 events
+    if len(firmware_events) > 50:
+        firmware_events.pop(0)
 _CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
 
 
@@ -457,8 +474,10 @@ class ChargePoint(cp):
         logger.info(f"FirmwareStatusNotification from {self.id}: status={status}")
         try:
             charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
-            if charger and status == "Installed":
+            fw_version = charger.firmware_version if charger else ""
+            if status == "Installed":
                 logger.info(f"Charger {self.id} firmware installed successfully")
+            _add_firmware_event(self.id, status, fw_version)
         except Exception as e:
             logger.error(f"Error handling FirmwareStatusNotification for {self.id}: {e}")
         return call_result.FirmwareStatusNotification()

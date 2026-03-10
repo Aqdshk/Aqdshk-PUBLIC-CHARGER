@@ -169,7 +169,42 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
-        document.addEventListener('DOMContentLoaded', () => { loadChargerStatus(); setInterval(loadChargerStatus, 5000); });
+        // Poll firmware events from backend every 5 seconds
+        let _lastEventCheck = new Date().toISOString();
+        async function checkFirmwareEvents() {
+            try {
+                const res = await fetch(`${API_BASE}/events/firmware?since=${encodeURIComponent(_lastEventCheck)}`);
+                const data = await res.json();
+                _lastEventCheck = new Date().toISOString();
+                (data.events || []).forEach(ev => {
+                    if (ev.status === 'Installed') {
+                        showToast(
+                            '✅ Firmware Update Complete',
+                            `<b>${ev.charger_id}</b><br>Status: Installed${ev.firmware_version ? `<br>Version: <code style="color:#00e676">${ev.firmware_version}</code>` : ''}`,
+                            'online', 15000
+                        );
+                    } else if (ev.status === 'Downloading') {
+                        showToast(
+                            '⬇️ Firmware Downloading',
+                            `<b>${ev.charger_id}</b> is downloading firmware...`,
+                            'online', 5000
+                        );
+                    } else if (ev.status === 'InstallationFailed') {
+                        showToast(
+                            '❌ Firmware Update Failed',
+                            `<b>${ev.charger_id}</b> installation failed`,
+                            'offline', 15000
+                        );
+                    }
+                });
+            } catch(e) {}
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadChargerStatus();
+            setInterval(loadChargerStatus, 5000);
+            setInterval(checkFirmwareEvents, 5000);
+        });
 
         async function loadChargerStatus() {
             try {

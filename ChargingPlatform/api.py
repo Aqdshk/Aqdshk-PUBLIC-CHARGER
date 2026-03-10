@@ -29,7 +29,7 @@ from database import (
     SessionLocal, get_db, init_db,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder
-from ocpp_server import get_active_charge_point, active_charge_points
+from ocpp_server import get_active_charge_point, active_charge_points, firmware_events
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -642,6 +642,24 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
         last_heartbeat=charger.last_heartbeat,
         active_transaction_id=None,
     )
+
+
+@app.get("/api/events/firmware")
+async def get_firmware_events(since: str = ""):
+    """
+    Return recent firmware status events.
+    Frontend polls this to show toast notifications.
+    Optional ?since=<ISO timestamp> to get only events after that time.
+    """
+    if not since:
+        return {"events": firmware_events[-20:]}
+    try:
+        from datetime import datetime, timezone, timedelta
+        since_dt = datetime.fromisoformat(since)
+        filtered = [e for e in firmware_events if datetime.fromisoformat(e["timestamp"]) > since_dt]
+        return {"events": filtered}
+    except Exception:
+        return {"events": firmware_events[-20:]}
 
 
 @app.post("/api/admin/chargers", response_model=ChargerStatus)
