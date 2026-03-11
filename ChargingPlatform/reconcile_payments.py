@@ -1,5 +1,8 @@
 """
-Payment reconciliation helper (internal ledger consistency).
+PlagSini EV — Payment Reconciliation Script
+
+Compares payment_transactions vs wallet_transactions for a date range.
+Useful for finance: verify gateway success amount matches wallet credits.
 
 Usage examples:
   python reconcile_payments.py --from 2026-03-01 --to 2026-03-01

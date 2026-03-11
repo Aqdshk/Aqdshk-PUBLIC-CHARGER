@@ -1,3 +1,15 @@
+"""
+PlagSini EV — Database Models & Session
+
+SQLAlchemy models for:
+  - User, Wallet, WalletTransaction
+  - Charger, ChargingSession, MeterValue, Fault
+  - Pricing, Payment, PaymentTransaction
+  - SupportTicket, StaffSession, AuditLog
+  - OTPVerification, PaymentGatewayConfig, etc.
+
+Engine and SessionLocal are configured from DATABASE_URL.
+"""
 import hashlib
 import os
 import secrets
@@ -13,8 +25,7 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 Base = declarative_base()
 
 
-# ==================== USER & WALLET ====================
-
+# ─── User & Wallet ────────────────────────────────────────────────────────
 class User(Base):
     __tablename__ = "users"
     

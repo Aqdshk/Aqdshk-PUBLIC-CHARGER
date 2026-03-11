@@ -1,7 +1,7 @@
 """
-Local migration dry-run + rollback verification helper.
+PlagSini EV — Alembic Migration Verification
 
-This script runs a safe migration cycle on a temporary SQLite database:
+Runs a safe migration cycle on a temporary SQLite database:
 1) upgrade head
 2) downgrade base
 3) upgrade head

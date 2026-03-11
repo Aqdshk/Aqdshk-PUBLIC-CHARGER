@@ -1,3 +1,14 @@
+"""
+PlagSini EV — Charging Platform REST API
+
+Main FastAPI application. Handles:
+  - Dashboard routes (/, /chargers, /sessions, etc.)
+  - OCPP operations (RemoteStart, UpdateFirmware, etc.)
+  - User auth, wallet, charging, rewards
+  - Admin & staff endpoints
+  - Payment gateway callbacks
+  - OCPI integration (via router)
+"""
 import asyncio
 import json
 import logging
@@ -54,6 +65,7 @@ from security import (
 
 logger = logging.getLogger(__name__)
 
+# ─── App & Rate Limiting ──────────────────────────────────────────────────
 app = FastAPI(title="Charging Platform Management System")
 _RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
@@ -322,7 +334,7 @@ from ocpi import router as ocpi_router
 app.include_router(ocpi_router)
 
 
-# Pydantic models for API responses
+# ─── Pydantic Models & Dashboard Routes ───────────────────────────────────
 class ChargerStatus(BaseModel):
     id: int
     charge_point_id: str

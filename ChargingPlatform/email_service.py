@@ -1,5 +1,8 @@
 """
-Email service for sending OTP codes via Gmail SMTP.
+PlagSini EV — Email Service
+
+Sends OTP codes (registration, password reset) via SMTP.
+Also: ticket confirmation, updates, SLA reminders.
 
 Configuration via environment variables:
     SMTP_HOST       - SMTP server host (default: smtp.gmail.com)

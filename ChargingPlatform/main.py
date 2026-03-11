@@ -1,3 +1,13 @@
+"""
+PlagSini EV — Application Entry Point
+
+Starts:
+  1. FastAPI server (port 8000) — dashboard, API, static files
+  2. OCPP WebSocket server (port 9000) — charger connections
+  3. Orphan session watchdog — background task to close stale sessions
+
+Bootstrap: creates default admin & staff if env vars set and DB empty.
+"""
 import asyncio
 import logging
 import os

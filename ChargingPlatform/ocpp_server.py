@@ -1,3 +1,17 @@
+"""
+PlagSini EV — OCPP 1.6J WebSocket Server
+
+Handles charger connections via WebSocket (ws://host:9000/{charge_point_id}).
+
+Inbound (charger → server): BootNotification, Authorize, StatusNotification,
+  StartTransaction, StopTransaction, MeterValues, Heartbeat,
+  FirmwareStatusNotification, DiagnosticsStatusNotification.
+
+Outbound (server → charger): RemoteStart/Stop, ChangeAvailability, Reset,
+  UpdateFirmware, GetConfiguration, SendLocalList, etc.
+
+Auth: OCPP_REQUIRE_AUTH, OCPP_SHARED_TOKEN, OCPP_CHARGER_TOKENS.
+"""
 import asyncio
 import logging
 import os
@@ -17,7 +31,8 @@ from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault, 
 
 logger = logging.getLogger(__name__)
 
-# Global dictionary to track active charge point connections
+# ─── Globals ─────────────────────────────────────────────────────────────
+# Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 active_charge_points: Dict[str, 'ChargePoint'] = {}
 
 # Recent firmware events (last 50) — shared with API layer
@@ -102,6 +117,7 @@ def utc_now_iso_z() -> str:
     return datetime.now(myt).isoformat()
 
 
+# ─── ChargePoint: OCPP 1.6 Message Handlers (Inbound) ─────────────────────
 class ChargePoint(cp):
     def __init__(self, id, connection):
         super().__init__(id, connection)
@@ -586,7 +602,8 @@ class ChargePoint(cp):
             except Exception:
                 pass
             return call_result.Heartbeat(current_time=utc_now_iso_z())
-    
+
+    # ─── Outbound OCPP Commands (Server → Charger) ─────────────────────────
     async def remote_start_transaction(self, connector_id: int = 1, id_tag: str = "APP_USER"):
         """
         Send RemoteStartTransaction to charger via OCPP
@@ -919,6 +936,7 @@ class ChargePoint(cp):
             return None
 
 
+# ─── WebSocket Connection Handler ─────────────────────────────────────────
 async def on_connect(websocket):
     """
     Handle new WebSocket connection from charger

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Utility script to create / verify all database tables."""
+"""
+Utility script to create / verify all database tables.
+
+Usage: python create_tables.py
+Uses DATABASE_URL (MySQL or SQLite). Run once after fresh DB setup.
+"""
 
 from sqlalchemy import inspect, text
 
