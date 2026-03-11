@@ -47,6 +47,23 @@
         .no-op h3 { color:var(--text-secondary); font-size: clamp(11px, 0.75vw, 14px); margin-bottom:4px; }
         .no-op p { font-size: clamp(9px, 0.55vw, 11px); }
         @media(max-width:900px){ .ops-layout{flex-direction:column;} .ops-sidebar{width:100%;min-width:100%;max-height:160px;border-right:none;border-bottom:1px solid var(--border);} .ops-main{padding: clamp(6px, 0.6vw, 12px);} }
+        .bulk-charger-list { max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-base); margin-top:4px; }
+        .bulk-charger-list::-webkit-scrollbar{width:3px;} .bulk-charger-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+        .bulk-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.04); cursor:pointer; }
+        .bulk-item:last-child{border-bottom:none;}
+        .bulk-item:hover{background:rgba(0,230,118,.04);}
+        .bulk-item input[type=checkbox]{ accent-color:var(--accent); width:13px; height:13px; flex-shrink:0; cursor:pointer; }
+        .bulk-item label{ font-size:clamp(9px,0.55vw,11px); color:var(--text-primary); cursor:pointer; flex:1; line-height:1.3; }
+        .bulk-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+        .bulk-controls { display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap; }
+        .btn-sm { padding:3px 10px; font-size:clamp(8px,0.5vw,10px); border:1px solid var(--border); background:var(--bg-card); color:var(--text-secondary); border-radius:var(--radius-sm); cursor:pointer; transition:all .15s; }
+        .btn-sm:hover{ border-color:var(--accent); color:var(--accent); }
+        .bulk-result-row { display:flex; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:clamp(8px,0.5vw,10px); }
+        .bulk-result-row:last-child{border-bottom:none;}
+        .tag-ok{color:var(--accent);font-weight:600;} .tag-fail{color:var(--red);font-weight:600;}
+        .filter-row { display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap; }
+        .filter-row input { padding:3px 8px; font-size:clamp(8px,0.5vw,10px); border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-primary); width:130px; }
+        .filter-row input:focus{ outline:none; border-color:var(--accent); }
     </style>
 </head>
 <body>
@@ -117,6 +134,7 @@
                 <div class="ops-item" data-op="reset"><span class="ops-icon">🔁</span> Reset</div>
                 <div class="ops-item" data-op="unlock-connector"><span class="ops-icon">🔓</span> Unlock Connector</div>
                 <div class="ops-item" data-op="update-firmware"><span class="ops-icon">📦</span> Update Firmware</div>
+                <div class="ops-item" data-op="bulk-update-firmware"><span class="ops-icon">📦</span> Bulk Update Firmware</div>
                 <div class="ops-sep"></div>
                 <div class="ops-cat">Reservation</div>
                 <div class="ops-item" data-op="reserve-now"><span class="ops-icon">📌</span> Reserve Now</div>
@@ -193,6 +211,7 @@
         };
 
         function selectOp(opKey) {
+            if (opKey === 'bulk-update-firmware') { selectBulkOp(); return; }
             currentOp = opKey;
             const op = OPS[opKey];
             if(!op) return;
@@ -246,6 +265,183 @@
 
         document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>selectOp(el.dataset.op)));
         document.addEventListener('DOMContentLoaded', loadChargers);
+
+        // ─────────────────────────────────────────
+        // BULK UPDATE FIRMWARE
+        let _allChargers = [];
+
+        async function loadBulkChargers() {
+            try {
+                _allChargers = await (await fetch(`${API}/chargers`)).json();
+                renderBulkList(document.getElementById('bulkFilter')?.value || '');
+            } catch(e) { _allChargers = []; }
+        }
+
+        function renderBulkList(filter) {
+            const list = document.getElementById('bulkChargerList');
+            if (!list) return;
+            const q = (filter || '').toLowerCase();
+            const items = _allChargers.filter(c => !q || c.charge_point_id.toLowerCase().includes(q) || (c.vendor||'').toLowerCase().includes(q) || (c.model||'').toLowerCase().includes(q));
+            if (!items.length) { list.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:11px;text-align:center;">No chargers found.</div>'; return; }
+            list.innerHTML = items.map(c => {
+                const online = c.status === 'online';
+                const dotColor = online ? 'var(--accent)' : '#555';
+                return `<div class="bulk-item">
+                    <input type="checkbox" id="bcp_${c.charge_point_id}" value="${c.charge_point_id}" ${online ? '' : 'disabled'}>
+                    <span class="bulk-dot" style="background:${dotColor}"></span>
+                    <label for="bcp_${c.charge_point_id}">
+                        <b>${c.charge_point_id}</b><br>
+                        <span style="color:var(--text-muted)">${c.vendor||'?'} · ${c.model||'?'} · fw: ${c.firmware_version||'?'}</span>
+                    </label>
+                    <span style="font-size:9px;color:${online?'var(--accent)':'#555'}">${online?'online':'offline'}</span>
+                </div>`;
+            }).join('');
+        }
+
+        function bulkSelectAll(onlineOnly) {
+            document.querySelectorAll('#bulkChargerList input[type=checkbox]:not(:disabled)').forEach(cb => {
+                if (onlineOnly) {
+                    const cpId = cb.value;
+                    const c = _allChargers.find(x => x.charge_point_id === cpId);
+                    cb.checked = c && c.status === 'online';
+                } else {
+                    cb.checked = true;
+                }
+            });
+            updateBulkCount();
+        }
+
+        function bulkSelectNone() {
+            document.querySelectorAll('#bulkChargerList input[type=checkbox]').forEach(cb => cb.checked = false);
+            updateBulkCount();
+        }
+
+        function bulkSelectVendor(vendor) {
+            document.querySelectorAll('#bulkChargerList input[type=checkbox]:not(:disabled)').forEach(cb => {
+                const c = _allChargers.find(x => x.charge_point_id === cb.value);
+                cb.checked = c && (c.vendor||'').toUpperCase().includes(vendor.toUpperCase());
+            });
+            updateBulkCount();
+        }
+
+        function updateBulkCount() {
+            const n = document.querySelectorAll('#bulkChargerList input[type=checkbox]:checked').length;
+            const el = document.getElementById('bulkCount');
+            if (el) el.textContent = `${n} selected`;
+        }
+
+        async function performBulkFirmware() {
+            const locationVal = document.getElementById('bfield_location')?.value?.trim();
+            const retrieveDateVal = document.getElementById('bfield_retrieve_date')?.value;
+            if (!locationVal) { alert('Enter firmware URI.'); return; }
+            if (!retrieveDateVal) { alert('Enter retrieve date.'); return; }
+
+            const checked = [...document.querySelectorAll('#bulkChargerList input[type=checkbox]:checked')].map(cb => cb.value);
+            if (!checked.length) { alert('Select at least one charger.'); return; }
+
+            const retriesEl = document.getElementById('bfield_retries');
+            const retryIntEl = document.getElementById('bfield_retry_interval');
+            const delayEl = document.getElementById('bfield_delay');
+
+            const body = {
+                charge_point_ids: checked,
+                location: locationVal,
+                retrieve_date: new Date(retrieveDateVal).toISOString(),
+                delay_between_seconds: parseFloat(delayEl?.value || '1'),
+            };
+            if (retriesEl?.value) body.retries = parseInt(retriesEl.value);
+            if (retryIntEl?.value) body.retry_interval = parseInt(retryIntEl.value);
+
+            const btn = document.getElementById('btnBulkGo');
+            btn.disabled = true; btn.textContent = `⏳ Sending to ${checked.length} charger(s)...`;
+
+            const ra = document.getElementById('bulkResponseArea');
+            ra.classList.add('visible');
+            document.getElementById('bulkRespStatus').innerHTML = '<span class="resp-pill" style="background:rgba(255,200,0,.12);color:#ffc800;">Sending...</span>';
+            document.getElementById('bulkRespBody').innerHTML = '';
+
+            const staffToken = localStorage.getItem('staffToken') || '';
+            const headers = {'Content-Type':'application/json'};
+            if (staffToken) headers['X-Staff-Token'] = staffToken;
+
+            try {
+                const res = await fetch(`${API}/ocpp/bulk/update-firmware`, { method:'POST', headers, body: JSON.stringify(body) });
+                const data = await res.json();
+                const ok = data.success !== false && res.ok;
+                document.getElementById('bulkRespStatus').innerHTML = `<span class="resp-pill ${ok?'ok':'err'}">${ok?'✅ Done':'⚠️ Partial/Failed'}</span> <span style="font-size:10px;color:var(--text-muted)">${data.message||''}</span>`;
+
+                if (data.results && data.results.length) {
+                    document.getElementById('bulkRespBody').innerHTML = data.results.map(r =>
+                        `<div class="bulk-result-row">
+                            <span class="${r.success?'tag-ok':'tag-fail'}">${r.success?'✅':'❌'}</span>
+                            <span style="flex:1;color:var(--text-primary)">${r.charge_point_id}</span>
+                            <span style="color:var(--text-muted)">${r.message||''}</span>
+                        </div>`
+                    ).join('');
+                }
+            } catch(err) {
+                document.getElementById('bulkRespStatus').innerHTML = '<span class="resp-pill err">❌ Error</span>';
+                document.getElementById('bulkRespBody').innerHTML = `<div style="color:var(--red);font-size:10px">${err.message||'Network error'}</div>`;
+            } finally {
+                btn.disabled = false; btn.textContent = '⚡ Send Bulk Update';
+            }
+        }
+
+        function selectBulkOp() {
+            currentOp = 'bulk-update-firmware';
+            document.querySelectorAll('.ops-item').forEach(el => el.classList.remove('active'));
+            document.querySelector('.ops-item[data-op="bulk-update-firmware"]')?.classList.add('active');
+            {
+
+                // Default retrieve date = 2 min from now
+                const d = new Date(Date.now() + 2*60000);
+                const pad = n => String(n).padStart(2,'0');
+                const dtLocal = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+                document.getElementById('opsContent').innerHTML = `
+                    <div class="ops-hdr"><h2>📦 Bulk Update Firmware</h2><p>Send UpdateFirmware command to multiple chargers at once. Only online chargers can receive the command.</p></div>
+
+                    <div class="pcard" style="margin-bottom:10px">
+                        <div class="pcard-title">Firmware Parameters</div>
+                        <div class="pg"><label>Firmware URI</label><input type="text" id="bfield_location" placeholder="e.g. http://203.99.148.43:8000/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin"><div class="hint">Full URL to the .bin firmware file</div></div>
+                        <div class="pg"><label>Retrieve Date</label><input type="datetime-local" id="bfield_retrieve_date" value="${dtLocal}"><div class="hint">Charger will start downloading at this time</div></div>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap">
+                            <div class="pg" style="flex:1;min-width:100px"><label>Retries</label><input type="number" id="bfield_retries" placeholder="Optional (e.g. 3)"></div>
+                            <div class="pg" style="flex:1;min-width:100px"><label>Retry Interval (sec)</label><input type="number" id="bfield_retry_interval" placeholder="Optional (e.g. 60)"></div>
+                            <div class="pg" style="flex:1;min-width:100px"><label>Delay Between Chargers (sec)</label><input type="number" id="bfield_delay" value="1" min="0" max="10" step="0.5"><div class="hint">Stagger to avoid flooding</div></div>
+                        </div>
+                    </div>
+
+                    <div class="pcard" style="margin-bottom:10px">
+                        <div class="pcard-title">Select Chargers <span id="bulkCount" style="color:var(--accent);margin-left:6px;font-size:9px">0 selected</span></div>
+                        <div class="filter-row">
+                            <input type="text" id="bulkFilter" placeholder="Filter by ID / vendor..." oninput="renderBulkList(this.value)">
+                            <button class="btn-sm" onclick="bulkSelectAll(true)">All Online</button>
+                            <button class="btn-sm" onclick="bulkSelectAll(false)">All</button>
+                            <button class="btn-sm" onclick="bulkSelectVendor('AION')">AION Only</button>
+                            <button class="btn-sm" onclick="bulkSelectNone()">Clear</button>
+                            <button class="btn-sm" onclick="loadBulkChargers()">↻ Refresh</button>
+                        </div>
+                        <div class="bulk-charger-list" id="bulkChargerList">
+                            <div style="padding:12px;color:var(--text-muted);font-size:11px;text-align:center">Loading chargers...</div>
+                        </div>
+                    </div>
+
+                    <button class="btn-go" id="btnBulkGo" onclick="performBulkFirmware()">⚡ Send Bulk Update</button>
+
+                    <div class="resp" id="bulkResponseArea" style="margin-top:12px">
+                        <div class="resp-lbl">Results</div>
+                        <div id="bulkRespStatus" style="margin-bottom:8px"></div>
+                        <div id="bulkRespBody"></div>
+                    </div>`;
+
+                // attach checkbox change listeners after render
+                setTimeout(() => {
+                    document.getElementById('bulkChargerList')?.addEventListener('change', updateBulkCount);
+                    loadBulkChargers();
+                }, 0);
+            }
+        }
 
         // Toast notifications for firmware events
         (function() {

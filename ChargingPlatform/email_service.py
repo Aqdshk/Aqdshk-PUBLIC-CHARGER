@@ -13,7 +13,7 @@ If SMTP_EMAIL is not set, OTPs are logged to console (dev mode).
 
 import logging
 import os
-import random
+import secrets
 import smtplib
 import asyncio
 from email.mime.text import MIMEText
@@ -30,8 +30,8 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "PlagSini EV")
 
 
 def generate_otp(length: int = 6) -> str:
-    """Generate a random numeric OTP code."""
-    return ''.join([str(random.randint(0, 9)) for _ in range(length)])
+    """Generate a cryptographically secure numeric OTP code."""
+    return ''.join([str(secrets.randbelow(10)) for _ in range(length)])
 
 
 def _build_otp_email(to_email: str, otp_code: str) -> MIMEMultipart:

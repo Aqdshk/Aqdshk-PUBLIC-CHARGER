@@ -45,6 +45,7 @@ from security import (
     require_admin,
     verify_resource_owner,
     validate_topup_amount,
+    validate_topup_daily_limit,
     get_wallet_with_lock,
     audit_log,
     get_client_ip,
@@ -56,6 +57,24 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Charging Platform Management System")
 _RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_LAST_CLEANUP: float = 0.0
+_RATE_LIMIT_CLEANUP_INTERVAL = 300  # sweep stale keys every 5 minutes
+
+
+def _rate_limit_cleanup() -> None:
+    """Remove expired entries from _RATE_LIMIT_BUCKETS to prevent unbounded growth."""
+    global _RATE_LIMIT_LAST_CLEANUP
+    now = time.time()
+    if now - _RATE_LIMIT_LAST_CLEANUP < _RATE_LIMIT_CLEANUP_INTERVAL:
+        return
+    cutoff = now - 3600  # remove buckets with no requests in the last hour
+    with _RATE_LIMIT_LOCK:
+        stale = [k for k, v in _RATE_LIMIT_BUCKETS.items() if not v or max(v) < cutoff]
+        for k in stale:
+            del _RATE_LIMIT_BUCKETS[k]
+        _RATE_LIMIT_LAST_CLEANUP = now
+        if stale:
+            logger.debug(f"Rate-limit cleanup: removed {len(stale)} stale buckets")
 
 def _require_callback_secret(request: Request, gateway_name: str) -> None:
     """
@@ -184,6 +203,7 @@ def _enforce_rate_limit(
     window_seconds: int,
 ) -> None:
     """Simple in-memory sliding-window rate limiter by IP + key."""
+    _rate_limit_cleanup()
     now = time.time()
     client_ip = get_client_ip(request)
     bucket_key = f"{key}:{client_ip}"
@@ -978,6 +998,15 @@ class UpdateFirmwareRequest(BaseModel):
     retry_interval: Optional[int] = None
 
 
+class BulkUpdateFirmwareRequest(BaseModel):
+    charge_point_ids: List[str]  # list of charger IDs to update; empty = all connected
+    location: str
+    retrieve_date: str
+    retries: Optional[int] = None
+    retry_interval: Optional[int] = None
+    delay_between_seconds: Optional[float] = 1.0  # stagger commands to avoid flood
+
+
 class ReserveNowRequest(BaseModel):
     connector_id: int = 0
     expiry_date: str  # ISO 8601 datetime
@@ -1181,6 +1210,53 @@ async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequ
     return OcppOperationResponse(success=True, message="UpdateFirmware command sent (no response expected in OCPP 1.6).")
 
 
+@app.post("/api/ocpp/bulk/update-firmware")
+async def ocpp_bulk_update_firmware(request: BulkUpdateFirmwareRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """Send UpdateFirmware to multiple chargers at once. If charge_point_ids is empty, targets all currently connected chargers."""
+    from ocpp_server import active_charge_points
+
+    if request.charge_point_ids:
+        target_ids = request.charge_point_ids
+    else:
+        target_ids = list(active_charge_points.keys())
+
+    if not target_ids:
+        return {"success": False, "message": "No chargers specified and none are currently connected.", "results": []}
+
+    delay = max(0.0, min(float(request.delay_between_seconds or 1.0), 10.0))
+    results = []
+
+    for idx, cp_id in enumerate(target_ids):
+        if idx > 0 and delay > 0:
+            await asyncio.sleep(delay)
+
+        cp = get_active_charge_point(cp_id)
+        if not cp:
+            results.append({"charge_point_id": cp_id, "success": False, "message": "Not connected"})
+            continue
+
+        try:
+            await cp.update_firmware(
+                location=request.location,
+                retrieve_date=request.retrieve_date,
+                retries=request.retries,
+                retry_interval=request.retry_interval,
+            )
+            results.append({"charge_point_id": cp_id, "success": True, "message": "Command sent"})
+            logger.info(f"Bulk UpdateFirmware sent to {cp_id}")
+        except Exception as e:
+            results.append({"charge_point_id": cp_id, "success": False, "message": str(e)})
+            logger.error(f"Bulk UpdateFirmware error for {cp_id}: {e}")
+
+    sent = sum(1 for r in results if r["success"])
+    failed = len(results) - sent
+    return {
+        "success": failed == 0,
+        "message": f"Sent to {sent}/{len(results)} charger(s). {failed} failed.",
+        "results": results,
+    }
+
+
 @app.post("/api/ocpp/{charge_point_id}/reserve-now", response_model=OcppOperationResponse)
 async def ocpp_reserve_now(charge_point_id: str, request: ReserveNowRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ReserveNow"""
@@ -1364,7 +1440,7 @@ class ChargingResponse(BaseModel):
 
 
 @app.post("/api/charging/start", response_model=ChargingResponse, status_code=200)
-async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db)):
+async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Start charging session via RemoteStartTransaction
     
@@ -1515,7 +1591,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
 
 
 @app.post("/api/charging/stop", response_model=ChargingResponse, status_code=200)
-async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db)):
+async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Stop charging session via RemoteStopTransaction
     
@@ -2365,7 +2441,8 @@ async def topup_wallet(
 
         # Validate amount with financial safeguards
         dec_amount = validate_topup_amount(request.amount)
-        
+        validate_topup_daily_limit(db, user_id, dec_amount)
+
         # Row-level locking to prevent race conditions
         wallet = get_wallet_with_lock(db, user_id)
         
@@ -2390,7 +2467,7 @@ async def topup_wallet(
         db.add(transaction)
 
         # Audit log
-        audit_log("topup", user_id, f"RM{dec_amount} via {request.payment_method}", client_ip, float(dec_amount))
+        audit_log("topup", user_id, f"RM{dec_amount} via {request.payment_method}", client_ip, float(dec_amount), db=db)
 
         db.commit()
         
@@ -2487,10 +2564,11 @@ REWARD_CATALOG = {
     },
     "premium_membership": {
         "title": "Premium Membership",
-        "description": "1 month premium membership with discounts",
+        "description": "Coming soon — 1 month premium membership with discounts",
         "points_cost": 5000,
         "wallet_credit": 0.0,
         "icon": "star",
+        "unavailable": True,
     },
     "voucher_5": {
         "title": "RM 5 Voucher",
@@ -2537,6 +2615,13 @@ async def redeem_reward(
             return RedeemRewardResponse(
                 success=False, message="Invalid reward type",
                 reward_type=request.reward_type
+            )
+
+        if reward_info.get("unavailable"):
+            return RedeemRewardResponse(
+                success=False,
+                message=f"{reward_info['title']} is not yet available. Your points have not been deducted.",
+                reward_type=request.reward_type,
             )
 
         # Validate points cost matches catalog
@@ -2812,8 +2897,14 @@ def verify_admin_token(admin_token: str, db: Session) -> Optional[User]:
     # 2. Check DB-backed staff sessions (admin role)
     staff_session = _get_staff_session_db(admin_token, db)
     if staff_session and staff_session.get("role") == "admin":
-        admin_user = db.query(User).filter(User.is_admin == True).first()
-        return admin_user
+        # Try to find a User account matching the staff email (admin users who log in via staff portal)
+        staff_email = staff_session.get("email")
+        if staff_email:
+            matched_user = db.query(User).filter(User.email == staff_email, User.is_admin == True).first()
+            if matched_user:
+                return matched_user
+        # Staff member without a matching admin User account — return first admin as fallback
+        return db.query(User).filter(User.is_admin == True).first()
 
     return None
 

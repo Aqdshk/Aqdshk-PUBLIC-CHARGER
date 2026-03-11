@@ -4,6 +4,7 @@ Implements Sender interface - eMSP (e.g. TNG) pulls data from us.
 """
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -45,7 +46,7 @@ def _ocpi_auth(authorization: Optional[str] = Header(None)) -> None:
         return  # No token configured = allow (dev/test mode)
     if not authorization or not authorization.startswith("Token "):
         raise HTTPException(status_code=403, detail="Missing OCPI token")
-    if authorization[6:].strip() != token:
+    if not secrets.compare_digest(authorization[6:].strip(), token):
         raise HTTPException(status_code=403, detail="Invalid OCPI token")
 
 

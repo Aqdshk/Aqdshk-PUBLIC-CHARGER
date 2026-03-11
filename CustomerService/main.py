@@ -13,11 +13,13 @@ Endpoints:
 import logging
 import os
 import secrets
+import threading
+import time
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 import httpx
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -35,6 +37,18 @@ logger = logging.getLogger(__name__)
 # ChargingPlatform base URL (inside Docker network)
 CP_BASE_URL = os.getenv("CHARGING_PLATFORM_URL", "http://charging-platform:8000")
 
+# CORS — restrict to known origins; falls back to the charging platform domain
+_ALLOWED_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: List[str] = (
+    [o.strip() for o in _ALLOWED_ORIGINS_ENV.split(",") if o.strip()]
+    if _ALLOWED_ORIGINS_ENV
+    else [
+        "https://charger.czeros.tech",
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ]
+)
+
 app = FastAPI(
     title="PlagSini Customer Service Bot",
     description="AI Bot for PlagSini EV Charging — tickets managed centrally via ChargingPlatform",
@@ -43,11 +57,49 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+# ─── Simple rate limiter for bot endpoints ───
+_BOT_RATE_BUCKETS: Dict[str, List[float]] = {}
+_BOT_RATE_LOCK = threading.Lock()
+_BOT_RATE_LAST_CLEANUP: float = 0.0
+
+BOT_MAX_REQUESTS = int(os.getenv("BOT_RATE_LIMIT_REQUESTS", "30"))   # max calls per window
+BOT_RATE_WINDOW  = int(os.getenv("BOT_RATE_LIMIT_WINDOW_SECONDS", "60"))  # window in seconds
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _bot_rate_limit(request: Request) -> None:
+    """Enforce per-IP rate limit on bot endpoints. Raises HTTP 429 if exceeded."""
+    global _BOT_RATE_LAST_CLEANUP
+    now = time.time()
+    ip = _get_client_ip(request)
+    cutoff = now - float(BOT_RATE_WINDOW)
+
+    with _BOT_RATE_LOCK:
+        # Periodic cleanup of stale buckets (every 5 min)
+        if now - _BOT_RATE_LAST_CLEANUP > 300:
+            stale = [k for k, v in _BOT_RATE_BUCKETS.items() if not v or max(v) < cutoff]
+            for k in stale:
+                del _BOT_RATE_BUCKETS[k]
+            _BOT_RATE_LAST_CLEANUP = now
+
+        bucket = _BOT_RATE_BUCKETS.get(ip, [])
+        bucket = [ts for ts in bucket if ts >= cutoff]
+        if len(bucket) >= BOT_MAX_REQUESTS:
+            raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+        bucket.append(now)
+        _BOT_RATE_BUCKETS[ip] = bucket
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -93,76 +145,94 @@ class EscalateRequest(BaseModel):
 # ═══════════════════════════════════════════
 
 @app.post("/api/bot/welcome")
-async def bot_welcome():
+async def bot_welcome(request: Request):
     """Get the bot's welcome message with category buttons."""
+    _bot_rate_limit(request)
     return {"success": True, "data": get_welcome_message()}
 
 
 @app.post("/api/bot/category")
-async def bot_category(req: BotCategoryRequest):
+async def bot_category(req: BotCategoryRequest, request: Request):
     """Get FAQ questions for a specific category."""
+    _bot_rate_limit(request)
     data = get_category_questions(req.category_id)
     return {"success": True, "data": data}
 
 
 @app.post("/api/bot/chat")
-async def bot_chat(req: BotChatRequest, db: Session = Depends(get_db)):
+async def bot_chat(req: BotChatRequest, request: Request, db: Session = Depends(get_db)):
     """Send a message to the AI bot and get a response."""
-    session_id = req.session_id or secrets.token_hex(16)
+    _bot_rate_limit(request)
 
-    conversation = db.query(BotConversation).filter(
-        BotConversation.session_id == session_id
-    ).first()
+    # Limit message length to prevent abuse
+    if len(req.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (max 2000 characters).")
 
-    if not conversation:
-        conversation = BotConversation(session_id=session_id, message_count=0)
-        db.add(conversation)
-        db.flush()
+    try:
+        session_id = req.session_id or secrets.token_hex(16)
 
-    # Save user message
-    user_msg = BotMessage(
-        conversation_id=conversation.id,
-        role="user",
-        content=req.message,
-    )
-    db.add(user_msg)
-    conversation.message_count += 1
+        conversation = db.query(BotConversation).filter(
+            BotConversation.session_id == session_id
+        ).first()
 
-    # Get conversation history for context
-    history = (
-        db.query(BotMessage)
-        .filter(BotMessage.conversation_id == conversation.id)
-        .order_by(BotMessage.created_at)
-        .all()
-    )
-    history_dicts = [{"role": m.role, "content": m.content} for m in history]
+        if not conversation:
+            conversation = BotConversation(session_id=session_id, message_count=0)
+            db.add(conversation)
+            db.flush()
 
-    # Process with AI bot
-    response = await process_message(
-        user_message=req.message,
-        conversation_history=history_dicts,
-        selected_category=req.category,
-    )
+        # Save user message
+        user_msg = BotMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=req.message,
+        )
+        db.add(user_msg)
+        conversation.message_count += 1
 
-    # Save bot response
-    bot_msg = BotMessage(
-        conversation_id=conversation.id,
-        role="bot",
-        content=response["message"],
-    )
-    db.add(bot_msg)
-    conversation.message_count += 1
-    conversation.category = response.get("category")
+        # Get conversation history for context
+        history = (
+            db.query(BotMessage)
+            .filter(BotMessage.conversation_id == conversation.id)
+            .order_by(BotMessage.created_at)
+            .all()
+        )
+        history_dicts = [{"role": m.role, "content": m.content} for m in history]
 
-    db.commit()
+        # Process with AI bot
+        response = await process_message(
+            user_message=req.message,
+            conversation_history=history_dicts,
+            selected_category=req.category,
+        )
 
-    return {
-        "success": True,
-        "data": {
-            "session_id": session_id,
-            **response,
-        },
-    }
+        # Save bot response
+        bot_msg = BotMessage(
+            conversation_id=conversation.id,
+            role="bot",
+            content=response["message"],
+        )
+        db.add(bot_msg)
+        conversation.message_count += 1
+        conversation.category = response.get("category")
+
+        db.commit()
+
+        return {
+            "success": True,
+            "data": {
+                "session_id": session_id,
+                **response,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"bot_chat error: {e}", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail="An error occurred. Please try again.")
 
 
 @app.post("/api/bot/escalate")

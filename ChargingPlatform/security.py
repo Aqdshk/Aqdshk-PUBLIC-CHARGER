@@ -22,7 +22,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from database import User, Wallet, get_db
+from database import AuditLog, User, Wallet, WalletTransaction, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ MIN_TOPUP_AMOUNT = Decimal("1.00")  # RM 1 minimum
 
 def validate_topup_amount(amount: float) -> Decimal:
     """
-    Validate top-up amount against limits.
+    Validate top-up amount against per-transaction limits.
     Returns Decimal amount or raises HTTPException.
     """
     dec_amount = Decimal(str(amount)).quantize(Decimal("0.01"))
@@ -235,6 +235,33 @@ def validate_topup_amount(amount: float) -> Decimal:
         )
 
     return dec_amount
+
+
+def validate_topup_daily_limit(db: Session, user_id: int, amount: Decimal) -> None:
+    """
+    Check that the user has not exceeded MAX_TOPUP_PER_DAY for today.
+    Raises HTTPException(400) if the limit would be breached.
+    """
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_total = (
+        db.query(WalletTransaction)
+        .filter(
+            WalletTransaction.user_id == user_id,
+            WalletTransaction.transaction_type == "topup",
+            WalletTransaction.status == "completed",
+            WalletTransaction.created_at >= today_start,
+        )
+        .with_entities(WalletTransaction.amount)
+        .all()
+    )
+    total_today = sum(Decimal(str(row.amount)) for row in daily_total)
+    if total_today + amount > MAX_TOPUP_PER_DAY:
+        remaining = MAX_TOPUP_PER_DAY - total_today
+        raise HTTPException(
+            status_code=400,
+            detail=f"Daily top-up limit of RM {MAX_TOPUP_PER_DAY} reached. "
+                   f"You can top up RM {max(remaining, Decimal('0.00')):.2f} more today.",
+        )
 
 
 def get_wallet_with_lock(db: Session, user_id: int) -> Wallet:
@@ -270,15 +297,29 @@ def audit_log(
     details: str = "",
     ip_address: str = "",
     amount: float = 0.0,
+    db: Optional[Session] = None,
 ):
     """
     Log financial and security-sensitive operations.
-    In production, this should write to a dedicated audit table or external service.
+    Always writes to the application logger; also persists to the audit_logs DB table when db is provided.
     """
     logger.info(
         f"🔒 AUDIT | action={action} | user_id={user_id} | "
         f"amount=RM{amount:.2f} | ip={ip_address} | {details}"
     )
+    if db is not None:
+        try:
+            entry = AuditLog(
+                action=action,
+                user_id=user_id,
+                description=details,
+                ip_address=ip_address,
+                amount=Decimal(str(amount)) if amount else None,
+            )
+            db.add(entry)
+            db.flush()
+        except Exception as exc:
+            logger.warning(f"audit_log: failed to persist to DB: {exc}")
 
 
 def get_client_ip(request: Request) -> str:

@@ -123,14 +123,14 @@
                 <div class="card-body">
                     <div class="inv-header">
                         <div class="inv-logo">
-                            <img src="/static/logo.png" alt="Logo">
+                        <img src="/static/logo.png" alt="Logo">
                             <div><div class="inv-logo-title">Plag Sini</div><div class="inv-logo-sub">EV Charging Report</div></div>
                         </div>
                         <div class="inv-info">
-                            <strong>Generated</strong> <span id="reportDate">-</span><br>
-                            <strong>Period</strong> <span id="reportPeriod">-</span>
-                        </div>
+                        <strong>Generated</strong> <span id="reportDate">-</span><br>
+                        <strong>Period</strong> <span id="reportPeriod">-</span>
                     </div>
+                </div>
 
                     <div class="inv-summary">
                         <div class="inv-card"><div class="inv-icon">📋</div><div class="inv-val" id="totalSessions">-</div><div class="inv-lbl">Sessions</div></div>
@@ -177,7 +177,7 @@
         function setLastMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const l=new Date(n.getFullYear(),n.getMonth(),0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
 
         let reportData = { breakdown:{}, sessions:[] };
-
+        
         async function loadReport() {
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
@@ -216,7 +216,7 @@
                 }
             } catch(e){ console.error('Error:',e); }
         }
-
+        
         function exportCSV() {
             if (!reportData.sessions.length) { alert('No data'); return; }
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;

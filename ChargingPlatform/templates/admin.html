@@ -46,7 +46,7 @@
                 <a href="/" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Live Dashboard</span></a>
                 <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
                 <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Ops</span></a>
-            </div>
+                </div>
             <div class="nav-section">
                 <div class="nav-section-title">Analytics</div>
                 <div class="nav-item" onclick="showTab('userStats')" id="navUserStats"><span class="nav-item-icon">📊</span><span class="nav-item-text">User Stats</span></div>
@@ -90,22 +90,22 @@
                 <div class="stat-card"><div class="stat-icon">🛡️</div><div class="stat-value" id="statAdminUsers">-</div><div class="stat-label">Admins</div></div>
                 <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-value" id="statTotalBalance">-</div><div class="stat-label">Wallet (RM)</div></div>
                 <div class="stat-card"><div class="stat-icon">🆕</div><div class="stat-value" id="statRecentReg">-</div><div class="stat-label">New (7d)</div></div>
-            </div>
+                </div>
             <div class="user-controls">
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="Search users..." onkeyup="handleSearchKeyup(event)">
                     <button class="btn btn-secondary btn-small" onclick="loadUsers()">Search</button>
                 </div>
                 <button class="btn btn-primary btn-small" onclick="openCreateModal()">+ Add User</button>
-            </div>
+                </div>
             <div class="table-container">
                 <table class="user-table">
                     <thead><tr><th>ID</th><th>User</th><th>Phone</th><th>Status</th><th>Role</th><th>Wallet</th><th>Registered</th><th>Last Login</th><th>Actions</th></tr></thead>
                     <tbody id="userTableBody"><tr><td colspan="9" class="loading-spinner">Loading users...</td></tr></tbody>
                 </table>
+                </div>
+                </div>
             </div>
-        </div>
-    </div>
 
     <!-- ============ SUPPORT TICKETS SECTION ============ -->
     <div class="main-content" id="ticketContent" style="display: none;">
@@ -156,7 +156,7 @@
             <div class="header-right">
                 <span class="header-user">Welcome, <strong id="adminName3">Admin</strong></span>
                 <a href="/" class="btn btn-secondary btn-xs">← Dashboard</a>
-            </div>
+                </div>
         </header>
         <div class="admin-container">
             <div class="stats-grid" id="staffDeptStats"></div>
@@ -174,7 +174,7 @@
                 </table>
             </div>
         </div>
-    </div>
+                </div>
 
     <!-- ============ USER STATISTICS REPORT ============ -->
     <div class="main-content" id="userStatsContent" style="display: none;">
@@ -196,7 +196,7 @@
                 <div class="card"><div class="card-header"><span class="card-title">🆕 Newest Users</span></div><div class="card-body" id="newestUsersBox" style="max-height:260px;overflow-y:auto;"></div></div>
             </div>
         </div>
-    </div>
+                </div>
 
     <!-- ============ WALLET REPORT ============ -->
     <div class="main-content" id="walletReportContent" style="display: none;">
@@ -204,7 +204,7 @@
             <div class="header-left">
                 <div class="hamburger" onclick="toggleSidebar()"><span></span><span></span><span></span></div>
                 <h1 class="page-title">💰 Wallet Reports</h1>
-            </div>
+                    </div>
             <div class="header-right"><span class="header-user">Welcome, <strong id="adminName5">Admin</strong></span><a href="/" class="btn btn-secondary btn-xs">← Dashboard</a></div>
         </header>
         <div class="admin-container">
@@ -219,8 +219,8 @@
                     <table class="user-table"><thead><tr><th>User</th><th>Type</th><th>Amount (RM)</th><th>Description</th><th>Date</th></tr></thead><tbody id="walletTxnBody"><tr><td colspan="5" class="loading-spinner">Loading...</td></tr></tbody></table>
                 </div>
             </div>
-        </div>
-    </div>
+                    </div>
+                </div>
 
     <!-- ============ ACTIVITY LOG ============ -->
     <div class="main-content" id="activityLogContent" style="display: none;">
@@ -239,8 +239,8 @@
                 </div>
             </div>
             <div class="card"><div class="card-body"><div id="activityTimeline" style="max-height:520px;overflow-y:auto;"></div></div></div>
-        </div>
-    </div>
+                    </div>
+                </div>
 
     <!-- Staff Create/Edit Modal -->
     <div class="modal" id="staffModal">
@@ -259,16 +259,16 @@
                 <div class="form-group"><div class="checkbox-group"><input type="checkbox" id="sfActive" checked><label for="sfActive">Active</label></div></div>
                 <div class="modal-actions"><button type="button" class="btn btn-secondary btn-small" onclick="closeStaffModal()">Cancel</button><button type="submit" class="btn btn-primary btn-small" id="sfSubmitBtn">Create Staff</button></div>
             </form>
-        </div>
-    </div>
+                    </div>
+                </div>
 
     <!-- Ticket Detail Modal -->
     <div class="modal" id="ticketModal">
         <div class="modal-content" style="max-width:640px;">
             <div class="modal-header"><h3 id="ticketModalTitle">Ticket Details</h3><button class="modal-close" onclick="closeTicketModal()">&times;</button></div>
             <div id="ticketDetail" style="padding:0 14px 14px;"></div>
-        </div>
-    </div>
+                    </div>
+                </div>
 
     <!-- Create/Edit User Modal -->
     <div class="modal" id="userModal">
@@ -314,6 +314,13 @@
         let adminToken = staffToken;
         let adminName = staffInfo ? staffInfo.name : 'Admin';
 
+        function authH(extra) {
+            const h = {'X-Staff-Token': adminToken || ''};
+            if (extra) Object.assign(h, extra);
+            return h;
+        }
+        function jsonH() { return authH({'Content-Type': 'application/json'}); }
+
         // Toggle sidebar
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -347,7 +354,7 @@
         // Load stats
         async function loadStats() {
             try {
-                const response = await fetch(`/api/admin/stats?admin_token=${adminToken}`);
+                const response = await fetch('/api/admin/stats', {headers: authH()});
                 const data = await response.json();
 
                 document.getElementById('statTotalUsers').textContent = data.total_users || 0;
@@ -367,12 +374,12 @@
             tbody.innerHTML = '<tr><td colspan="9" class="loading-spinner">Loading users...</td></tr>';
 
             try {
-                let url = `/api/admin/users?admin_token=${adminToken}&limit=100`;
+                let url = '/api/admin/users?limit=100';
                 if (search) {
                     url += `&search=${encodeURIComponent(search)}`;
                 }
 
-                const response = await fetch(url);
+                const response = await fetch(url, {headers: authH()});
                 
                 if (response.status === 403) {
                     handleLogout();
@@ -459,7 +466,7 @@
         // Open edit modal
         async function openEditModal(userId) {
             try {
-                const response = await fetch(`/api/admin/users/${userId}?admin_token=${adminToken}`);
+                const response = await fetch(`/api/admin/users/${userId}`, {headers: authH()});
                 const user = await response.json();
 
                 document.getElementById('modalTitle').textContent = 'Edit User';
@@ -513,9 +520,9 @@
                 }
 
                 try {
-                    const response = await fetch(`/api/admin/users/${userId}?admin_token=${adminToken}`, {
+                    const response = await fetch(`/api/admin/users/${userId}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: jsonH(),
                         body: JSON.stringify(data)
                     });
 
@@ -542,9 +549,9 @@
                 }
 
                 try {
-                    const response = await fetch(`/api/admin/users?admin_token=${adminToken}`, {
+                    const response = await fetch('/api/admin/users', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: jsonH(),
                         body: JSON.stringify(data)
                     });
 
@@ -578,8 +585,9 @@
             const userId = document.getElementById('deleteUserId').value;
 
             try {
-                const response = await fetch(`/api/admin/users/${userId}?admin_token=${adminToken}`, {
-                    method: 'DELETE'
+                const response = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: authH()
                 });
 
                 const result = await response.json();
@@ -670,7 +678,7 @@
         // ============ TICKET FUNCTIONS ============
         async function loadTicketStats() {
             try {
-                const res = await fetch('/api/tickets/stats');
+                const res = await fetch('/api/tickets/stats', {headers: authH()});
                 const d = await res.json();
                 document.getElementById('tStatTotal').textContent = d.total || 0;
                 document.getElementById('tStatOpen').textContent = d.open || 0;
@@ -744,7 +752,7 @@
 
         async function openTicketDetail(ticketId) {
             try {
-                const res = await fetch('/api/tickets/' + ticketId);
+                const res = await fetch('/api/tickets/' + ticketId, {headers: authH()});
                 const t = await res.json();
 
                 document.getElementById('ticketModalTitle').textContent = t.ticket_number + ' — ' + t.subject;
@@ -755,7 +763,7 @@
                 // Load staff for assignment dropdown
                 let staffOptions = '<option value="">Unassigned</option>';
                 try {
-                    const staffRes = await fetch('/api/staff');
+                    const staffRes = await fetch('/api/staff', {headers: authH()});
                     const staffData = await staffRes.json();
                     (staffData.staff || []).filter(s => s.is_active).forEach(s => {
                         const sel = (t.assigned_staff_id === s.id) ? 'selected' : '';
@@ -840,7 +848,7 @@
 
                 const res = await fetch('/api/tickets/' + ticketId, {
                     method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonH(),
                     body: JSON.stringify(body)
                 });
                 const d = await res.json();
@@ -860,7 +868,7 @@
             try {
                 const res = await fetch('/api/tickets/' + ticketId + '/messages', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: jsonH(),
                     body: JSON.stringify({
                         sender_type: 'admin',
                         sender_name: adminName || 'Admin',
@@ -898,7 +906,7 @@
 
         async function loadDeptStats() {
             try {
-                const res = await fetch('/api/staff');
+                const res = await fetch('/api/staff', {headers: authH()});
                 const data = await res.json();
                 const staff = data.staff || [];
 
@@ -937,7 +945,7 @@
                 if (dept) url += 'department=' + encodeURIComponent(dept) + '&';
                 if (role) url += 'role=' + role;
 
-                const res = await fetch(url);
+                const res = await fetch(url, {headers: authH()});
                 const data = await res.json();
                 const staff = data.staff || [];
 
@@ -1001,7 +1009,7 @@
 
         async function editStaff(staffId) {
             try {
-                const res = await fetch('/api/staff/' + staffId);
+                const res = await fetch('/api/staff/' + staffId, {headers: authH()});
                 const s = await res.json();
                 document.getElementById('editStaffId').value = s.id;
                 document.getElementById('sfName').value = s.name;
@@ -1035,7 +1043,7 @@
                 try {
                     const res = await fetch('/api/staff/' + editId, {
                         method: 'PUT',
-                        headers: {'Content-Type':'application/json'},
+                        headers: jsonH(),
                         body: JSON.stringify(body),
                     });
                     const d = await res.json();
@@ -1048,7 +1056,7 @@
                 try {
                     const res = await fetch('/api/staff', {
                         method: 'POST',
-                        headers: {'Content-Type':'application/json'},
+                        headers: jsonH(),
                         body: JSON.stringify(body),
                     });
                     const d = await res.json();
@@ -1061,7 +1069,7 @@
         async function deleteStaff(staffId, name) {
             if (!confirm('Delete staff member "' + name + '"? Their tickets will become unassigned.')) return;
             try {
-                const res = await fetch('/api/staff/' + staffId, {method:'DELETE'});
+                const res = await fetch('/api/staff/' + staffId, {method:'DELETE', headers: authH()});
                 const d = await res.json();
                 if (d.success) { loadStaff(); loadDeptStats(); }
                 else alert(d.detail || 'Error deleting staff');
@@ -1071,7 +1079,7 @@
         // ============ USER STATISTICS REPORT ============
         async function loadUserStatsReport() {
             try {
-                const res = await fetch('/api/admin/reports/users?admin_token=' + adminToken);
+                const res = await fetch('/api/admin/reports/users', {headers: authH()});
                 const d = await res.json();
 
                 const t = d.totals;
@@ -1140,7 +1148,7 @@
         // ============ WALLET REPORT ============
         async function loadWalletReport() {
             try {
-                const res = await fetch('/api/admin/reports/wallet?admin_token=' + adminToken);
+                const res = await fetch('/api/admin/reports/wallet', {headers: authH()});
                 const d = await res.json();
 
                 // Summary stats
@@ -1228,7 +1236,7 @@
             const timeline = document.getElementById('activityTimeline');
             timeline.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">Loading activity log...</div>';
             try {
-                const res = await fetch('/api/admin/reports/activity?admin_token=' + adminToken);
+                const res = await fetch('/api/admin/reports/activity', {headers: authH()});
                 const d = await res.json();
                 _allActivityEvents = d.events || [];
                 filterActivityLog();

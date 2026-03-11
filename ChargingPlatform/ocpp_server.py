@@ -115,67 +115,78 @@ class ChargePoint(cp):
     async def on_boot_notification(self, charge_point_model: str, charge_point_vendor: str, **kwargs):
         """Handle BootNotification from charging station"""
         logger.info(f"BootNotification received from {self.id}")
-        
-        # Get or create charger
-        charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
-        
-        if not charger:
-            charger = Charger(
-                charge_point_id=self.id,
-                vendor=charge_point_vendor,
-                model=charge_point_model,
-                firmware_version=kwargs.get('firmware_version', 'Unknown'),
-                status="online",
-                last_heartbeat=datetime.utcnow()
+        try:
+            # Get or create charger
+            charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
+            
+            if not charger:
+                charger = Charger(
+                    charge_point_id=self.id,
+                    vendor=charge_point_vendor,
+                    model=charge_point_model,
+                    firmware_version=kwargs.get('firmware_version', 'Unknown'),
+                    status="online",
+                    last_heartbeat=datetime.utcnow()
+                )
+                self.db.add(charger)
+            else:
+                charger.vendor = charge_point_vendor
+                charger.model = charge_point_model
+                charger.firmware_version = kwargs.get('firmware_version', charger.firmware_version)
+                charger.status = "online"
+                charger.last_heartbeat = datetime.utcnow()
+                
+                # BootNotification means charger just rebooted — any active/pending sessions
+                # from before the reboot are orphaned (StopTransaction was never received).
+                # Close them now using the last known meter value as final energy reading.
+                orphaned = self.db.query(ChargingSession).filter(
+                        ChargingSession.charger_id == charger.id,
+                    ChargingSession.status.in_(['active', 'pending'])
+                    ).all()
+                    
+                if orphaned:
+                    now = datetime.utcnow()
+                    for s in orphaned:
+                        last_meter = (
+                            self.db.query(MeterValue)
+                            .filter(MeterValue.transaction_id == s.transaction_id)
+                            .order_by(desc(MeterValue.timestamp))
+                            .first()
+                        )
+                        final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
+                        s.status = "interrupted"
+                        s.stop_time = now
+                        s.energy_consumed = final_energy
+                        logger.warning(
+                            f"Orphan session {s.id} (tx={s.transaction_id}) closed on charger reboot — "
+                            f"energy={final_energy:.3f} kWh"
+                        )
+                    charger.availability = "available"
+                    logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
+            
+            self.db.commit()
+            
+            # Get charger configuration for heartbeat interval
+            # Cap at 30s so ESP32 sends heartbeats frequently - DB default 7200 causes "offline" after 90s
+            raw_interval = getattr(charger, 'heartbeat_interval', None) or 10
+            heartbeat_interval = min(int(raw_interval), 30)
+            
+            return call_result.BootNotification(
+                current_time=utc_now_iso_z(),
+                interval=heartbeat_interval,
+                status=RegistrationStatus.accepted
             )
-            self.db.add(charger)
-        else:
-            charger.vendor = charge_point_vendor
-            charger.model = charge_point_model
-            charger.firmware_version = kwargs.get('firmware_version', charger.firmware_version)
-            charger.status = "online"
-            charger.last_heartbeat = datetime.utcnow()
-
-            # BootNotification means charger just rebooted — any active/pending sessions
-            # from before the reboot are orphaned (StopTransaction was never received).
-            # Close them now using the last known meter value as final energy reading.
-            orphaned = self.db.query(ChargingSession).filter(
-                ChargingSession.charger_id == charger.id,
-                ChargingSession.status.in_(['active', 'pending'])
-            ).all()
-
-            if orphaned:
-                now = datetime.utcnow()
-                for s in orphaned:
-                    last_meter = (
-                        self.db.query(MeterValue)
-                        .filter(MeterValue.transaction_id == s.transaction_id)
-                        .order_by(desc(MeterValue.timestamp))
-                        .first()
-                    )
-                    final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
-                    s.status = "interrupted"
-                    s.stop_time = now
-                    s.energy_consumed = final_energy
-                    logger.warning(
-                        f"Orphan session {s.id} (tx={s.transaction_id}) closed on charger reboot — "
-                        f"energy={final_energy:.3f} kWh"
-                    )
-                charger.availability = "available"
-                logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
-        
-        self.db.commit()
-        
-        # Get charger configuration for heartbeat interval
-        # Cap at 30s so ESP32 sends heartbeats frequently - DB default 7200 causes "offline" after 90s
-        raw_interval = getattr(charger, 'heartbeat_interval', None) or 10
-        heartbeat_interval = min(int(raw_interval), 30)
-        
-        return call_result.BootNotification(
-            current_time=utc_now_iso_z(),
-            interval=heartbeat_interval,
-            status=RegistrationStatus.accepted
-        )
+        except Exception as e:
+            logger.error(f"Error in BootNotification handler for {self.id}: {e}", exc_info=True)
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            return call_result.BootNotification(
+                current_time=utc_now_iso_z(),
+                interval=30,
+                status=RegistrationStatus.accepted
+            )
     
     @on('StatusNotification')
     async def on_status_notification(self, connector_id: int, error_code: str, status: str, **kwargs):
@@ -332,85 +343,105 @@ class ChargePoint(cp):
     @on('StartTransaction')
     async def on_start_transaction(self, connector_id: int, id_tag: str, meter_start: int, timestamp: str, **kwargs):
         """Handle StartTransaction from charging station.
-
+        
         NOTE: In OCPP 1.6, the Central System (server) generates and assigns the
         transaction_id — the charger does NOT provide one in StartTransaction.req.
         We use the session's auto-increment DB id as the transaction_id.
         """
-        charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
-        if charger:
-            start_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-
-            # Check if a pending/active session already exists (created by RemoteStart)
-            existing_session = self.db.query(ChargingSession).filter(
-                ChargingSession.charger_id == charger.id,
-                ChargingSession.status.in_(["pending", "active"])
-            ).order_by(desc(ChargingSession.start_time)).first()
-
-            if existing_session:
-                existing_session.status = "active"
-                existing_session.start_time = start_dt
-                if not existing_session.user_id or existing_session.user_id in ("LOCAL_CHARGING", "DASHBOARD_USER"):
-                    existing_session.user_id = id_tag
-                # Assign transaction_id from DB id if not already a valid one
-                if not existing_session.transaction_id or existing_session.transaction_id <= 0:
-                    self.db.flush()
-                    existing_session.transaction_id = existing_session.id
-                transaction_id = existing_session.transaction_id
-            else:
-                # New session — flush to get auto-increment id, use it as transaction_id
-                session = ChargingSession(
-                    charger_id=charger.id,
-                    transaction_id=0,  # placeholder; will be replaced with DB id below
-                    start_time=start_dt,
-                    status="active",
-                    user_id=id_tag
+        try:
+            charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
+            if charger:
+                start_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                
+                # Check if a pending/active session already exists (created by RemoteStart)
+                existing_session = self.db.query(ChargingSession).filter(
+                    ChargingSession.charger_id == charger.id,
+                    ChargingSession.status.in_(["pending", "active"])
+                ).order_by(desc(ChargingSession.start_time)).first()
+                
+                if existing_session:
+                    existing_session.status = "active"
+                    existing_session.start_time = start_dt
+                    if not existing_session.user_id or existing_session.user_id in ("LOCAL_CHARGING", "DASHBOARD_USER"):
+                        existing_session.user_id = id_tag
+                    # Assign transaction_id from DB id if not already a valid one
+                    if not existing_session.transaction_id or existing_session.transaction_id <= 0:
+                        self.db.flush()
+                        existing_session.transaction_id = existing_session.id
+                    transaction_id = existing_session.transaction_id
+                else:
+                    # New session — flush to get auto-increment id, use it as transaction_id
+                    session = ChargingSession(
+                        charger_id=charger.id,
+                        transaction_id=0,  # placeholder; will be replaced with DB id below
+                        start_time=start_dt,
+                        status="active",
+                        user_id=id_tag
+                    )
+                    self.db.add(session)
+                    self.db.flush()  # populate session.id
+                    session.transaction_id = session.id
+                    transaction_id = session.transaction_id
+                
+                charger.availability = "charging"
+                charger.status = "online"
+                self.db.commit()
+                
+                logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
+                
+                return call_result.StartTransaction(
+                    transaction_id=transaction_id,
+                    id_tag_info={'status': AuthorizationStatus.accepted}
                 )
-                self.db.add(session)
-                self.db.flush()  # populate session.id
-                session.transaction_id = session.id
-                transaction_id = session.transaction_id
-
-            charger.availability = "charging"
-            charger.status = "online"
-            self.db.commit()
-
-            logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
-
+            
             return call_result.StartTransaction(
-                transaction_id=transaction_id,
+                transaction_id=0,
+                id_tag_info={'status': AuthorizationStatus.invalid}
+            )
+        except Exception as e:
+            logger.error(f"Error in StartTransaction handler for {self.id}: {e}", exc_info=True)
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            return call_result.StartTransaction(
+                transaction_id=0,
                 id_tag_info={'status': AuthorizationStatus.accepted}
             )
-
-        return call_result.StartTransaction(
-            transaction_id=0,
-            id_tag_info={'status': AuthorizationStatus.invalid}
-        )
     
     @on('StopTransaction')
     async def on_stop_transaction(self, transaction_id: int, id_tag: str, meter_stop: int, timestamp: str, **kwargs):
         """Handle StopTransaction from charging station"""
         logger.info(f"StopTransaction from {self.id}: transaction {transaction_id}")
-        
-        session = self.db.query(ChargingSession).filter(
-            ChargingSession.transaction_id == transaction_id
-        ).first()
-        
-        if session:
-            session.stop_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            session.status = "completed"
-            # Energy consumed will be updated from meter values
-            self.db.commit()
+        try:
+            session = self.db.query(ChargingSession).filter(
+                ChargingSession.transaction_id == transaction_id
+            ).first()
             
-            # Update charger availability
-            charger = self.db.query(Charger).filter(Charger.id == session.charger_id).first()
-            if charger:
-                charger.availability = "available"
+            if session:
+                session.stop_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                session.status = "completed"
+                # Energy consumed will be updated from meter values
                 self.db.commit()
-        
-        return call_result.StopTransaction(
-            id_tag_info={'status': AuthorizationStatus.accepted}
-        )
+                
+                # Update charger availability
+                charger = self.db.query(Charger).filter(Charger.id == session.charger_id).first()
+                if charger:
+                    charger.availability = "available"
+                    self.db.commit()
+            
+            return call_result.StopTransaction(
+                id_tag_info={'status': AuthorizationStatus.accepted}
+            )
+        except Exception as e:
+            logger.error(f"Error in StopTransaction handler for {self.id}: {e}", exc_info=True)
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            return call_result.StopTransaction(
+                id_tag_info={'status': AuthorizationStatus.accepted}
+            )
     
     @on('MeterValues')
     async def on_meter_values(self, connector_id: int, meter_value: list, transaction_id: int = None, **kwargs):
@@ -423,19 +454,19 @@ class ChargePoint(cp):
             timestamp = datetime.fromisoformat(mv['timestamp'].replace('Z', '+00:00'))
             # python-ocpp converts camelCase → snake_case, so sampledValue → sampled_value
             sampled_value = mv.get('sampled_value', mv.get('sampledValue', []))
-
+            
             voltage = None
             current = None
             power = None
             total_kwh = None
-
+            
             for sv in sampled_value:
                 try:
                     value = float(sv.get('value', 0) or 0)
                 except (ValueError, TypeError):
                     value = 0.0
                 measurand = sv.get('measurand', '')
-
+                
                 if measurand == 'Voltage':
                     voltage = value
                 elif measurand == 'Current.Import':
@@ -487,7 +518,7 @@ class ChargePoint(cp):
         """Handle DiagnosticsStatusNotification from charging station."""
         logger.info(f"DiagnosticsStatusNotification from {self.id}: status={status}")
         return call_result.DiagnosticsStatusNotification()
-
+    
     @on('Heartbeat')
     async def on_heartbeat(self):
         """Handle Heartbeat from charging station"""
@@ -908,7 +939,7 @@ async def on_connect(websocket):
                 )
                 await websocket.close(code=1008, reason="Invalid charger token")
                 return
-
+        
         logger.info(f"🔌 New OCPP connection from charge point: {charge_point_id}")
         
         # Update last_heartbeat immediately for existing chargers (before BootNotification)
