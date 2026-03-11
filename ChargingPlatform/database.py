@@ -229,6 +229,10 @@ class ChargingSession(Base):
     start_time = Column(DateTime, nullable=False)
     stop_time = Column(DateTime)
     energy_consumed = Column(Float, default=0.0)  # in kWh
+    # OCPP meter readings (Wh) — authoritative for billing accuracy
+    meter_start = Column(Integer, nullable=True)   # Wh at session start
+    meter_stop = Column(Integer, nullable=True)    # Wh at session end (preferred over last MeterValues)
+    stop_reason = Column(String(50), nullable=True)  # Local, Remote, EmergencyStop, PowerLoss, etc.
     status = Column(String(50), default="active")  # active, completed, stopped
     user_id = Column(String(255), nullable=True)  # User identifier (phone, email, etc)
     payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)

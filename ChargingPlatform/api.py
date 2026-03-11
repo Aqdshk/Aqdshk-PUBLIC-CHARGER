@@ -3600,9 +3600,10 @@ async def get_invoice_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get invoice summary with totals"""
+    """Get invoice summary with totals (admin/staff only)"""
     # Parse dates
     start_dt = None
     end_dt = None
@@ -3723,9 +3724,10 @@ async def get_invoice_sessions(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get detailed session list for invoice"""
+    """Get detailed session list for invoice (admin/staff only)"""
     # Parse dates
     start_dt = None
     end_dt = None

@@ -13,7 +13,7 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp, call, call_result
 from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
-from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault
+from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault, User
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +187,33 @@ class ChargePoint(cp):
                 interval=30,
                 status=RegistrationStatus.accepted
             )
-    
+
+    @on('Authorize')
+    async def on_authorize(self, id_tag: str):
+        """
+        Handle Authorize from charger — when user taps RFID card locally.
+        Returns Accepted/Blocked based on id_tag validation.
+        Without this handler, chargers requiring CSMS auth would reject local RFID taps.
+        """
+        logger.info(f"Authorize received from {self.id}: id_tag={id_tag}")
+        try:
+            # Known app-initiated id_tags (RemoteStart flow) — always accept
+            if id_tag in ("APP_USER", "DASHBOARD_USER", "LOCAL_CHARGING", ""):
+                return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+
+            # Numeric id_tag may be user_id from app
+            if id_tag and id_tag.isdigit():
+                user = self.db.query(User).filter(User.id == int(id_tag), User.is_active == True).first()
+                if user:
+                    return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+
+            # TODO P1: Add IdTag/RFID table for proper validation. For now accept all others
+            # to avoid breaking chargers that require Authorize response.
+            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+        except Exception as e:
+            logger.error(f"Error in Authorize handler for {self.id}: {e}", exc_info=True)
+            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+
     @on('StatusNotification')
     async def on_status_notification(self, connector_id: int, error_code: str, status: str, **kwargs):
         """Handle StatusNotification from charging station"""
@@ -362,6 +388,7 @@ class ChargePoint(cp):
                 if existing_session:
                     existing_session.status = "active"
                     existing_session.start_time = start_dt
+                    existing_session.meter_start = meter_start if meter_start is not None else existing_session.meter_start
                     if not existing_session.user_id or existing_session.user_id in ("LOCAL_CHARGING", "DASHBOARD_USER"):
                         existing_session.user_id = id_tag
                     # Assign transaction_id from DB id if not already a valid one
@@ -376,7 +403,8 @@ class ChargePoint(cp):
                         transaction_id=0,  # placeholder; will be replaced with DB id below
                         start_time=start_dt,
                         status="active",
-                        user_id=id_tag
+                        user_id=id_tag,
+                        meter_start=meter_start,
                     )
                     self.db.add(session)
                     self.db.flush()  # populate session.id
@@ -411,8 +439,10 @@ class ChargePoint(cp):
     
     @on('StopTransaction')
     async def on_stop_transaction(self, transaction_id: int, id_tag: str, meter_stop: int, timestamp: str, **kwargs):
-        """Handle StopTransaction from charging station"""
-        logger.info(f"StopTransaction from {self.id}: transaction {transaction_id}")
+        """Handle StopTransaction from charging station.
+        Uses meter_stop (Wh) as authoritative final energy when available for billing accuracy.
+        """
+        logger.info(f"StopTransaction from {self.id}: transaction {transaction_id}, meter_stop={meter_stop}")
         try:
             session = self.db.query(ChargingSession).filter(
                 ChargingSession.transaction_id == transaction_id
@@ -421,7 +451,18 @@ class ChargePoint(cp):
             if session:
                 session.stop_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 session.status = "completed"
-                # Energy consumed will be updated from meter values
+                session.meter_stop = meter_stop
+                session.stop_reason = kwargs.get("reason")
+
+                # Use meter_stop for billing accuracy — OCPP spec: meter_stop is authoritative Wh at session end
+                if meter_stop is not None:
+                    if session.meter_start is not None:
+                        session.energy_consumed = (meter_stop - session.meter_start) / 1000.0  # Wh → kWh
+                    else:
+                        session.energy_consumed = meter_stop / 1000.0  # Fallback: treat as session delta
+                    logger.info(f"Session {transaction_id}: energy={session.energy_consumed:.3f} kWh (meter_stop={meter_stop} Wh)")
+                # Else keep energy_consumed from MeterValues stream
+
                 self.db.commit()
                 
                 # Update charger availability

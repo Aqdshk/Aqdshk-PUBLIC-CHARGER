@@ -177,7 +177,11 @@
         function setLastMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const l=new Date(n.getFullYear(),n.getMonth(),0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
 
         let reportData = { breakdown:{}, sessions:[] };
-        
+        const authHeaders = () => {
+            const t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            return t ? { 'X-Staff-Token': t } : {};
+        };
+
         async function loadReport() {
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
@@ -185,7 +189,7 @@
             const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
             const qs = p.length ? '?'+p.join('&') : '';
             try {
-                const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`)).json();
+                const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`, { headers: authHeaders() })).json();
                 document.getElementById('totalSessions').textContent = sum.sessions.total;
                 document.getElementById('totalEnergy').textContent = sum.energy.total_kwh.toFixed(1);
                 document.getElementById('totalRevenue').textContent = sum.revenue.total.toFixed(2);
@@ -204,7 +208,7 @@
                     bb.innerHTML = h;
                 }
 
-                const sessions = await(await fetch(`${API_BASE}/invoice/sessions${qs}`)).json();
+                const sessions = await(await fetch(`${API_BASE}/invoice/sessions${qs}`, { headers: authHeaders() })).json();
                 reportData.sessions = sessions;
                 const sb = document.getElementById('sessionDetails');
                 if (!sessions.length) { sb.innerHTML = '<tr><td colspan="7" class="empty-state">No sessions</td></tr>'; }
