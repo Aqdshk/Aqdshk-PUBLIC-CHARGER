@@ -26,6 +26,11 @@ wheels/
 *.sqlite3
 charging_platform.db
 .DS_Store
+
+# TNG API keys (never commit)
+scripts/tng_keys/
+tng_private_key.pem
+tng_public_key.pem
 .vscode/
 .idea/
 

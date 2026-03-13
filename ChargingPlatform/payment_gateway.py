@@ -12,17 +12,22 @@ Supports plugging in any Malaysian payment gateway:
 When OCBC provides their API docs, just implement OcbcGateway class.
 """
 
+import base64
 import hashlib
 import hmac
 import json
 import logging
 import os
 import secrets
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import httpx
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
 
@@ -488,16 +493,77 @@ class FiuuGateway(BasePaymentGateway):
 
 
 # ═══════════════════════════════════════════
-#  TNG GATEWAY (Provider-ready scaffold)
+#  TNG GATEWAY (OrderCode API v1.0)
 # ═══════════════════════════════════════════
+# Based on TNG OrderCode Creation API spec (Feb 2024, v1.04).
+# Creates QR code for user to scan with TNG app.
+#
+# Env:
+#   PAYMENT_TNG_API_URL     - Base URL (get from TNG, e.g. https://api.tng.com.my/aps/api/v1)
+#   PAYMENT_TNG_API_KEY     - clientId
+#   PAYMENT_TNG_API_SECRET  - clientSecret (optional)
+#   PAYMENT_TNG_MERCHANT_ID - Merchant ID
+#   PAYMENT_TNG_MCC         - Merchant category code (default 5732)
+#   PAYMENT_TNG_PRIVATE_KEY - Partner private key PKCS8 PEM (for signing)
+#   PAYMENT_TNG_PUBLIC_KEY  - TNGD public key PKCS8 PEM (for callback verification)
+#
+# Sandbox: clientId 2171020126371234, clientSecret 2022081715510500019671JAQuDH
+# Product codes: TNGD QR 51051000101000100046, DuitNow QR 51051000101000300048
+# Sign/verify: SHA256 with RSA 2048, plaintext no whitespace (separators=(",",":")).
+# ═══════════════════════════════════════════
+
+# TNG OrderCode product codes per spec
+TNG_PRODUCT_CODE_TNGD = "51051000101000100046"
+TNG_PRODUCT_CODE_DUITNOW = "51051000101000300048"
+
+def _tng_sign_message(msg_obj: dict, private_key_pem: str) -> str:
+    """
+    Sign message using RSA-SHA256 per TNG OrderCode API spec.
+    Message must be plaintext, no whitespace/comments (separators=(",",":")).
+    """
+    try:
+        key_bytes = private_key_pem.encode() if isinstance(private_key_pem, str) else private_key_pem
+        private_key = serialization.load_pem_private_key(key_bytes, password=None, backend=default_backend())
+        msg = json.dumps(msg_obj, separators=(",", ":"), ensure_ascii=False)
+        signature = private_key.sign(msg.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+        return base64.b64encode(signature).decode()
+    except Exception as e:
+        logger.error(f"TNG sign error: {e}")
+        raise
+
+
+def _tng_verify_signature(msg_obj: dict, signature_b64: str, public_key_pem: str) -> bool:
+    """
+    Verify TNG callback signature using TNGD public key.
+    Message must match exactly what TNG signed (plaintext, no whitespace).
+    """
+    try:
+        pub_key = serialization.load_pem_public_key(public_key_pem.encode(), backend=default_backend())
+        msg = json.dumps(msg_obj, separators=(",", ":"), ensure_ascii=False)
+        sig_bytes = base64.b64decode(signature_b64)
+        pub_key.verify(sig_bytes, msg.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+        return True
+    except Exception:
+        return False
+
 
 class TngGateway(BasePaymentGateway):
     """
-    Touch 'n Go / eWallet provider scaffold.
-
-    Keep this class even if final integration goes through a PSP route
-    so business flow remains unchanged.
+    Touch 'n Go OrderCode API — Create QR for payment.
+    User scans QR with TNG app to complete payment.
     """
+
+    def _get_api_url(self) -> str:
+        """Base URL from config or env PAYMENT_TNG_API_URL."""
+        url = (self.production_url if not self.is_sandbox else self.sandbox_url) or ""
+        if not url:
+            url = os.getenv("PAYMENT_TNG_API_URL", "").strip()
+        return url.rstrip("/")
+
+    def _get_private_key(self) -> Optional[str]:
+        """Partner private key (PKCS8 PEM) for signing."""
+        key = self.extra_config.get("merchant_private_key") or os.getenv("PAYMENT_TNG_PRIVATE_KEY", "").strip()
+        return key if key else None
 
     async def create_payment(
         self,
@@ -509,66 +575,184 @@ class TngGateway(BasePaymentGateway):
         customer_name: str,
         payment_method: Optional[str] = None,
     ) -> dict:
-        return {
-            "success": False,
-            "payment_url": None,
-            "gateway_transaction_id": None,
-            "gateway_reference": None,
-            "message": "TNG gateway scaffold is ready. Waiting for final API spec mapping.",
-            "raw_response": {},
+        api_url = self._get_api_url()
+        if not api_url:
+            return {
+                "success": False,
+                "message": "PAYMENT_TNG_API_URL not configured. Get base URL from TNG.",
+                "payment_url": None,
+                "gateway_transaction_id": None,
+                "gateway_reference": None,
+                "raw_response": {},
+            }
+
+        # clientId/clientSecret: use env or config; sandbox defaults from TNG doc
+        client_id = self.api_key or os.getenv("PAYMENT_TNG_API_KEY", "").strip()
+        client_secret = self.api_secret or os.getenv("PAYMENT_TNG_API_SECRET", "").strip()
+        if self.is_sandbox and not client_id:
+            client_id = os.getenv("PAYMENT_TNG_SANDBOX_CLIENT_ID", "2171020126371234")
+        if self.is_sandbox and not client_secret:
+            client_secret = os.getenv("PAYMENT_TNG_SANDBOX_CLIENT_SECRET", "2022081715510500019671JAQuDH")
+        merchant_id = self.merchant_id or os.getenv("PAYMENT_TNG_MERCHANT_ID", "").strip()
+        mcc = self.extra_config.get("mcc") or os.getenv("PAYMENT_TNG_MCC", "5732").strip()
+        private_key = self._get_private_key()
+
+        if not all([client_id, merchant_id, private_key]):
+            return {
+                "success": False,
+                "message": "TNG credentials missing: clientId, merchantId, private key required.",
+                "payment_url": None,
+                "gateway_transaction_id": None,
+                "gateway_reference": None,
+                "raw_response": {},
+            }
+
+        # Value in cents per TNG Money type (RM 10.00 = 1000 sen)
+        value_cents = str(int(round(amount * 100)))
+        req_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        req_msg_id = str(uuid.uuid4()).replace("-", "")[:32]
+
+        # Product code: TNGD QR (default) or DuitNow QR via extra_config
+        product_code = (
+            self.extra_config.get("product_code")
+            or os.getenv("PAYMENT_TNG_PRODUCT_CODE", TNG_PRODUCT_CODE_TNGD)
+        ).strip() or TNG_PRODUCT_CODE_TNGD
+
+        # Build request per TNG OrderCode API spec (head + body)
+        body = {
+            "merchantId": merchant_id,
+            "subMerchantName": self.extra_config.get("sub_merchant_name") or "PlagSini EV",
+            "mcc": mcc,
+            "orderTitle": (description or "PlagSini EV Top-Up")[:256],
+            "orderAmount": {"value": value_cents, "currency": (currency or "MYR")},
+            "merchantTransId": transaction_ref,
+            "productCode": product_code,
+            "envinfo": {"terminalType": "SYSTEM", "orderTerminalType": "WEB"},
+            "effectiveSeconds": "600",
+            "notifyUrl": self.callback_url or "",
+            "extendinfo": json.dumps({"PARTNER_TRANSACTION_ID": transaction_ref}),
         }
+        if self.extra_config.get("sub_merchant_id"):
+            body["subMerchantId"] = self.extra_config["sub_merchant_id"]
+        order_memo = (description or "").strip()[:512]
+        if order_memo:
+            body["orderMemo"] = order_memo
+
+        request_obj = {
+            "request": {
+                "head": {
+                    "version": "1.0",
+                    "function": "alipayplus.acquiring.ordercode.create",
+                    "clientId": client_id,
+                    "reqTime": req_time,
+                    "reqMsgId": req_msg_id,
+                },
+                "body": body,
+            }
+        }
+        if client_secret:
+            request_obj["request"]["head"]["clientSecret"] = client_secret
+
+        try:
+            # Sign the request object (head + body) per spec - plaintext, no whitespace
+            signature = _tng_sign_message(request_obj["request"], private_key)
+            payload = {**request_obj, "signature": signature}
+
+            # Endpoint: set PAYMENT_TNG_API_URL to full URL e.g. https://api.tng.com.my/aps/api/v1/ordercode
+            endpoint = api_url if api_url.startswith("http") else f"{api_url}/aps/api/v1/payments/ordercode"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(endpoint, json=payload)
+                data = resp.json() if resp.content else {}
+
+            body = data.get("response", data).get("body", data.get("body", {}))
+            result_info = body.get("resultInfo", {})
+            result_code = result_info.get("resultCode", "")
+            result_code_id = result_info.get("resultCodeId", "")
+            result_status = result_info.get("resultStatus", "")
+            result_msg = result_info.get("resultMsg", "TNG API error")
+
+            # Per spec: S=success, F=failure, U=unknown
+            if result_status == "S" and result_code == "SUCCESS":
+                order_qr = body.get("orderQrCode", "")
+                acquirement_id = body.get("acquirementId", "")
+                return {
+                    "success": True,
+                    "payment_url": None,
+                    "qr_code": order_qr,
+                    "gateway_transaction_id": acquirement_id,
+                    "gateway_reference": acquirement_id,
+                    "raw_response": data,
+                }
+            # Map common error codes per spec (00000004=INVALID_SIGNATURE, etc.)
+            if result_code_id == "00000004":
+                result_msg = "Invalid signature — check private key and request format"
+            elif result_code_id == "00000002":
+                result_msg = "Missing mandatory parameter"
+            return {
+                "success": False,
+                "message": result_msg,
+                "payment_url": None,
+                "gateway_transaction_id": body.get("acquirementId"),
+                "gateway_reference": body.get("acquirementId"),
+                "raw_response": data,
+            }
+        except Exception as e:
+            logger.error(f"TNG create_payment error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": str(e),
+                "payment_url": None,
+                "gateway_transaction_id": None,
+                "gateway_reference": None,
+                "raw_response": {},
+            }
 
     def verify_callback(self, payload: dict, headers: dict = None) -> dict:
         """
-        Verify TNG/eWallet callback signature (configurable).
-
-        Default mode:
-        - HMAC-SHA256 over concatenated fields using api_secret / signature_key.
+        Verify TNG payment notification callback.
+        Payload format per spec: {"response":{"head":{...},"body":{...}},"signature":"..."}
+        TNG signs the "response" object (head + body) with SHA256-RSA. Verify using TNGD public key.
         """
         cfg = self.extra_config or {}
-        signature_field = _as_str(cfg.get("signature_field") or "signature")
-        provided_sig = _as_str(payload.get(signature_field))
+        provided_sig = _as_str(payload.get("signature", ""))
         if not provided_sig and headers:
-            provided_sig = _as_str(headers.get(signature_field)) or _as_str(headers.get(signature_field.lower()))
+            provided_sig = _as_str(headers.get("X-TNG-Signature", "") or headers.get("signature", ""))
+
         if not provided_sig:
-            return {"valid": False, "message": f"Missing TNG signature field '{signature_field}'"}
+            return {"valid": False, "message": "Missing TNG callback signature"}
 
-        signing_key = _as_str(cfg.get("signature_key") or self.api_secret)
-        if not signing_key:
-            return {"valid": False, "message": "TNG signature key not configured"}
+        tng_public_key = cfg.get("tng_public_key") or os.getenv("PAYMENT_TNG_PUBLIC_KEY", "").strip()
+        if not tng_public_key:
+            logger.warning("TNG callback: PUBLIC_KEY not configured — cannot verify. Get from TNGD.")
+            return {"valid": False, "message": "TNG public key not configured for callback verification"}
 
-        sign_fields = cfg.get("signature_fields") or ["transaction_ref", "amount", "status"]
-        separator = _as_str(cfg.get("signature_separator"))
-        if separator:
-            sign_raw = separator.join(_as_str(payload.get(k)) for k in sign_fields)
-        else:
-            sign_raw = "".join(_as_str(payload.get(k)) for k in sign_fields)
+        # Per spec: TNG signs "the value of the response object" = {"head":{...},"body":{...}}
+        # Message must match exactly (plaintext, no whitespace)
+        response_obj = payload.get("response")
+        if not isinstance(response_obj, dict) or "body" not in response_obj:
+            return {"valid": False, "message": "Invalid TNG callback: missing response.head/body"}
 
-        expected_sig = hmac.new(signing_key.encode(), sign_raw.encode(), hashlib.sha256).hexdigest()
-        if not secrets.compare_digest(provided_sig.lower(), expected_sig.lower()):
-            return {"valid": False, "message": "Invalid TNG signature"}
+        valid_sig = _tng_verify_signature(response_obj, provided_sig, tng_public_key)
+        if not valid_sig:
+            return {"valid": False, "message": "Invalid TNG callback signature"}
 
-        txn_field = _as_str(cfg.get("transaction_ref_field") or "transaction_ref")
-        gw_txn_field = _as_str(cfg.get("gateway_txn_field") or "gateway_transaction_id")
-        status_field = _as_str(cfg.get("status_field") or "status")
-        amount_field = _as_str(cfg.get("amount_field") or "amount")
-        payment_method_field = _as_str(cfg.get("payment_method_field") or "payment_method")
-
-        success_values = {v.lower() for v in (cfg.get("success_values") or ["success", "paid", "completed", "1", "true"])}
-        raw_status = _as_str(payload.get(status_field))
-        normalized_status = "success" if raw_status.lower() in success_values else _normalize_status(raw_status)
+        body = response_obj.get("body", {})
+        result_info = body.get("resultInfo", {})
+        result_status = result_info.get("resultStatus", "")
+        order_amount = body.get("orderAmount", {})
+        value_cents = order_amount.get("value", 0) if isinstance(order_amount, dict) else 0
         try:
-            amount = float(_as_str(payload.get(amount_field) or "0"))
-        except ValueError:
-            amount = 0.0
+            amount_rm = float(value_cents) / 100.0
+        except (TypeError, ValueError):
+            amount_rm = 0.0
 
         return {
             "valid": True,
-            "transaction_ref": _as_str(payload.get(txn_field)),
-            "gateway_transaction_id": _as_str(payload.get(gw_txn_field)),
-            "status": normalized_status,
-            "amount": amount,
-            "payment_method": _as_str(payload.get(payment_method_field) or "tng"),
+            "transaction_ref": body.get("merchantTransId", ""),
+            "gateway_transaction_id": body.get("acquirementId", ""),
+            "status": "success" if result_status == "S" else "pending",
+            "amount": amount_rm,
+            "payment_method": "tng",
             "raw_response": payload,
         }
 

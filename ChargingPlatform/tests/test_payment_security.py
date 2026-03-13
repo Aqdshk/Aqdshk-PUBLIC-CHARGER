@@ -1,9 +1,20 @@
 import hashlib
 import hmac
+import os
 import unittest
 from types import SimpleNamespace
 
-from payment_gateway import BillplzGateway, FiuuGateway, TngGateway, is_callback_already_processed
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
+
+from payment_gateway import (
+    BillplzGateway,
+    FiuuGateway,
+    TngGateway,
+    is_callback_already_processed,
+    _tng_sign_message,
+)
 
 
 class PaymentSecurityTests(unittest.TestCase):
@@ -44,20 +55,44 @@ class PaymentSecurityTests(unittest.TestCase):
         self.assertFalse(result["valid"])
 
     def test_tng_callback_signature_valid(self):
-        key = "tng-secret"
-        payload = {
-            "transaction_ref": "TXN-20260302-AAAAA",
-            "gateway_transaction_id": "TG-123",
-            "amount": "20.50",
-            "status": "paid",
-            "payment_method": "tng",
+        """TNG callback uses RSA signature; payload format: {response:{head,body}, signature}."""
+        # Generate temp RSA key pair for test
+        priv = rsa.generate_private_key(65537, 2048, default_backend())
+        pub_pem = priv.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        priv_pem = priv.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+
+        response_obj = {
+            "head": {"clientId": "test", "reqMsgId": "123"},
+            "body": {
+                "merchantTransId": "TXN-20260302-AAAAA",
+                "acquirementId": "TG-123",
+                "orderAmount": {"value": "2050", "currency": "MYR"},
+                "resultInfo": {"resultStatus": "S", "resultCode": "SUCCESS"},
+            },
         }
-        sign_raw = f"{payload['transaction_ref']}{payload['amount']}{payload['status']}"
-        payload["signature"] = hmac.new(key.encode(), sign_raw.encode(), hashlib.sha256).hexdigest()
-        gateway = TngGateway({"gateway_name": "tng", "api_secret": key, "extra_config": "{}"})
-        result = gateway.verify_callback(payload, headers={})
-        self.assertTrue(result["valid"])
-        self.assertEqual(result["status"], "success")
+        payload = {"response": response_obj, "signature": _tng_sign_message(response_obj, priv_pem)}
+
+        old_val = os.environ.get("PAYMENT_TNG_PUBLIC_KEY")
+        os.environ["PAYMENT_TNG_PUBLIC_KEY"] = pub_pem
+        try:
+            gateway = TngGateway({"gateway_name": "tng", "extra_config": "{}"})
+            result = gateway.verify_callback(payload, headers={})
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["transaction_ref"], "TXN-20260302-AAAAA")
+            self.assertEqual(result["gateway_transaction_id"], "TG-123")
+            self.assertAlmostEqual(result["amount"], 20.50)
+            self.assertEqual(result["status"], "success")
+        finally:
+            if old_val is not None:
+                os.environ["PAYMENT_TNG_PUBLIC_KEY"] = old_val
+            else:
+                os.environ.pop("PAYMENT_TNG_PUBLIC_KEY", None)
 
     def test_billplz_callback_accepts_header_signature(self):
         payload = {

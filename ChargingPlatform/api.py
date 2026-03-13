@@ -1122,6 +1122,20 @@ async def my_tickets_page():
         raise HTTPException(status_code=500, detail=f"Error loading my tickets page: {str(e)}")
 
 
+@app.get("/topup")
+async def topup_page():
+    """User-facing top-up page — login, select amount, pay via TNG QR."""
+    try:
+        file_path = Path("templates/topup.html")
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Top-up page not found")
+        return FileResponse(file_path, media_type="text/html")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading top-up page: {str(e)}")
+
+
 @app.post("/api/ocpp/{charge_point_id}/change-availability", response_model=OcppOperationResponse)
 async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ChangeAvailability"""
@@ -4950,6 +4964,9 @@ async def create_topup(
     txn.payment_url = result.get("payment_url")
     txn.gateway_response = json.dumps(result.get("raw_response", {}))
 
+    # TNG OrderCode returns qr_code for user to scan — include in response
+    qr_code = result.get("qr_code") if result.get("success") else None
+
     if gw_config_dict["gateway_name"] == "manual":
         # Manual gateway — admin will verify and approve
         txn.status = "pending_approval"
@@ -4965,6 +4982,7 @@ async def create_topup(
         "success": result.get("success", False) or gw_config_dict["gateway_name"] == "manual",
         "transaction_ref": txn_ref,
         "payment_url": result.get("payment_url"),
+        "qr_code": qr_code,
         "gateway": gw_config_dict["gateway_name"],
         "amount": req.amount,
         "status": txn.status,
@@ -4984,7 +5002,9 @@ async def payment_callback(gateway_name: str, request: Request, db: Session = De
     if gateway_name == "manual":
         raise HTTPException(status_code=403, detail="Manual gateway callbacks are not allowed")
 
-    _require_callback_secret(request, gateway_name)
+    # TNG uses RSA signature in payload — skip X-Callback-Secret, verify in verify_callback
+    if gateway_name.lower() != "tng":
+        _require_callback_secret(request, gateway_name)
     payload = await _extract_callback_payload(request)
     if not payload:
         raise HTTPException(status_code=400, detail="Empty or unsupported callback payload")
