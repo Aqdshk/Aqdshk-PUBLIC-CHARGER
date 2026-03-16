@@ -204,7 +204,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadChargerStatus();
             setInterval(loadChargerStatus, 5000);
-            setInterval(checkFirmwareEvents, 5000);
+            setInterval(checkFirmwareEvents, 30000);
         });
 
         async function loadChargerStatus() {
@@ -321,8 +321,10 @@
 
         async function startCharging(cpId) {
             if (!confirm(`Start charging for ${cpId}?`)) return;
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
             try {
-                const res = await fetch(`${API_BASE}/charging/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({charger_id:cpId,connector_id:1,id_tag:'DASHBOARD_USER'}) });
+                const res = await fetch(`${API_BASE}/charging/start`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({charger_id:cpId,connector_id:1,id_tag:'DASHBOARD_USER'}) });
                 const r = await res.json();
                 if (r.success) { alert(`✅ Started!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message||'Unknown error'}`); }
             } catch(e){ alert(`❌ Error: ${e.message}`); }
@@ -363,12 +365,14 @@
         }
 
         async function stopCharging(cpId) {
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
             try {
-                const sessions = await (await fetch(`${API_BASE}/sessions`)).json();
+                const sessions = await (await fetch(`${API_BASE}/sessions`, { headers: {'X-Staff-Token': token} })).json();
                 const active = sessions.find(s => s.charge_point_id === cpId && (s.status === 'active' || s.status === 'pending'));
                 let txId = active?.transaction_id || 0;
                 if (!confirm(txId ? `Stop ${cpId}? TXN: ${txId}` : `No active session. Send stop to ${cpId}?`)) return;
-                const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({transaction_id:txId,charger_id:cpId}) });
+                const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({transaction_id:txId,charger_id:cpId}) });
                 const r = await res.json();
                 if (r.success) { alert(`✅ Stop requested!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message}`); }
             } catch(e){ alert(`❌ Error: ${e.message}`); }
