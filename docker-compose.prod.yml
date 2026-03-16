@@ -76,8 +76,8 @@ services:
       dockerfile: Dockerfile
     container_name: plagsini-api
     ports:
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:9000:9000"
+      - "0.0.0.0:8000:8000"   # Expose 8000 for firmware download (charger needs http://IP:8000/static/firmware/)
+      - "0.0.0.0:9000:9000"   # OCPP WebSocket
     environment:
       - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
       - PYTHONUNBUFFERED=1
