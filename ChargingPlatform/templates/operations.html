@@ -404,7 +404,7 @@
 
                     <div class="pcard" style="margin-bottom:10px">
                         <div class="pcard-title">Firmware Parameters</div>
-                        <div class="pg"><label>Firmware URI</label><input type="text" id="bfield_location" placeholder="e.g. http://203.99.148.43:8000/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin"><div class="hint">Full URL to the .bin firmware file</div></div>
+                        <div class="pg"><label>Firmware URI</label><input type="text" id="bfield_location" placeholder="e.g. https://charger.czeros.tech/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin" value="${(window.location&&window.location.origin)||'https://charger.czeros.tech'}/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin"><div class="hint">Use domain URL (via Nginx). Charger must reach this URL to download.</div></div>
                         <div class="pg"><label>Retrieve Date</label><input type="datetime-local" id="bfield_retrieve_date" value="${dtLocal}"><div class="hint">Charger will start downloading at this time</div></div>
                         <div style="display:flex;gap:10px;flex-wrap:wrap">
                             <div class="pg" style="flex:1;min-width:100px"><label>Retries</label><input type="number" id="bfield_retries" placeholder="Optional (e.g. 3)"></div>
@@ -474,7 +474,7 @@
                     });
                 } catch(e) {}
             }
-            setInterval(checkFirmwareEvents, 5000);
+            setInterval(checkFirmwareEvents, 30000);
         })();
     </script>
 </body>
