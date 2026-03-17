@@ -167,6 +167,8 @@ services:
         - API_BASE_URL=${API_BASE_URL}
         - BOT_BASE_URL=${BOT_BASE_URL}
     container_name: plagsini-web
+    ports:
+      - "3000:80"
     networks:
       - ev-network
     depends_on:
