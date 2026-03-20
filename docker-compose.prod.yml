@@ -142,6 +142,8 @@ services:
       context: ./CustomerService
       dockerfile: Dockerfile
     container_name: plagsini-bot
+    ports:
+      - "8001:8001"
     environment:
       - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
       - PYTHONUNBUFFERED=1

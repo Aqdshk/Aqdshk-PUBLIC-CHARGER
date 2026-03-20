@@ -243,17 +243,20 @@
         async function performOp(){
             const cpId=document.getElementById('chargerSelect').value;
             if(!cpId){alert('Select a charger first.');return;} if(!currentOp)return;
+            const staffToken = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+            const needsAuth = (currentOp==='remote-start'||currentOp==='remote-stop');
+            if(needsAuth && !staffToken){ alert('Please log in to perform Remote Start/Stop. Redirecting to login...'); window.location.href='/login'; return; }
             const op=OPS[currentOp], btn=document.getElementById('btnPerform');
             btn.disabled=true; btn.textContent='⏳ Sending...';
             const ra=document.getElementById('responseArea'); ra.classList.add('visible');
             document.getElementById('respStatus').innerHTML='<span class="resp-pill" style="background:rgba(255,200,0,.12);color:#ffc800;">Pending...</span>';
             document.getElementById('respBody').textContent='';
-            const staffToken = localStorage.getItem('staffToken') || '';
             const authHeaders = staffToken ? {'Content-Type':'application/json','X-Staff-Token':staffToken} : {'Content-Type':'application/json'};
             try {
                 let url, fo;
-                if(currentOp==='remote-start'){ url=`${API}/charging/start`; fo={method:'POST',headers:authHeaders,body:JSON.stringify({charger_id:cpId,connector_id:parseInt(document.getElementById('field_connector_id').value)||1,id_tag:document.getElementById('field_id_tag').value||'APP_USER'})}; }
-                else if(currentOp==='remote-stop'){ url=`${API}/charging/stop`; fo={method:'POST',headers:authHeaders,body:JSON.stringify({transaction_id:parseInt(document.getElementById('field_transaction_id').value)||0,charger_id:cpId})}; }
+                const tokenQ = staffToken ? '?token='+encodeURIComponent(staffToken) : '';
+                if(currentOp==='remote-start'){ url=`${API}/charging/start${tokenQ}`; fo={method:'POST',headers:authHeaders,body:JSON.stringify({charger_id:cpId,connector_id:parseInt(document.getElementById('field_connector_id').value)||1,id_tag:document.getElementById('field_id_tag').value||'APP_USER'})}; }
+                else if(currentOp==='remote-stop'){ url=`${API}/charging/stop${tokenQ}`; fo={method:'POST',headers:authHeaders,body:JSON.stringify({transaction_id:parseInt(document.getElementById('field_transaction_id').value)||0,charger_id:cpId})}; }
                 else if(currentOp==='change-configuration'){ url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration/change`; const kt=document.getElementById('field_key_type').value; const ck=kt==='Predefined'?document.getElementById('field_key_predefined').value:document.getElementById('field_key_custom').value; if(!ck){alert('Enter a key.');btn.disabled=false;btn.textContent='⚡ Execute';return;} fo={method:'POST',headers:authHeaders,body:JSON.stringify({key:ck,value:document.getElementById('field_value').value})}; }
                 else if(currentOp==='get-configuration'){ const ks=document.getElementById('field_keys').value.trim(); url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration${ks?'?keys='+encodeURIComponent(ks):''}`; fo={method:'GET',headers:staffToken?{'X-Staff-Token':staffToken}:{}}; }
                 else { url=`${API}/ocpp/${encodeURIComponent(cpId)}${op.endpoint}`; if(op.method==='POST'){ const body={}; op.fields.forEach(f=>{const el=document.getElementById(`field_${f.name}`);if(!el)return;let v=el.value;if(v===''||v===null||v===undefined)return;if(f.type==='number'){v=parseFloat(v);if(isNaN(v))return;}if(f.type==='datetime-local'&&v)v=new Date(v).toISOString();if(f.name==='cs_charging_profiles'||f.name==='local_authorization_list'){try{v=JSON.parse(v);}catch(e){}}body[f.name]=v;}); fo={method:'POST',headers:authHeaders,body:JSON.stringify(body)}; } else { fo={method:'GET',headers:staffToken?{'X-Staff-Token':staffToken}:{}}; } }
@@ -361,7 +364,7 @@
             document.getElementById('bulkRespStatus').innerHTML = '<span class="resp-pill" style="background:rgba(255,200,0,.12);color:#ffc800;">Sending...</span>';
             document.getElementById('bulkRespBody').innerHTML = '';
 
-            const staffToken = localStorage.getItem('staffToken') || '';
+            const staffToken = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
             const headers = {'Content-Type':'application/json'};
             if (staffToken) headers['X-Staff-Token'] = staffToken;
 
@@ -404,7 +407,7 @@
 
                     <div class="pcard" style="margin-bottom:10px">
                         <div class="pcard-title">Firmware Parameters</div>
-                        <div class="pg"><label>Firmware URI</label><input type="text" id="bfield_location" placeholder="e.g. http://charger.czeros.tech/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin" value="http://charger.czeros.tech/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin"><div class="hint">HTTP only (charger does not support HTTPS). Nginx port 80 proxies to backend.</div></div>
+                        <div class="pg"><label>Firmware URI</label><input type="text" id="bfield_location" placeholder="e.g. http://203.99.148.43:8000/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin" value="http://203.99.148.43:8000/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin"><div class="hint">Direct IP:8000 (charger used to update via this).</div></div>
                         <div class="pg"><label>Retrieve Date</label><input type="datetime-local" id="bfield_retrieve_date" value="${dtLocal}"><div class="hint">Charger will start downloading at this time</div></div>
                         <div style="display:flex;gap:10px;flex-wrap:wrap">
                             <div class="pg" style="flex:1;min-width:100px"><label>Retries</label><input type="number" id="bfield_retries" placeholder="Optional (e.g. 3)"></div>

@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Globals ─────────────────────────────────────────────────────────────
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
+# Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
 active_charge_points: Dict[str, 'ChargePoint'] = {}
 
 # Recent firmware events (last 50) — shared with API layer
@@ -51,6 +52,7 @@ def _add_firmware_event(charger_id: str, status: str, firmware_version: str = ""
     # Keep only last 50 events
     if len(firmware_events) > 50:
         firmware_events.pop(0)
+# Charge point ID format: alphanumeric, dots, underscores, colons, hyphens; 3–64 chars
 _CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
 
 
@@ -118,6 +120,9 @@ def utc_now_iso_z() -> str:
 
 
 # ─── ChargePoint: OCPP 1.6 Message Handlers (Inbound) ─────────────────────
+# Handles: BootNotification, Authorize, StatusNotification, StartTransaction,
+#          StopTransaction, MeterValues, Heartbeat, FirmwareStatusNotification,
+#          DiagnosticsStatusNotification
 class ChargePoint(cp):
     def __init__(self, id, connection):
         super().__init__(id, connection)

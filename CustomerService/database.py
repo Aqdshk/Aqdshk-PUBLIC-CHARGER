@@ -49,9 +49,10 @@ class BotMessage(Base):
 
 # ==================== DATABASE ENGINE ====================
 
+# Uses same DB as ChargingPlatform (charging_platform). Set via docker-compose DATABASE_URL.
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "mysql+pymysql://charging_user:charging_password@localhost:3306/customer_service"
+    "mysql+pymysql://charging_user:charging_password@localhost:3306/charging_platform"
 )
 
 if DATABASE_URL.startswith("mysql"):

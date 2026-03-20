@@ -1,14 +1,19 @@
 """
 PlagSini EV — Database Models & Session
 
-SQLAlchemy models for:
-  - User, Wallet, WalletTransaction
-  - Charger, ChargingSession, MeterValue, Fault
-  - Pricing, Payment, PaymentTransaction
-  - SupportTicket, StaffSession, AuditLog
-  - OTPVerification, PaymentGatewayConfig, etc.
+SQLAlchemy ORM models and session factory. Configured via DATABASE_URL env.
 
-Engine and SessionLocal are configured from DATABASE_URL.
+Models:
+  - User, Wallet, WalletTransaction — user accounts and wallet
+  - Charger, ChargingSession, MeterValue, Fault — OCPP charger data
+  - Pricing, Payment, PaymentTransaction — billing
+  - SupportTicket, TicketMessage, SupportStaff, StaffSession — support
+  - OTPVerification, PaymentGatewayConfig, AuditLog — auth & audit
+
+Usage:
+    from database import SessionLocal, get_db, User, Charger
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "x@y.com").first()
 """
 import hashlib
 import os
@@ -26,6 +31,7 @@ Base = declarative_base()
 
 
 # ─── User & Wallet ────────────────────────────────────────────────────────
+# User: App/mobile user; SupportStaff is separate for staff portal
 class User(Base):
     __tablename__ = "users"
     
@@ -92,6 +98,7 @@ class User(Base):
         self.locked_until = None
 
 
+# Wallet: One per user; balance in MYR (Numeric for precision)
 class Wallet(Base):
     __tablename__ = "wallets"
     
@@ -638,9 +645,8 @@ class AuditLog(Base):
     new_value = Column(Text, nullable=True)
 
 
-# ---------------------------------------------------------------------------
-# Database engine setup
-# ---------------------------------------------------------------------------
+# ─── Database Engine & Session ─────────────────────────────────────────────
+# DATABASE_URL: mysql+pymysql://user:pass@host:3306/db or sqlite:///local.db
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

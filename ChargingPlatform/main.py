@@ -7,6 +7,10 @@ Starts:
   3. Orphan session watchdog — background task to close stale sessions
 
 Bootstrap: creates default admin & staff if env vars set and DB empty.
+
+Usage:
+    python main.py
+    # Or: uvicorn api:app --host 0.0.0.0 --port 8000 (API only, no OCPP)
 """
 import asyncio
 import logging
@@ -15,6 +19,12 @@ import threading
 
 import uvicorn
 
+# Reduce websockets.server log noise (bots/scanners → handshake fails). Must run before OCPP.
+logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
+
+# ─── WebSockets Compatibility ─────────────────────────────────────────────
+# Support both websockets>=13 (asyncio.server) and older (server)
+# OCPP 1.6 uses WebSocket subprotocol "ocpp1.6"
 try:
     from websockets.asyncio.server import serve  # websockets >= 13.0
 except ImportError:
@@ -27,8 +37,13 @@ from ocpp_server import on_connect, orphan_session_watchdog
 logger = logging.getLogger(__name__)
 
 
-def create_default_admin():
-    """Create default admin user only if no admin exists yet."""
+# ─── Bootstrap: Default Admin & Staff ──────────────────────────────────────
+
+def create_default_admin() -> None:
+    """
+    Create default admin user only if no admin exists yet.
+    Requires ADMIN_EMAIL and ADMIN_PASSWORD in env. Skips if either is empty.
+    """
     db = SessionLocal()
     try:
         admin_email = os.getenv("ADMIN_EMAIL", "").strip()
@@ -77,8 +92,11 @@ def create_default_admin():
         db.close()
 
 
-def create_default_staff():
-    """Create default staff admin if support_staff table is empty."""
+def create_default_staff() -> None:
+    """
+    Create default staff admin if support_staff table is empty.
+    Requires STAFF_EMAIL and STAFF_PASSWORD in env. Skips if either is empty.
+    """
     db = SessionLocal()
     try:
         staff_email = os.getenv("STAFF_EMAIL", "").strip()
@@ -123,8 +141,13 @@ def create_default_staff():
         db.close()
 
 
-async def ocpp_server():
-    """Start OCPP WebSocket server and background watchdog."""
+# ─── OCPP WebSocket Server ─────────────────────────────────────────────────
+
+async def ocpp_server() -> None:
+    """
+    Start OCPP WebSocket server on ws://0.0.0.0:9000.
+    Runs orphan_session_watchdog every 600s to close stale charging sessions.
+    """
     logger.info("Starting OCPP WebSocket server on ws://0.0.0.0:9000")
     async with serve(
         on_connect,
@@ -140,22 +163,32 @@ async def ocpp_server():
         await asyncio.Future()  # run forever
 
 
-def start_servers():
-    """Start both FastAPI and OCPP servers."""
+# ─── Main Entry ────────────────────────────────────────────────────────────
+
+def start_servers() -> None:
+    """
+    Bootstrap and start both servers:
+    1. Init DB, create default admin/staff
+    2. Start OCPP WebSocket in background thread
+    3. Run FastAPI on port 8000
+    """
     logging.basicConfig(level=logging.INFO)
 
+    # 1. Database init & bootstrap
     init_db()
     logger.info("Database initialized")
-    
     create_default_admin()
     create_default_staff()
-    
+
+    # 2. OCPP server in background (daemon thread)
+    # Daemon=True so it exits when main process exits
     ocpp_thread = threading.Thread(
         target=lambda: asyncio.run(ocpp_server()), daemon=True
     )
     ocpp_thread.start()
     logger.info("OCPP server started in background thread")
-    
+
+    # 3. FastAPI (blocks until shutdown)
     logger.info("Starting FastAPI server on http://0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 

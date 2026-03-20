@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 #  JWT CONFIGURATION
 # ═══════════════════════════════════════════
 
-# Secret key — MUST be set via env var in production
+# Secret key — MUST override via JWT_SECRET_KEY env in production!
+# Default is insecure and for development only.
+# Example: export JWT_SECRET_KEY="your-random-32-char-secret"
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "plagsini-ev-jwt-secret-change-me-in-production-2026")
 JWT_ALGORITHM = "HS256"
 
@@ -208,11 +210,11 @@ def verify_resource_owner(current_user: User, resource_user_id: int):
 # ═══════════════════════════════════════════
 #  FINANCIAL SAFEGUARDS
 # ═══════════════════════════════════════════
-
-# Top-up limits
-MAX_TOPUP_PER_TRANSACTION = Decimal("500.00")  # RM 500 per transaction
-MAX_TOPUP_PER_DAY = Decimal("2000.00")  # RM 2,000 per day
-MIN_TOPUP_AMOUNT = Decimal("1.00")  # RM 1 minimum
+# Top-up limits — override via env: MAX_TOPUP_PER_TXN, MAX_TOPUP_PER_DAY, MIN_TOPUP
+# MAX_TOPUP_PER_TXN: max RM per single top-up; MAX_TOPUP_PER_DAY: max RM per user per day
+MAX_TOPUP_PER_TRANSACTION = Decimal(os.getenv("MAX_TOPUP_PER_TXN", "500.00"))
+MAX_TOPUP_PER_DAY = Decimal(os.getenv("MAX_TOPUP_PER_DAY", "2000.00"))
+MIN_TOPUP_AMOUNT = Decimal(os.getenv("MIN_TOPUP", "1.00"))
 
 
 def validate_topup_amount(amount: float) -> Decimal:

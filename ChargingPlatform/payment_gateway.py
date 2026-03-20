@@ -2,14 +2,16 @@
 PlagSini EV — Payment Gateway Abstraction Layer
 
 Supports plugging in any Malaysian payment gateway:
-  - OCBC Payment Gateway
-  - Billplz (FPX)
-  - Fiuu / Razer Merchant Services
-  - TNG Digital / eWallet providers
-  - Stripe
-  - Manual top-up (admin approved)
+  - OCBC Payment Gateway (placeholder — awaiting API docs)
+  - Billplz (FPX) — fully implemented
+  - Fiuu / Razer Merchant Services (scaffold — create_payment/check_status pending)
+  - TNG Digital / eWallet (create_payment + verify_callback done; check_status scaffold)
+  - Manual top-up (admin approved) — fully implemented
 
-When OCBC provides their API docs, just implement OcbcGateway class.
+All gateways inherit from BasePaymentGateway and implement:
+  - create_payment() — initiate payment, return URL or QR
+  - verify_callback() — validate webhook/callback from gateway
+  - check_status() — poll payment status (optional for async flows)
 """
 
 import base64
@@ -112,13 +114,17 @@ class BasePaymentGateway(ABC):
         pass
 
 
+# ─── Helper Functions ──────────────────────────────────────────────────────
+
 def _as_str(value: object) -> str:
+    """Safely convert value to stripped string; empty string if None."""
     if value is None:
         return ""
     return str(value).strip()
 
 
 def _normalize_status(value: str) -> str:
+    """Map gateway status strings to standard: success | pending | failed | expired."""
     raw = _as_str(value).lower()
     if raw in {"success", "paid", "completed", "settled", "approved", "ok", "true", "1"}:
         return "success"
@@ -757,6 +763,10 @@ class TngGateway(BasePaymentGateway):
         }
 
     async def check_status(self, gateway_transaction_id: str) -> dict:
+        """
+        Check TNG payment status from gateway.
+        TODO: Implement when TNG status query API spec is available.
+        """
         return {
             "status": "pending",
             "message": "TNG status check scaffold is ready. Waiting for final API spec mapping.",
@@ -773,8 +783,16 @@ class ManualGateway(BasePaymentGateway):
     No API integration needed.
     """
 
-    async def create_payment(self, transaction_ref, amount, currency, description,
-                           customer_email, customer_name, payment_method=None) -> dict:
+    async def create_payment(
+        self,
+        transaction_ref: str,
+        amount: float,
+        currency: str,
+        description: str,
+        customer_email: str,
+        customer_name: str,
+        payment_method: Optional[str] = None,
+    ) -> dict:
         return {
             "success": True,
             "payment_url": None,

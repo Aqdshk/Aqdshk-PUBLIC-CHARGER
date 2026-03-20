@@ -80,8 +80,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     // Slide direction: right-to-left when going forward, left-to-right when going back
     final bool goingForward = _currentIndex > _previousIndex;
+    final screenW = MediaQuery.sizeOf(context).width;
+    // On desktop/wide screens: center content with max width to avoid stretched layout
+    const double kMaxContentWidth = 600.0;
+    final bool useConstrainedLayout = screenW > kMaxContentWidth;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         switchInCurve: Curves.easeInOut,
@@ -149,6 +153,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         onTap: _onTabTapped,
       ),
     );
+
+    // On wide screens: center content with max width for better responsiveness
+    if (useConstrainedLayout) {
+      return Container(
+        color: AppColors.background,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kMaxContentWidth),
+            child: scaffold,
+          ),
+        ),
+      );
+    }
+    return scaffold;
   }
 }
 
@@ -207,7 +225,7 @@ class DashboardScreen extends StatelessWidget {
                     physics: const NeverScrollableScrollPhysics(),
                     mainAxisSpacing: 10,
                     crossAxisSpacing: 10,
-                    childAspectRatio: 0.92,
+                    childAspectRatio: 0.68,
                     children: [
                       CategoryIcon(
                         icon: Icons.bolt_rounded,

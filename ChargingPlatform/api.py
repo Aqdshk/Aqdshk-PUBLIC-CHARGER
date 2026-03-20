@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import and_, desc, func, or_, text
@@ -65,8 +65,18 @@ from security import (
 
 logger = logging.getLogger(__name__)
 
-# ─── App & Rate Limiting ──────────────────────────────────────────────────
+# Base path for templates/static — use __file__ so paths work regardless of CWD
+_BASE_DIR = Path(__file__).resolve().parent
+
+# ─── App & Configuration ──────────────────────────────────────────────────
 app = FastAPI(title="Charging Platform Management System")
+
+# Charger status: consider offline if no heartbeat within this many minutes
+OFFLINE_THRESHOLD_MINUTES = int(os.getenv("OFFLINE_THRESHOLD_MINUTES", "5"))
+# Pending sessions: include in "active" list if started within this many minutes
+PENDING_SESSION_WINDOW_MINUTES = int(os.getenv("PENDING_SESSION_WINDOW_MINUTES", "10"))
+
+# ─── Rate Limiting (in-memory; single-instance only) ────────────────────────
 _RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
 _RATE_LIMIT_LAST_CLEANUP: float = 0.0
@@ -87,6 +97,7 @@ def _rate_limit_cleanup() -> None:
         _RATE_LIMIT_LAST_CLEANUP = now
         if stale:
             logger.debug(f"Rate-limit cleanup: removed {len(stale)} stale buckets")
+
 
 def _require_callback_secret(request: Request, gateway_name: str) -> None:
     """
@@ -116,6 +127,7 @@ def _gateway_env_name(gateway_name: str, field: str) -> str:
 
 
 def _allow_legacy_db_gateway_secrets() -> bool:
+    """If True, fall back to DB-stored api_key/api_secret when env vars are empty."""
     return os.getenv("ALLOW_DB_GATEWAY_SECRETS", "0").strip().lower() in ("1", "true", "yes")
 
 
@@ -214,7 +226,11 @@ def _enforce_rate_limit(
     max_requests: int,
     window_seconds: int,
 ) -> None:
-    """Simple in-memory sliding-window rate limiter by IP + key."""
+    """
+    Simple in-memory sliding-window rate limiter by IP + key.
+    Used for login, forgot-password, reset-password, staff-login.
+    Raises HTTPException(429) if limit exceeded.
+    """
     _rate_limit_cleanup()
     now = time.time()
     client_ip = get_client_ip(request)
@@ -299,6 +315,27 @@ async def require_admin_or_staff_admin(
 
     raise HTTPException(status_code=401, detail="Admin authentication required")
 
+
+async def require_admin_or_staff_manager(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    Authorize charging operations: admin or manager.
+    Less restrictive than require_admin_or_staff_admin for Start/Stop.
+    """
+    if current_user and current_user.is_admin:
+        return {"mode": "jwt_admin", "user_id": current_user.id}
+
+    staff_token = _extract_staff_token(request)
+    if staff_token:
+        session = _get_staff_session_db(staff_token, db)
+        if session and session.get("role") in ("admin", "manager"):
+            return {"mode": "staff_admin", "staff_id": session.get("id")}
+
+    raise HTTPException(status_code=401, detail="Authentication required")
+
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
@@ -326,12 +363,46 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Idempotency-Key", "X-Staff-Token"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files (resolve path relative to this file)
+app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
 # OCPI 2.2.1 - CPO interface for roaming (TNG integration)
 from ocpi import router as ocpi_router
 app.include_router(ocpi_router)
+
+
+# ─── Health Check & Global Exception Handler ───────────────────────────────
+
+@app.get("/health", tags=["Health"])
+async def health_check() -> dict:
+    """
+    Health check endpoint for load balancers and monitoring.
+    Returns 200 if the API is up and can connect to the database.
+    """
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        logger.error("Health check failed: %s", e)
+        raise HTTPException(status_code=503, detail="Service unavailable")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> Any:
+    """
+    Catch-all handler for unhandled exceptions.
+    Logs the error and returns a consistent 500 response.
+    HTTPException is re-raised so FastAPI handles it normally.
+    """
+    if isinstance(exc, HTTPException):
+        raise exc
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "success": False},
+    )
 
 
 # ─── Pydantic Models & Dashboard Routes ───────────────────────────────────
@@ -431,7 +502,7 @@ class ChangeConfigurationResponse(BaseModel):
     message: str
 
 
-# ==================== MAINTENANCE MODELS ====================
+# ─── Maintenance Models ────────────────────────────────────────────────────
 
 class MaintenanceCreate(BaseModel):
     charger_id: str  # charge_point_id
@@ -482,12 +553,12 @@ class MaintenanceResponse(BaseModel):
         from_attributes = True
 
 
-# API Endpoints
+# ─── Dashboard & HTML Page Routes ─────────────────────────────────────────
 @app.get("/")
 async def root():
     """Serve the dashboard"""
     try:
-        file_path = Path("templates/dashboard.html")
+        file_path = _BASE_DIR / "templates" / "dashboard.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Dashboard template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -501,7 +572,7 @@ async def root():
 async def chargers_page():
     """Serve the chargers page"""
     try:
-        file_path = Path("templates/chargers.html")
+        file_path = _BASE_DIR / "templates" / "chargers.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Chargers template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -515,7 +586,7 @@ async def chargers_page():
 async def sessions_page():
     """Serve the sessions page"""
     try:
-        file_path = Path("templates/sessions.html")
+        file_path = _BASE_DIR / "templates" / "sessions.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Sessions template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -529,7 +600,7 @@ async def sessions_page():
 async def metering_page():
     """Serve the metering page"""
     try:
-        file_path = Path("templates/metering.html")
+        file_path = _BASE_DIR / "templates" / "metering.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Metering template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -543,7 +614,7 @@ async def metering_page():
 async def faults_page():
     """Serve the faults page"""
     try:
-        file_path = Path("templates/faults.html")
+        file_path = _BASE_DIR / "templates" / "faults.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Faults template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -557,7 +628,7 @@ async def faults_page():
 async def settings_page():
     """Serve the settings/configuration page"""
     try:
-        file_path = Path("templates/settings.html")
+        file_path = _BASE_DIR / "templates" / "settings.html"
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Settings template not found")
         return FileResponse(file_path, media_type="text/html")
@@ -585,24 +656,21 @@ async def get_chargers(db: Session = Depends(get_db)):
     result = []
     for charger in chargers:
         # Find active session for this charger
-        # Include both active and recent pending sessions (within last 10 minutes)
-        ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
+        # Include both active and recent pending sessions (within PENDING_SESSION_WINDOW_MINUTES)
+        pending_cutoff = datetime.utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
         active_session = db.query(ChargingSession).filter(
             ChargingSession.charger_id == charger.id,
-            # Include active sessions OR recent pending sessions (created within last 10 min)
             or_(
                 ChargingSession.status == "active",
                 and_(
                     ChargingSession.status == "pending",
-                    ChargingSession.start_time >= ten_minutes_ago
+                    ChargingSession.start_time >= pending_cutoff
                 )
             )
         ).order_by(desc(ChargingSession.start_time)).first()
 
-        # Compute effective status:
-        # 1. Must have active WebSocket connection in active_charge_points
-        # 2. AND last heartbeat must be within 5 minutes (guards against stale/zombie connections)
-        OFFLINE_THRESHOLD_MINUTES = 5
+        # Compute effective status: WebSocket connected AND heartbeat within threshold
+        # Guards against stale/zombie connections
         heartbeat_age_ok = False
         if charger.last_heartbeat:
             age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
@@ -648,7 +716,6 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
 
-    OFFLINE_THRESHOLD_MINUTES = 5
     heartbeat_age_ok = False
     if charger.last_heartbeat:
         age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
@@ -1466,7 +1533,7 @@ class ChargingResponse(BaseModel):
 
 
 @app.post("/api/charging/start", response_model=ChargingResponse, status_code=200)
-async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
     """
     Start charging session via RemoteStartTransaction
     
@@ -1617,7 +1684,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
 
 
 @app.post("/api/charging/stop", response_model=ChargingResponse, status_code=200)
-async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
     """
     Stop charging session via RemoteStopTransaction
     
