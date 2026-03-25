@@ -22,7 +22,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -648,8 +648,14 @@ async def payment_settings_page():
 
 
 @app.get("/api/chargers", response_model=List[ChargerStatus])
-async def get_chargers(db: Session = Depends(get_db)):
-    """Get all chargers with their status"""
+async def get_chargers(
+    db: Session = Depends(get_db),
+    online_only: bool = Query(
+        False,
+        description="If true, return only chargers with an active OCPP connection (same as status=online).",
+    ),
+):
+    """Get all chargers with their status. Use online_only=1 for OCPP Operations dropdown."""
     chargers = db.query(Charger).all()
     
     # Add active transaction_id for each charger
@@ -692,7 +698,10 @@ async def get_chargers(db: Session = Depends(get_db)):
         effective_availability = charger.availability or "unknown"
         if effective_status == "offline":
             effective_availability = "unavailable"
-        
+
+        if online_only and effective_status != "online":
+            continue
+
         charger_dict = {
             "id": charger.id,
             "charge_point_id": charger.charge_point_id,
