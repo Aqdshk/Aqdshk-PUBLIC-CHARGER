@@ -64,6 +64,9 @@
         .filter-row { display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap; }
         .filter-row input { padding:3px 8px; font-size:clamp(8px,0.5vw,10px); border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-primary); width:130px; }
         .filter-row input:focus{ outline:none; border-color:var(--accent); }
+        .charger-bar .show-all-wrap { display:flex; align-items:center; gap:6px; font-size:clamp(8px,0.5vw,10px); color:var(--text-muted); white-space:nowrap; }
+        .charger-bar .show-all-wrap input { accent-color:var(--accent); cursor:pointer; }
+        .charger-bar .show-all-wrap label { cursor:pointer; user-select:none; }
     </style>
 </head>
 <body>
@@ -118,6 +121,10 @@
             <div class="charger-bar">
                 <label>⚡ Charge Point:</label>
                 <select id="chargerSelect"><option value="">-- Select Charger --</option></select>
+                <div class="show-all-wrap" title="By default only chargers connected to OCPP (online) are listed">
+                    <input type="checkbox" id="chargerShowOffline">
+                    <label for="chargerShowOffline">Show offline</label>
+                </div>
                 <span class="c-dot" id="chargerDot" style="background:#555;"></span>
                 <span class="c-txt" id="chargerStatusText">No charger selected</span>
             </div>
@@ -177,11 +184,24 @@
         async function loadChargers() {
             try {
                 const cs = await(await fetch(`${API}/chargers`)).json();
+                const showOffline = document.getElementById('chargerShowOffline')?.checked;
+                const list = showOffline ? cs : cs.filter(c => c.status === 'online');
                 const sel = document.getElementById('chargerSelect');
+                const prev = sel.value;
                 sel.innerHTML = '<option value="">-- Select Charger --</option>';
-                cs.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=`${c.charge_point_id} (${c.vendor||'N/A'} — ${c.model||'N/A'})`; o.dataset.status=c.status; sel.appendChild(o); });
+                if (!list.length && !showOffline) {
+                    const o = document.createElement('option');
+                    o.value = '';
+                    o.disabled = true;
+                    o.textContent = '— No chargers online —';
+                    sel.appendChild(o);
+                }
+                list.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=`${c.charge_point_id} (${c.vendor||'N/A'} — ${c.model||'N/A'})`; o.dataset.status=c.status; sel.appendChild(o); });
+                if (prev && [...sel.options].some(opt => opt.value === prev)) sel.value = prev;
             } catch(e){}
         }
+
+        document.getElementById('chargerShowOffline')?.addEventListener('change', loadChargers);
 
         document.getElementById('chargerSelect').addEventListener('change', function(){
             const opt=this.options[this.selectedIndex], dot=document.getElementById('chargerDot'), txt=document.getElementById('chargerStatusText');
