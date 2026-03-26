@@ -1408,7 +1408,14 @@ async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest,
         return OcppOperationResponse(success=False, message="No response from charger.")
     status = getattr(resp, "status", "Unknown")
     resp_data = getattr(resp, "data", None)
-    return OcppOperationResponse(success=status == "Accepted", message=f"Status: {status}", data={"status": status, "data": resp_data})
+    if status == "Invalid":
+        msg = (
+            "Status: Invalid — charger rejected the vendor payload (wrong schedule fields, time window, "
+            "or feature not enabled). GAC firmware uses non-standard OCPP DataTransfer status."
+        )
+    else:
+        msg = f"Status: {status}"
+    return OcppOperationResponse(success=status == "Accepted", message=msg, data={"status": status, "data": resp_data})
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-local-list-version", response_model=OcppOperationResponse)

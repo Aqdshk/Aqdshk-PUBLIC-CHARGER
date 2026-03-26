@@ -18,10 +18,12 @@ import os
 import re
 import secrets
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
 
 import websockets.exceptions
+from ocpp.exceptions import FormatViolationError
 from sqlalchemy import desc
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp, call, call_result
@@ -830,7 +832,30 @@ class ChargePoint(cp):
             resp = await self.call(req)
             logger.info(f"DataTransfer response from {self.id}: status={getattr(resp, 'status', None)}")
             return resp
+        except FormatViolationError as e:
+            # GAC/AION may return DataTransfer.conf status "Invalid" (not in OCPP 1.6 enum).
+            # The ocpp library then raises FormatViolationError when validating CallResult.
+            err = f"{e!s} {e!r}"
+            if "Invalid" in err and "DataTransfer" in err:
+                logger.warning(
+                    "DataTransfer from %s: firmware status 'Invalid' (non-OCPP enum). vendor=%s message_id=%s",
+                    self.id,
+                    vendor_id,
+                    message_id,
+                )
+                return SimpleNamespace(status="Invalid", data=None)
+            logger.error(f"Error sending DataTransfer to {self.id}: {e}", exc_info=True)
+            return None
         except Exception as e:
+            err = f"{e!s} {e!r}"
+            if "Invalid" in err and ("DataTransfer" in err or "is not one of" in err):
+                logger.warning(
+                    "DataTransfer from %s: treated vendor 'Invalid' / schema mismatch. vendor=%s message_id=%s",
+                    self.id,
+                    vendor_id,
+                    message_id,
+                )
+                return SimpleNamespace(status="Invalid", data=None)
             logger.error(f"Error sending DataTransfer to {self.id}: {e}", exc_info=True)
             return None
 
