@@ -829,9 +829,24 @@ class ChargePoint(cp):
             if data:
                 kwargs["data"] = data
             req = call.DataTransfer(**kwargs)
-            resp = await self.call(req)
+            # Default OCPP client timeout is 30s; some GAC firmware is slow or only replies for certain messageIds.
+            prev_timeout = self._response_timeout
+            self._response_timeout = max(prev_timeout, 90)
+            try:
+                resp = await self.call(req)
+            finally:
+                self._response_timeout = prev_timeout
             logger.info(f"DataTransfer response from {self.id}: status={getattr(resp, 'status', None)}")
             return resp
+        except asyncio.TimeoutError:
+            logger.warning(
+                "DataTransfer from %s: no CallResult within timeout (vendor=%s message_id=%s). "
+                "Firmware may ignore this messageId or never reply.",
+                self.id,
+                vendor_id,
+                message_id,
+            )
+            return SimpleNamespace(status="Timeout", data=None)
         except FormatViolationError as e:
             # GAC/AION may return DataTransfer.conf status "Invalid" (not in OCPP 1.6 enum).
             # The ocpp library then raises FormatViolationError when validating CallResult.

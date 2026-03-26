@@ -1413,6 +1413,12 @@ async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest,
             "Status: Invalid — charger rejected the vendor payload (wrong schedule fields, time window, "
             "or feature not enabled). GAC firmware uses non-standard OCPP DataTransfer status."
         )
+    elif status == "Timeout":
+        msg = (
+            "Status: Timeout — no CallResult from the charger within 90s. "
+            "Some GAC firmware only replies to Message ID ChargingSchedule (not SetChargingSchedule); "
+            "if both time out, the station may not support this vendor command."
+        )
     else:
         msg = f"Status: {status}"
     return OcppOperationResponse(success=status == "Accepted", message=msg, data={"status": status, "data": resp_data})
