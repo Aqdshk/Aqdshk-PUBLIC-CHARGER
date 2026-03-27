@@ -665,15 +665,17 @@ async def get_chargers(
         # Find active session for this charger
         # Include both active and recent pending sessions (within PENDING_SESSION_WINDOW_MINUTES)
         pending_cutoff = datetime.utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
+        # Include interrupted/stopping so Stop button still gets a real OCPP transaction id
         active_session = db.query(ChargingSession).filter(
             ChargingSession.charger_id == charger.id,
+            ChargingSession.transaction_id > 0,
             or_(
-                ChargingSession.status == "active",
+                ChargingSession.status.in_(["active", "interrupted", "stopping"]),
                 and_(
                     ChargingSession.status == "pending",
                     ChargingSession.start_time >= pending_cutoff
-                )
-            )
+                ),
+            ),
         ).order_by(desc(ChargingSession.start_time)).first()
 
         # Compute effective status: WebSocket connected AND heartbeat within threshold
@@ -1728,19 +1730,35 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
         if request.transaction_id and request.transaction_id > 0:
             session = db.query(ChargingSession).filter(
                 ChargingSession.transaction_id == request.transaction_id,
-                ChargingSession.status.in_(["active", "pending"])
+                ChargingSession.status.in_(["active", "pending", "interrupted", "stopping"]),
             ).first()
             if not session:
-                logger.warning(f"Active session with transaction_id {request.transaction_id} not found")
-        # 2) Fallback path: no valid session but we have charger_id (charge_point_id)
+                logger.warning(f"Session with transaction_id {request.transaction_id} not found")
+        # 2) Resolve charger + session when caller sends charger_id (dashboard often sends transaction_id=0)
         if not session and request.charger_id:
-            logger.info(f"No active session found, using fallback stop by charger_id={request.charger_id}")
+            logger.info(f"Resolving session by charger_id={request.charger_id}")
             charger = db.query(Charger).filter(Charger.charge_point_id == request.charger_id).first()
             if not charger:
                 logger.error("Charger not found for fallback stop")
                 return ChargingResponse(
                     success=False,
                     message=f"Charger {request.charger_id} not found"
+                )
+            session = (
+                db.query(ChargingSession)
+                .filter(
+                    ChargingSession.charger_id == charger.id,
+                    ChargingSession.transaction_id > 0,
+                    ChargingSession.status.in_(
+                        ["active", "pending", "interrupted", "stopping"]
+                    ),
+                )
+                .order_by(desc(ChargingSession.start_time))
+                .first()
+            )
+            if session:
+                logger.info(
+                    f"Using session transaction_id={session.transaction_id} status={session.status} for RemoteStop"
                 )
         elif session:
             charger = db.query(Charger).filter(Charger.id == session.charger_id).first()
@@ -1767,17 +1785,28 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message=f"Charger {charger.charge_point_id} is not connected"
             )
         
-        # Decide transaction_id to use for RemoteStopTransaction
-        txn_id_for_stop = request.transaction_id if request.transaction_id and request.transaction_id > 0 else 0
-        
+        # OCPP RemoteStopTransaction requires the charger's current transaction id — never send 0
+        txn_id_for_stop = 0
+        if session and session.transaction_id and int(session.transaction_id) > 0:
+            txn_id_for_stop = int(session.transaction_id)
+        elif request.transaction_id and request.transaction_id > 0:
+            txn_id_for_stop = int(request.transaction_id)
+        if txn_id_for_stop <= 0:
+            logger.error(
+                f"Cannot RemoteStop: no transaction id (charger={charger.charge_point_id}, session={session})"
+            )
+            return ChargingResponse(
+                success=False,
+                message="No active transaction to stop. Refresh the page; if charging continues, check OCPP session state.",
+            )
+
         logger.info(f"Sending RemoteStopTransaction to charger {charger.charge_point_id} using transaction_id={txn_id_for_stop}")
         response = await charge_point.remote_stop_transaction(
             transaction_id=txn_id_for_stop
         )
         
         status = getattr(response, "status", None) if response else None
-        if not response or status == "Accepted":
-            # Best-effort: if we had a real session, mark it stopping/completed
+        if response and status == "Accepted":
             if session:
                 session.status = "stopping"
                 db.commit()
@@ -1785,14 +1814,19 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             return ChargingResponse(
                 success=True,
                 message="Charging stop request sent to charger. It may take a few seconds to stop.",
-                transaction_id=request.transaction_id if request.transaction_id > 0 else 0
+                transaction_id=txn_id_for_stop,
             )
-        else:
-            logger.error(f"RemoteStopTransaction failed: {status}")
+        if not response:
+            logger.error("RemoteStopTransaction: no response from charger")
             return ChargingResponse(
                 success=False,
-                message=f"Failed to stop charging: {status}"
+                message="No response from charger for RemoteStopTransaction.",
             )
+        logger.error(f"RemoteStopTransaction failed: {status}")
+        return ChargingResponse(
+            success=False,
+            message=f"Failed to stop charging: {status}",
+        )
     except Exception as e:
         logger.error(f"Error stopping charging: {e}", exc_info=True)
         return ChargingResponse(

@@ -538,7 +538,8 @@ class ChargePoint(cp):
                 elif measurand == 'Current.Import':
                     current = value
                 elif measurand == 'Power.Active.Import':
-                    power = value / 1000.0 if value > 1000 else value  # normalise W→kW if needed
+                    # Store watts; UI divides by 1000 once for kW (avoid double conversion)
+                    power = value
                 elif measurand == 'Energy.Active.Import.Register':
                     total_kwh = value / 1000.0  # Wh → kWh
             

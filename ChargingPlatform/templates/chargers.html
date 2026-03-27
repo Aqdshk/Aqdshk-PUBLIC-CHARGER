@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Charger Status - Plag Sini</title>
-    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <link rel="stylesheet" href="/static/styles.css?v=9">
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -370,15 +370,23 @@
             }
         }
 
-        async function stopCharging(cpId) {
+        async function stopCharging(cpId, transactionIdFromCard) {
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { alert('Please log in again.'); return; }
             try {
-                const sessions = await (await fetch(`${API_BASE}/sessions`, { headers: {'X-Staff-Token': token} })).json();
-                const active = sessions.find(s => s.charge_point_id === cpId && (s.status === 'active' || s.status === 'pending'));
-                let txId = active?.transaction_id || 0;
-                if (!confirm(txId ? `Stop ${cpId}? TXN: ${txId}` : `No active session. Send stop to ${cpId}?`)) return;
-                const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({transaction_id:txId,charger_id:cpId}) });
+                let txId = 0;
+                const fromBtn = transactionIdFromCard != null && transactionIdFromCard !== 'null' && transactionIdFromCard !== ''
+                    ? parseInt(transactionIdFromCard, 10) : 0;
+                if (!Number.isNaN(fromBtn) && fromBtn > 0) {
+                    txId = fromBtn;
+                } else {
+                    const sessions = await (await fetch(`${API_BASE}/sessions`, { headers: {'X-Staff-Token': token} })).json();
+                    const stoppable = ['active', 'pending', 'interrupted', 'stopping'];
+                    const active = sessions.find(s => s.charge_point_id === cpId && stoppable.includes((s.status || '').toLowerCase()));
+                    txId = active?.transaction_id || 0;
+                }
+                if (!confirm(txId ? `Stop ${cpId}? Transaction #${txId}` : `No transaction id in UI — send stop for ${cpId}? (server will look up)`)) return;
+                const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({transaction_id: txId, charger_id: cpId}) });
                 const r = await res.json();
                 if (r.success) { alert(`✅ Stop requested!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message}`); }
             } catch(e){ alert(`❌ Error: ${e.message}`); }
