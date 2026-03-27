@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Maintenance - Plag Sini</title>
-    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <link rel="stylesheet" href="/static/styles.css?v=11">
     <style>
         .mx-item { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding: clamp(8px, 0.7vw, 14px); margin-bottom: clamp(6px, 0.5vw, 10px); transition:border-color var(--transition); }
         .mx-item:hover { border-color:var(--accent); }
@@ -137,6 +137,14 @@
         const API_BASE = '/api';
         let chargers = [];
 
+        function staffHeaders(includeJson) {
+            const token = (window.STAFF_AUTH && window.STAFF_AUTH.token) || localStorage.getItem('staffToken');
+            const h = {};
+            if (includeJson) h['Content-Type'] = 'application/json';
+            if (token) h['X-Staff-Token'] = token;
+            return h;
+        }
+
         const hamburger = document.getElementById('hamburger');
         const sidebar = document.getElementById('sidebar');
         const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -155,15 +163,33 @@
         }
 
         async function loadRecords() {
+            const container = document.getElementById('recordsList');
+            const countEl = document.getElementById('recordCount');
             try {
                 const cId = document.getElementById('filterCharger').value;
                 const st = document.getElementById('filterStatus').value;
                 let url = `${API_BASE}/maintenance`; const p = [];
-                if (cId) p.push(`charger_id=${cId}`); if (st) p.push(`status=${st}`);
+                if (cId) p.push(`charger_id=${encodeURIComponent(cId)}`); if (st) p.push(`status=${encodeURIComponent(st)}`);
                 if (p.length) url += '?' + p.join('&');
-                const records = await (await fetch(url)).json();
-                const container = document.getElementById('recordsList');
-                const countEl = document.getElementById('recordCount');
+                const res = await fetch(url, { headers: staffHeaders(false) });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    let msg = res.statusText;
+                    if (data && data.detail !== undefined) {
+                        if (typeof data.detail === 'string') msg = data.detail;
+                        else if (Array.isArray(data.detail) && data.detail[0] && data.detail[0].msg) msg = data.detail[0].msg;
+                        else msg = JSON.stringify(data.detail);
+                    }
+                    countEl.textContent = '0 records';
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔧</div><div>' + (res.status === 401 ? 'Not authorized — sign in as staff admin.' : ('Error: ' + msg)) + '</div></div>';
+                    return;
+                }
+                if (!Array.isArray(data)) {
+                    countEl.textContent = '0 records';
+                    container.innerHTML = '<div class="empty-state">Invalid response from server</div>';
+                    return;
+                }
+                const records = data;
                 if (records.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔧</div><div>No maintenance records</div></div>'; countEl.textContent = '0 records'; return; }
                 countEl.textContent = `${records.length} record(s)`;
                 container.innerHTML = records.map(r => {
@@ -192,14 +218,16 @@
                         </div>
                     </div>`;
                 }).join('');
-            } catch(e){ console.error('Error:',e); document.getElementById('recordsList').innerHTML = '<div class="empty-state">Error loading records</div>'; }
+            } catch(e){ console.error('Error:',e); countEl.textContent = '0 records'; container.innerHTML = '<div class="empty-state">Error loading records</div>'; }
         }
 
         function openAddModal() { document.getElementById('modalTitle').textContent='Add Maintenance Record'; document.getElementById('recordId').value=''; document.getElementById('maintenanceForm').reset(); document.getElementById('modalOverlay').classList.add('active'); }
 
         async function editRecord(id) {
             try {
-                const r = await (await fetch(`${API_BASE}/maintenance/${id}`)).json();
+                const res = await fetch(`${API_BASE}/maintenance/${id}`, { headers: staffHeaders(false) });
+                if (!res.ok) { alert('Error loading record'); return; }
+                const r = await res.json();
                 document.getElementById('modalTitle').textContent = 'Edit Record';
                 document.getElementById('recordId').value = r.id;
                 document.getElementById('formCharger').value = r.charge_point_id;
@@ -223,14 +251,14 @@
             const rid = document.getElementById('recordId').value;
             const data = { charger_id:document.getElementById('formCharger').value, maintenance_type:document.getElementById('formType').value, status:document.getElementById('formStatus').value, technician_name:document.getElementById('formTechnician').value||null, issue_description:document.getElementById('formIssue').value||null, work_performed:document.getElementById('formWork').value, parts_replaced:document.getElementById('formParts').value||null, cost:document.getElementById('formCost').value?parseFloat(document.getElementById('formCost').value):null, date_completed:document.getElementById('formDateCompleted').value||null, notes:document.getElementById('formNotes').value||null };
             try {
-                const res = await fetch(rid ? `${API_BASE}/maintenance/${rid}` : `${API_BASE}/maintenance`, { method:rid?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+                const res = await fetch(rid ? `${API_BASE}/maintenance/${rid}` : `${API_BASE}/maintenance`, { method:rid?'PUT':'POST', headers: staffHeaders(true), body:JSON.stringify(data) });
                 if (res.ok) { closeModal(); loadRecords(); alert(rid?'✅ Updated!':'✅ Created!'); } else { const er = await res.json(); alert('Error: '+(er.detail||'Failed')); }
             } catch(e){ alert('Error saving'); }
         }
 
         async function deleteRecord(id) {
             if (!confirm('Delete this record?')) return;
-            try { const res = await fetch(`${API_BASE}/maintenance/${id}`,{method:'DELETE'}); if(res.ok){loadRecords();alert('✅ Deleted!');} else alert('Error deleting'); } catch(e){ alert('Error'); }
+            try { const res = await fetch(`${API_BASE}/maintenance/${id}`,{method:'DELETE', headers: staffHeaders(false)}); if(res.ok){loadRecords();alert('✅ Deleted!');} else { const er = await res.json().catch(()=>({})); alert('Error: '+(er.detail||'delete failed')); } } catch(e){ alert('Error'); }
         }
     </script>
 </body>
