@@ -73,7 +73,13 @@
 
         function formatKLTime(isoString) {
             if (!isoString) return 'N/A';
-            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+            try {
+                let s = String(isoString).trim();
+                if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+                const hasTZ = /[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{2}$/.test(s);
+                if (!hasTZ) s = s + '+08:00';
+                return new Date(s).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+            } catch (e) { return isoString; }
         }
 
         const hamburger = document.getElementById('hamburger');
@@ -87,7 +93,7 @@
 
         async function populateChargerFilter() {
             try {
-                const chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
                 const sel = document.getElementById('chargerFilter');
                 sel.innerHTML = '<option value="">All Chargers</option>';
                 chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
@@ -113,7 +119,7 @@
                         </div>
                         <div class="session-details">
                             <div><strong>Charger:</strong> ${s.charge_point_id}</div>
-                            <div><strong>Connector:</strong> ${s.connector_id}</div>
+                            <div><strong>Connector:</strong> ${s.connector_id != null && s.connector_id !== undefined ? s.connector_id : 'N/A'}</div>
                             <div><strong>Start:</strong> ${formatKLTime(s.start_time)}</div>
                             <div><strong>Stop:</strong> ${s.stop_time ? formatKLTime(s.stop_time) : 'Ongoing'}</div>
                             <div><strong>Energy:</strong> ${s.energy_consumed.toFixed(2)} kWh</div>

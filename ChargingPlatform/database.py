@@ -244,6 +244,7 @@ class ChargingSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
     transaction_id = Column(Integer, unique=True, index=True, nullable=False)
+    connector_id = Column(Integer, nullable=True)  # OCPP StartTransaction connector
     start_time = Column(DateTime, nullable=False)
     stop_time = Column(DateTime)
     energy_consumed = Column(Float, default=0.0)  # in kWh
@@ -665,9 +666,39 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _ensure_charging_session_connector_id_column():
+    """Add connector_id to existing DBs (create_all does not alter tables)."""
+    try:
+        from sqlalchemy import inspect, text
+
+        insp = inspect(engine)
+        if not insp.has_table("charging_sessions"):
+            return
+        cols = {c["name"] for c in insp.get_columns("charging_sessions")}
+        if "connector_id" in cols:
+            return
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "mysql":
+                conn.execute(
+                    text("ALTER TABLE charging_sessions ADD COLUMN connector_id INT NULL")
+                )
+            elif dialect == "sqlite":
+                conn.execute(
+                    text("ALTER TABLE charging_sessions ADD COLUMN connector_id INTEGER")
+                )
+            else:
+                conn.execute(
+                    text("ALTER TABLE charging_sessions ADD COLUMN connector_id INTEGER")
+                )
+    except Exception:
+        pass
+
+
 def init_db():
     """Create all tables if they don't exist."""
     Base.metadata.create_all(bind=engine)
+    _ensure_charging_session_connector_id_column()
 
 
 def get_db():

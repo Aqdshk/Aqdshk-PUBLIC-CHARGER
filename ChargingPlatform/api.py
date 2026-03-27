@@ -432,6 +432,7 @@ class CreateChargerRequest(BaseModel):
 class ChargingSessionResponse(BaseModel):
     id: int
     transaction_id: int
+    connector_id: Optional[int] = None
     start_time: datetime
     stop_time: Optional[datetime]
     energy_consumed: float

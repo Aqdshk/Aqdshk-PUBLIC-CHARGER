@@ -411,6 +411,7 @@ class ChargePoint(cp):
                 if existing_session:
                     existing_session.status = "active"
                     existing_session.start_time = start_dt
+                    existing_session.connector_id = connector_id
                     existing_session.meter_start = meter_start if meter_start is not None else existing_session.meter_start
                     if not existing_session.user_id or existing_session.user_id in ("LOCAL_CHARGING", "DASHBOARD_USER"):
                         existing_session.user_id = id_tag
@@ -424,6 +425,7 @@ class ChargePoint(cp):
                     session = ChargingSession(
                         charger_id=charger.id,
                         transaction_id=0,  # placeholder; will be replaced with DB id below
+                        connector_id=connector_id,
                         start_time=start_dt,
                         status="active",
                         user_id=id_tag,

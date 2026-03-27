@@ -1,15 +1,21 @@
 // API Base URL
 const API_BASE = '/api';
 
-// Helper to format time in Kuala Lumpur timezone
+// Helper to format time in Kuala Lumpur timezone.
+// API often returns naive ISO strings (no Z / offset) — those are Malaysia wall time from OCPP/DB, not UTC.
+// Appending "Z" would mis-label them as UTC and shift display by +8h; use +08:00 for naive instead.
 function formatKLTime(isoString) {
     if (!isoString) return 'N/A';
     try {
-        const withTZ = isoString.endsWith('Z') || isoString.includes('+')
-            ? isoString
-            : isoString + 'Z';
-        const d = new Date(withTZ);
-        return d.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+        let s = String(isoString).trim();
+        if (s.includes(' ') && !s.includes('T')) {
+            s = s.replace(' ', 'T');
+        }
+        const hasTZ = /[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{2}$/.test(s);
+        if (!hasTZ) {
+            s = s + '+08:00';
+        }
+        return new Date(s).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
     } catch (e) {
         console.error('Error formatting time:', e);
         return isoString;
@@ -34,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Populate charger selects
 async function populateChargerSelects() {
     try {
-        const response = await fetch(`${API_BASE}/chargers`);
+        const response = await fetch(`${API_BASE}/chargers?online_only=1`);
         const chargers = await response.json();
         
         const selects = ['chargerFilter', 'meteringCharger', 'deviceCharger'];

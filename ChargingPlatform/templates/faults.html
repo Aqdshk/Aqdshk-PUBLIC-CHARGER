@@ -74,7 +74,13 @@
 
         function formatKLTime(isoString) {
             if (!isoString) return 'N/A';
-            try { const w = isoString.endsWith('Z')||isoString.includes('+') ? isoString : isoString+'Z'; return new Date(w).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}); } catch(e){ return isoString; }
+            try {
+                let s = String(isoString).trim();
+                if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+                const hasTZ = /[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{2}$/.test(s);
+                if (!hasTZ) s = s + '+08:00';
+                return new Date(s).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+            } catch (e) { return isoString; }
         }
 
         const hamburger = document.getElementById('hamburger');
