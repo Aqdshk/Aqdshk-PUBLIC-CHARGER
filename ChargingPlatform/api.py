@@ -17,7 +17,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -26,7 +26,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_serializer
 from sqlalchemy import and_, desc, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -75,6 +75,28 @@ app = FastAPI(title="Charging Platform Management System")
 OFFLINE_THRESHOLD_MINUTES = int(os.getenv("OFFLINE_THRESHOLD_MINUTES", "5"))
 # Pending sessions: include in "active" list if started within this many minutes
 PENDING_SESSION_WINDOW_MINUTES = int(os.getenv("PENDING_SESSION_WINDOW_MINUTES", "10"))
+
+# Malaysia time for OCPP-derived naive datetimes (charger sends +08, DB stores naive wall time)
+MYT = timezone(timedelta(hours=8))
+UTC = timezone.utc
+
+
+def _iso_myt_naive_local(v: Optional[datetime]) -> Optional[str]:
+    """Serialize naive datetimes as Malaysia wall time (sessions, meter samples from OCPP)."""
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        return v.replace(tzinfo=MYT).isoformat()
+    return v.astimezone(MYT).isoformat()
+
+
+def _iso_utc_naive_to_myt(v: Optional[datetime]) -> Optional[str]:
+    """Serialize naive datetimes stored from datetime.utcnow() as UTC, then show as MYT."""
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        return v.replace(tzinfo=UTC).astimezone(MYT).isoformat()
+    return v.astimezone(MYT).isoformat()
 
 # ─── Rate Limiting (in-memory; single-instance only) ────────────────────────
 _RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
@@ -407,6 +429,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> Any:
 
 # ─── Pydantic Models & Dashboard Routes ───────────────────────────────────
 class ChargerStatus(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     charge_point_id: str
     vendor: Optional[str]
@@ -416,9 +440,10 @@ class ChargerStatus(BaseModel):
     availability: str
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None  # Add active transaction ID
-    
-    class Config:
-        from_attributes = True
+
+    @field_serializer("last_heartbeat")
+    def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
+        return _iso_utc_naive_to_myt(v)
 
 
 class CreateChargerRequest(BaseModel):
@@ -430,6 +455,8 @@ class CreateChargerRequest(BaseModel):
 
 
 class ChargingSessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     transaction_id: int
     connector_id: Optional[int] = None
@@ -439,12 +466,15 @@ class ChargingSessionResponse(BaseModel):
     status: str
     charger_id: int
     charge_point_id: str
-    
-    class Config:
-        from_attributes = True
+
+    @field_serializer("start_time", "stop_time")
+    def _ser_session_dt(self, v: Optional[datetime], _info) -> Optional[str]:
+        return _iso_myt_naive_local(v)
 
 
 class MeterValueResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     timestamp: datetime
     voltage: Optional[float]
@@ -452,12 +482,16 @@ class MeterValueResponse(BaseModel):
     power: Optional[float]
     total_kwh: Optional[float]
     transaction_id: Optional[int]
-    
-    class Config:
-        from_attributes = True
+
+    @field_serializer("timestamp")
+    def _ser_mv_ts(self, v: datetime, _info) -> str:
+        out = _iso_myt_naive_local(v)
+        return out if out is not None else ""
 
 
 class FaultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     fault_type: str
     message: Optional[str]
@@ -466,9 +500,10 @@ class FaultResponse(BaseModel):
     cleared_at: Optional[datetime]
     charger_id: int
     charge_point_id: str
-    
-    class Config:
-        from_attributes = True
+
+    @field_serializer("timestamp", "cleared_at")
+    def _ser_fault_dt(self, v: Optional[datetime], _info) -> Optional[str]:
+        return _iso_utc_naive_to_myt(v)
 
 
 class DeviceInfo(BaseModel):
@@ -1642,7 +1677,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                     session = ChargingSession(
                         charger_id=charger.id,
                         transaction_id=0,  # placeholder; replaced below after flush
-                        start_time=datetime.utcnow(),
+                        start_time=datetime.now(MYT).replace(tzinfo=None),
                         status="pending",
                         user_id=request.id_tag
                     )

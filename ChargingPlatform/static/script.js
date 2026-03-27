@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Populate charger selects
 async function populateChargerSelects() {
     try {
-        const response = await fetch(`${API_BASE}/chargers?online_only=1`);
+        const response = await fetch(`${API_BASE}/chargers?online_only=true`);
         const chargers = await response.json();
         
         const selects = ['chargerFilter', 'meteringCharger', 'deviceCharger'];

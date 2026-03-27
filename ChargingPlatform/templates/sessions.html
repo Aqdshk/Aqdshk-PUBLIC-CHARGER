@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sessions - Plag Sini</title>
-    <link rel="stylesheet" href="/static/styles.css?v=9">
+    <link rel="stylesheet" href="/static/styles.css?v=10">
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -93,7 +93,7 @@
 
         async function populateChargerFilter() {
             try {
-                const chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
+                const chargers = await (await fetch(`${API_BASE}/chargers?online_only=true`)).json();
                 const sel = document.getElementById('chargerFilter');
                 sel.innerHTML = '<option value="">All Chargers</option>';
                 chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
