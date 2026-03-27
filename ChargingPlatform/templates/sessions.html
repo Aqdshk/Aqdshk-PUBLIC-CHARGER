@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sessions - Plag Sini</title>
-    <link rel="stylesheet" href="/static/styles.css?v=10">
+    <link rel="stylesheet" href="/static/styles.css?v=11">
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -89,11 +89,22 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
+        function filterDropdownChargers(rows) {
+            if (!Array.isArray(rows)) return [];
+            return rows.filter(c => {
+                const st = (c.status || '').toLowerCase();
+                const av = (c.availability || '').toLowerCase();
+                const txn = c.active_transaction_id != null && Number(c.active_transaction_id) > 0;
+                return st === 'online' || av === 'charging' || av === 'preparing' || txn;
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => { populateChargerFilter(); loadSessions(); setInterval(loadSessions, 3000); });
 
         async function populateChargerFilter() {
             try {
-                const chargers = await (await fetch(`${API_BASE}/chargers?online_only=true`)).json();
+                let chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
+                chargers = filterDropdownChargers(chargers);
                 const sel = document.getElementById('chargerFilter');
                 sel.innerHTML = '<option value="">All Chargers</option>';
                 chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });

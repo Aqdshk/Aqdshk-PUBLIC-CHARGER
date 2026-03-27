@@ -98,6 +98,17 @@ def _iso_utc_naive_to_myt(v: Optional[datetime]) -> Optional[str]:
         return v.replace(tzinfo=UTC).astimezone(MYT).isoformat()
     return v.astimezone(MYT).isoformat()
 
+
+def _want_online_only_list(online_only_param: Optional[str]) -> bool:
+    """
+    True when the client asks for a short list (metering/sessions/ops dropdowns).
+    Uses string parsing so proxies/CDNs cannot break bool coercion (?online_only=true).
+    """
+    if online_only_param is None:
+        return False
+    s = str(online_only_param).strip().lower()
+    return s in ("1", "true", "yes", "on")
+
 # ─── Rate Limiting (in-memory; single-instance only) ────────────────────────
 _RATE_LIMIT_BUCKETS: Dict[str, List[float]] = {}
 _RATE_LIMIT_LOCK = threading.Lock()
@@ -686,12 +697,12 @@ async def payment_settings_page():
 @app.get("/api/chargers", response_model=List[ChargerStatus])
 async def get_chargers(
     db: Session = Depends(get_db),
-    online_only: bool = Query(
-        False,
-        description="If true, return only chargers with an active OCPP connection (same as status=online).",
+    online_only: Optional[str] = Query(
+        None,
+        description="If 1/true: only chargers that are OCPP-online OR charging/preparing OR have an active transaction id.",
     ),
 ):
-    """Get all chargers with their status. Use online_only=1 for OCPP Operations dropdown."""
+    """Get all chargers with their status. Use online_only=1 for dropdowns (metering, sessions, operations)."""
     chargers = db.query(Charger).all()
     
     # Add active transaction_id for each charger
@@ -737,8 +748,14 @@ async def get_chargers(
         if effective_status == "offline":
             effective_availability = "unavailable"
 
-        if online_only and effective_status != "online":
-            continue
+        if _want_online_only_list(online_only):
+            include = (
+                effective_status == "online"
+                or effective_availability in ("charging", "preparing")
+                or (active_txn_id is not None and active_txn_id > 0)
+            )
+            if not include:
+                continue
 
         charger_dict = {
             "id": charger.id,

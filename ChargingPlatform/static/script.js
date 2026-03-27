@@ -37,11 +37,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2000);
 });
 
+function filterDropdownChargers(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(c => {
+        const st = (c.status || '').toLowerCase();
+        const av = (c.availability || '').toLowerCase();
+        const txn = c.active_transaction_id != null && Number(c.active_transaction_id) > 0;
+        return st === 'online' || av === 'charging' || av === 'preparing' || txn;
+    });
+}
+
 // Populate charger selects
 async function populateChargerSelects() {
     try {
-        const response = await fetch(`${API_BASE}/chargers?online_only=true`);
-        const chargers = await response.json();
+        const response = await fetch(`${API_BASE}/chargers?online_only=1`);
+        let chargers = await response.json();
+        chargers = filterDropdownChargers(chargers);
         
         const selects = ['chargerFilter', 'meteringCharger', 'deviceCharger'];
         selects.forEach(selectId => {
