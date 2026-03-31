@@ -178,7 +178,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=false
-      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_SERVER_ROOT_URL=http://%(domain)s/monitoring/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
       - GF_LOG_LEVEL=warn
       # Security hardening
       - GF_SECURITY_DISABLE_GRAVATAR=true
