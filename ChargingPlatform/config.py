@@ -17,11 +17,9 @@ DATABASE_URL: str = os.getenv(
 )
 
 # ─── JWT & Auth ──────────────────────────────────────────────────────────
-# WARNING: Override JWT_SECRET_KEY in production! Default is insecure.
-JWT_SECRET_KEY: str = os.getenv(
-    "JWT_SECRET_KEY",
-    "plagsini-ev-jwt-secret-change-me-in-production-2026",
-)
+# JWT_SECRET_KEY MUST be set via environment — no default allowed.
+# Generate: python -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "").strip()
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 

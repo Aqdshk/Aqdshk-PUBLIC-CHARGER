@@ -30,10 +30,15 @@ logger = logging.getLogger(__name__)
 #  JWT CONFIGURATION
 # ═══════════════════════════════════════════
 
-# Secret key — MUST override via JWT_SECRET_KEY env in production!
-# Default is insecure and for development only.
-# Example: export JWT_SECRET_KEY="your-random-32-char-secret"
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "plagsini-ev-jwt-secret-change-me-in-production-2026")
+# Secret key — MUST be set via JWT_SECRET_KEY env var. No default allowed.
+# Generate a strong key: python -c "import secrets; print(secrets.token_hex(32))"
+_jwt_secret = os.getenv("JWT_SECRET_KEY", "").strip()
+if not _jwt_secret:
+    raise RuntimeError(
+        "JWT_SECRET_KEY environment variable is not set. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+JWT_SECRET_KEY = _jwt_secret
 JWT_ALGORITHM = "HS256"
 
 # Token lifetimes
@@ -325,8 +330,25 @@ def audit_log(
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP from request (respects X-Forwarded-For)."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """
+    Extract real client IP from request.
+    Only trusts X-Forwarded-For when the direct connection comes from a known
+    trusted proxy (127.0.0.1 or RFC-1918 private ranges — i.e. Nginx in Docker).
+    Direct external connections use the socket IP to prevent IP spoofing.
+    """
+    direct_ip = request.client.host if request.client else ""
+
+    def _is_trusted_proxy(ip: str) -> bool:
+        return (
+            ip == "127.0.0.1"
+            or ip.startswith("10.")
+            or ip.startswith("192.168.")
+            or (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31)
+        )
+
+    if direct_ip and _is_trusted_proxy(direct_ip):
+        forwarded = request.headers.get("X-Forwarded-For", "").strip()
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+
+    return direct_ip or "unknown"

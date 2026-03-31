@@ -182,7 +182,7 @@
             const t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             return t ? { 'X-Staff-Token': t } : {};
         };
-
+        
         async function loadReport() {
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');

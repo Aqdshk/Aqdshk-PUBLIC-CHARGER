@@ -295,13 +295,12 @@ _STAFF_SESSION_TTL_DAYS = 7  # sessions last 7 days
 
 
 def _extract_staff_token(request: Request) -> Optional[str]:
-    """Extract staff session token from header or query string."""
+    """Extract staff session token from header only.
+    Query-string tokens are not accepted — they leak into server logs and browser history.
+    """
     header_token = request.headers.get("X-Staff-Token")
     if header_token:
         return header_token.strip()
-    query_token = request.query_params.get("token")
-    if query_token:
-        return query_token.strip()
     return None
 
 
@@ -1756,7 +1755,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
         logger.error(f"Error starting charging: {e}", exc_info=True)
         return ChargingResponse(
             success=False,
-            message=f"Error: {str(e)}"
+            message="An unexpected error occurred"
         )
 
 
@@ -1883,7 +1882,7 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
         logger.error(f"Error stopping charging: {e}", exc_info=True)
         return ChargingResponse(
             success=False,
-            message=f"Error: {str(e)}"
+            message="An unexpected error occurred"
         )
 
 
@@ -2011,10 +2010,10 @@ async def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
     if not email or "@" not in email:
         return SendOTPResponse(success=False, message="Invalid email address")
 
-    # Check if email already registered
+    # Check if email already registered — return generic message to prevent enumeration
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
-        return SendOTPResponse(success=False, message="Email already registered")
+        return SendOTPResponse(success=True, message="Verification code sent to your email")
 
     try:
         # Rate limit: max 1 OTP per email per 60 seconds
@@ -2035,17 +2034,19 @@ async def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
         # Invalidate old OTPs for this email
         db.query(OTPVerification).filter(OTPVerification.email == email).delete()
 
-        # Generate new OTP
+        # Generate new OTP and hash before storing
+        import hashlib
         otp_code = generate_otp()
+        otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
         otp_record = OTPVerification(
             email=email,
-            otp_code=otp_code,
+            otp_code=otp_hash,  # store hash, not plaintext
             expires_at=datetime.utcnow() + timedelta(minutes=5),
         )
         db.add(otp_record)
         db.commit()
 
-        # Send email
+        # Send email (send plaintext OTP to user, never store it)
         sent = await send_otp_email(email, otp_code)
         if not sent:
             return SendOTPResponse(
@@ -2096,9 +2097,10 @@ async def verify_otp(request: VerifyOTPRequest, db: Session = Depends(get_db)):
                 success=False, message="Too many attempts. Please request a new code.", verified=False
             )
 
-        # Verify code
+        # Verify code — compare against stored hash
+        import hashlib
         otp_record.attempts += 1
-        if otp_record.otp_code != otp_code:
+        if otp_record.otp_code != hashlib.sha256(otp_code.encode()).hexdigest():
             db.commit()
             remaining = 5 - otp_record.attempts
             return VerifyOTPResponse(
@@ -2549,7 +2551,7 @@ async def get_user_profile(
         raise
     except Exception as e:
         logger.error(f"Get profile error: {e}", exc_info=True)
-        return AuthResponse(success=False, message=f"Error: {str(e)}")
+        return AuthResponse(success=False, message="An unexpected error occurred")
 
 
 @app.put("/api/users/{user_id}", response_model=AuthResponse)
@@ -2603,7 +2605,7 @@ async def update_user_profile(
     except Exception as e:
         db.rollback()
         logger.error(f"Update profile error: {e}", exc_info=True)
-        return AuthResponse(success=False, message=f"Error: {str(e)}")
+        return AuthResponse(success=False, message="An unexpected error occurred")
 
 
 # ==================== WALLET API ENDPOINTS ====================
@@ -2633,12 +2635,14 @@ async def topup_wallet(
     user_id: int,
     request: WalletTopUpRequest,
     req: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Top up wallet balance (authenticated, owner or admin)."""
+    """
+    Admin-only manual wallet top-up (e.g. cash/bank-transfer adjustments).
+    Regular users must top up via /api/payment/topup (payment gateway flow).
+    """
     try:
-        verify_resource_owner(current_user, user_id)
         client_ip = get_client_ip(req)
 
         # Validate amount with financial safeguards
@@ -2686,7 +2690,7 @@ async def topup_wallet(
     except Exception as e:
         db.rollback()
         logger.error(f"Top-up error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/users/{user_id}/wallet/transactions", response_model=List[WalletTransactionResponse])
@@ -2998,7 +3002,7 @@ async def add_vehicle(
     except Exception as e:
         db.rollback()
         logger.error(f"Add vehicle error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/users/{user_id}/vehicles/{vehicle_id}")
@@ -3111,6 +3115,25 @@ def verify_admin_token(admin_token: str, db: Session) -> Optional[User]:
     return None
 
 
+def get_admin_token_from_request(
+    request: Request,
+    admin_token: Optional[str] = Query(None),
+) -> str:
+    """Resolve legacy admin API token from query `admin_token` or `X-Staff-Token` header."""
+    raw = (admin_token or "").strip() or (request.headers.get("X-Staff-Token") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=401, detail="Admin token required")
+    return raw
+
+
+def get_admin_token_from_request_optional(
+    request: Request,
+    admin_token: Optional[str] = Query(None),
+) -> Optional[str]:
+    raw = (admin_token or "").strip() or (request.headers.get("X-Staff-Token") or "").strip()
+    return raw or None
+
+
 # ==================== ADMIN API ENDPOINTS ====================
 
 @app.post("/api/admin/login", response_model=AdminLoginResponse)
@@ -3150,11 +3173,13 @@ async def admin_login(request: AdminLoginRequest, db: Session = Depends(get_db))
         )
     except Exception as e:
         logger.error(f"Admin login error: {e}", exc_info=True)
-        return AdminLoginResponse(success=False, message=f"Error: {str(e)}", is_admin=False)
+        return AdminLoginResponse(success=False, message="Login failed", is_admin=False)
 
 
 @app.post("/api/admin/logout")
-async def admin_logout(admin_token: str = None):
+async def admin_logout(
+    admin_token: Optional[str] = Depends(get_admin_token_from_request_optional),
+):
     """Admin logout"""
     if admin_token and admin_token in admin_sessions:
         del admin_sessions[admin_token]
@@ -3163,11 +3188,11 @@ async def admin_logout(admin_token: str = None):
 
 @app.get("/api/admin/users", response_model=List[AdminUserResponse])
 async def admin_list_users(
-    admin_token: str,
     search: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
 ):
     """List all users (admin only)"""
     admin = verify_admin_token(admin_token, db)
@@ -3207,7 +3232,11 @@ async def admin_list_users(
 
 
 @app.get("/api/admin/users/{user_id}", response_model=AdminUserResponse)
-async def admin_get_user(user_id: int, admin_token: str, db: Session = Depends(get_db)):
+async def admin_get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Get single user details (admin only)"""
     admin = verify_admin_token(admin_token, db)
     if not admin:
@@ -3237,8 +3266,8 @@ async def admin_get_user(user_id: int, admin_token: str, db: Session = Depends(g
 @app.post("/api/admin/users", response_model=AdminUserResponse)
 async def admin_create_user(
     request: AdminUserCreateRequest,
-    admin_token: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
 ):
     """Create new user (admin only)"""
     admin = verify_admin_token(admin_token, db)
@@ -3290,15 +3319,15 @@ async def admin_create_user(
     except Exception as e:
         db.rollback()
         logger.error(f"Admin create user error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/api/admin/users/{user_id}", response_model=AdminUserResponse)
 async def admin_update_user(
     user_id: int,
     request: AdminUserUpdateRequest,
-    admin_token: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
 ):
     """Update user (admin only)"""
     admin = verify_admin_token(admin_token, db)
@@ -3362,11 +3391,15 @@ async def admin_update_user(
     except Exception as e:
         db.rollback()
         logger.error(f"Admin update user error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/admin/users/{user_id}")
-async def admin_delete_user(user_id: int, admin_token: str, db: Session = Depends(get_db)):
+async def admin_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Delete user (admin only)"""
     admin = verify_admin_token(admin_token, db)
     if not admin:
@@ -3396,11 +3429,14 @@ async def admin_delete_user(user_id: int, admin_token: str, db: Session = Depend
     except Exception as e:
         db.rollback()
         logger.error(f"Admin delete user error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/admin/stats")
-async def admin_get_stats(admin_token: str, db: Session = Depends(get_db)):
+async def admin_get_stats(
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Get dashboard statistics (admin only)"""
     admin = verify_admin_token(admin_token, db)
     if not admin:
@@ -3426,7 +3462,10 @@ async def admin_get_stats(admin_token: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/admin/reports/users")
-async def admin_user_report(admin_token: str, db: Session = Depends(get_db)):
+async def admin_user_report(
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Detailed user analytics report."""
     admin = verify_admin_token(admin_token, db)
     if not admin:
@@ -3466,7 +3505,10 @@ async def admin_user_report(admin_token: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/admin/reports/wallet")
-async def admin_wallet_report(admin_token: str, db: Session = Depends(get_db)):
+async def admin_wallet_report(
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Detailed wallet/financial report."""
     admin = verify_admin_token(admin_token, db)
     if not admin:
@@ -3512,7 +3554,10 @@ async def admin_wallet_report(admin_token: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/admin/reports/activity")
-async def admin_activity_report(admin_token: str, db: Session = Depends(get_db)):
+async def admin_activity_report(
+    db: Session = Depends(get_db),
+    admin_token: str = Depends(get_admin_token_from_request),
+):
     """Activity/audit log — recent system events."""
     admin = verify_admin_token(admin_token, db)
     if not admin:

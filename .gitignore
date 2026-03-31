@@ -45,3 +45,11 @@ ESP-Charger-RND/.vscode/
 
 # Logs
 *.log
+
+# Private keys & certificates — NEVER commit these
+*.pem
+*.key
+*.p12
+*.pfx
+*private_key*
+*secret_key*

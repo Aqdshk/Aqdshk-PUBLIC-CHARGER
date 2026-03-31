@@ -230,12 +230,12 @@ class ChargePoint(cp):
                 if user:
                     return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
 
-            # TODO P1: Add IdTag/RFID table for proper validation. For now accept all others
-            # to avoid breaking chargers that require Authorize response.
-            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+            # Unknown id_tag — block. Add RFID cards via admin dashboard to whitelist.
+            logger.warning(f"Authorize BLOCKED unknown id_tag={id_tag!r} on charger {self.id}")
+            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.blocked})
         except Exception as e:
             logger.error(f"Error in Authorize handler for {self.id}: {e}", exc_info=True)
-            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+            return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.blocked})
 
     @on('StatusNotification')
     async def on_status_notification(self, connector_id: int, error_code: str, status: str, **kwargs):
