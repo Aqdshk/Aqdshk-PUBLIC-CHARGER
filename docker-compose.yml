@@ -127,6 +127,72 @@ services:
       - charging-platform
     restart: unless-stopped
 
+  # ── Loki — Log storage & indexing ──────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - ev-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Promtail — Log collector (reads Docker container logs → sends to Loki) ──
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: promtail
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - ev-network
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Grafana — Dashboard & alerting UI ──────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana
+    ports:
+      # Bind to localhost only — access via SSH tunnel or VPN, NOT public internet
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_LOG_LEVEL=warn
+      # Security hardening
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+      - GF_SECURITY_X_CONTENT_TYPE_OPTIONS=true
+      - GF_SECURITY_X_XSS_PROTECTION=true
+    networks:
+      - ev-network
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   ev-network:
     driver: bridge
@@ -134,3 +200,5 @@ networks:
 volumes:
   charging-platform-data:
   mysql-data:
+  loki-data:
+  grafana-data:

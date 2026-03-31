@@ -1,0 +1,111 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ── Nginx logs ──────────────────────────────────────────────────────────────
+  - job_name: nginx
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["nginx"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        target_label: job
+        replacement: nginx
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "(?P<method>\S+) (?P<request>[^"]*)" (?P<status>\d+) (?P<body_bytes_sent>\d+)'
+      - labels:
+          status:
+          method:
+      - match:
+          selector: '{job="nginx"}'
+          stages:
+            - regex:
+                expression: '(?P<status_class>[45]\d\d)'
+                source: status
+            - labels:
+                status_class:
+
+  # ── ChargingPlatform (FastAPI + OCPP) ───────────────────────────────────────
+  - job_name: charging-platform
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["charging-platform"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        target_label: job
+        replacement: charging-platform
+    pipeline_stages:
+      # Tag security-sensitive log lines
+      - match:
+          selector: '{job="charging-platform"}'
+          stages:
+            - regex:
+                expression: '(?i)(?P<security_event>AUDIT|login_failed|rejected|invalid.*token|blocked|unauthorized)'
+                source: __raw
+            - labels:
+                security_event:
+
+  # ── CustomerService (AI Bot) ─────────────────────────────────────────────────
+  - job_name: customer-service
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["customer-service"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        target_label: job
+        replacement: customer-service
+
+  # ── AppEV (Flutter/Nginx) ────────────────────────────────────────────────────
+  - job_name: appev
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["appev"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        target_label: job
+        replacement: appev
+
+  # ── MySQL ────────────────────────────────────────────────────────────────────
+  - job_name: mysql
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values: ["charging-platform-mysql"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        target_label: job
+        replacement: mysql

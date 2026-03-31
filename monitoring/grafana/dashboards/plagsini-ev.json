@@ -1,0 +1,124 @@
+{
+  "title": "PlagSini EV — System Overview",
+  "uid": "plagsini-ev-overview",
+  "tags": ["plagsini", "ev", "security"],
+  "timezone": "Asia/Kuala_Lumpur",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "All Logs (Live)",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{container=~\".+\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "id": 2,
+      "title": "Security Events (AUDIT / Rejected / Login Failed)",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"charging-platform\"} |~ \"(?i)(AUDIT|login_failed|Rejected|invalid.*token|BLOCKED|401|403)\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "id": 3,
+      "title": "HTTP 4xx/5xx Errors (Nginx)",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"nginx\"} |~ \" [45][0-9][0-9] \"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 4,
+      "title": "OCPP Charger Events",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"charging-platform\"} |~ \"(?i)(OCPP|BootNotification|StartTransaction|StopTransaction|Authorize|charger)\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Payment Events",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"charging-platform\"} |~ \"(?i)(topup|payment|wallet|callback|transaction)\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 6,
+      "title": "MySQL Errors",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "expr": "{job=\"mysql\"} |~ \"(?i)(error|warning|denied|failed)\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ],
+  "schemaVersion": 38
+}
