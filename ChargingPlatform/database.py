@@ -18,7 +18,7 @@ Usage:
 import hashlib
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -28,6 +28,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
+
+
+def _utcnow():
+    """Timezone-safe replacement for deprecated datetime.utcnow()"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ─── User & Wallet ────────────────────────────────────────────────────────
@@ -54,8 +59,8 @@ class User(Base):
     locked_until = Column(DateTime, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     last_login = Column(DateTime, nullable=True)
     
     # Relationships
@@ -80,7 +85,7 @@ class User(Base):
 
     def is_locked(self) -> bool:
         """Check if account is temporarily locked due to failed login attempts."""
-        if self.locked_until and self.locked_until > datetime.utcnow():
+        if self.locked_until and self.locked_until > _utcnow():
             return True
         return False
 
@@ -90,7 +95,7 @@ class User(Base):
         if self.failed_login_attempts >= 5:
             # Lock for 15 minutes after 5 failed attempts
             from datetime import timedelta
-            self.locked_until = datetime.utcnow() + timedelta(minutes=15)
+            self.locked_until = _utcnow() + timedelta(minutes=15)
 
     def reset_failed_logins(self):
         """Reset failed login counter on successful login."""
@@ -111,8 +116,8 @@ class Wallet(Base):
     currency = Column(String(10), default="MYR")
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     
     # Relationships
     user = relationship("User", back_populates="wallet")
@@ -157,7 +162,7 @@ class WalletTransaction(Base):
     description = Column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     
     # Relationships
     user = relationship("User", back_populates="wallet_transactions")
@@ -185,7 +190,7 @@ class Vehicle(Base):
     is_primary = Column(Boolean, default=False)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     
     # Relationships
     user = relationship("User", back_populates="vehicles")
@@ -203,10 +208,10 @@ class OTPVerification(Base):
     is_verified = Column(Boolean, default=False)
     attempts = Column(Integer, default=0)  # Track failed attempts
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
+        return _utcnow() > self.expires_at
 
 
 # ==================== CHARGER & SESSIONS ====================
@@ -222,7 +227,7 @@ class Charger(Base):
     status = Column(String(50), default="offline")  # online, offline
     availability = Column(String(50), default="unknown")  # available, charging, faulted, unavailable
     last_heartbeat = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     
     # Configuration parameters (matching SteVe OCPP)
     number_of_connectors = Column(Integer, default=1)
@@ -230,7 +235,14 @@ class Charger(Base):
     meter_value_sample_interval = Column(Integer, default=10)  # 10 seconds
     transaction_message_attempts = Column(Integer, default=3)
     transaction_message_retry_interval = Column(Integer, default=120)  # 2 minutes
-    
+
+    # Physical / location info (set via admin API or directly in DB)
+    location = Column(String(500), nullable=True)        # Human-readable address
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
+    max_power_kw = Column(Float, nullable=True)          # e.g. 7.4, 22, 50
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")
@@ -271,7 +283,7 @@ class Payment(Base):
     payment_status = Column(String(50), default="pending")  # pending, completed, failed, refunded
     payment_gateway = Column(String(100))  # stripe, paypal, etc
     gateway_transaction_id = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     completed_at = Column(DateTime)
     
     session = relationship("ChargingSession", back_populates="payment")
@@ -286,7 +298,7 @@ class Pricing(Base):
     price_per_minute = Column(Numeric(8, 4), default=Decimal("0.0000"))  # RM per minute
     minimum_charge = Column(Numeric(8, 2), default=Decimal("0.00"))  # Minimum amount
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class MeterValue(Base):
@@ -295,7 +307,7 @@ class MeterValue(Base):
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
     transaction_id = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=_utcnow, nullable=False)
     voltage = Column(Float)  # in V
     current = Column(Float)  # in A
     power = Column(Float)  # in W
@@ -311,7 +323,7 @@ class Fault(Base):
     charger_id = Column(Integer, ForeignKey("chargers.id"))
     fault_type = Column(String(100), nullable=False)  # overcurrent, ground_fault, emergency_stop, cp_error
     message = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=_utcnow, nullable=False)
     cleared = Column(Boolean, default=False)
     cleared_at = Column(DateTime)
     
@@ -347,7 +359,7 @@ class MaintenanceRecord(Base):
     status = Column(String(50), default="completed")
     
     # Dates
-    date_reported = Column(DateTime, default=datetime.utcnow)
+    date_reported = Column(DateTime, default=_utcnow)
     date_scheduled = Column(DateTime, nullable=True)
     date_completed = Column(DateTime, nullable=True)
     
@@ -355,8 +367,8 @@ class MaintenanceRecord(Base):
     notes = Column(Text, nullable=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     
     # Relationships
     charger = relationship("Charger", back_populates="maintenance_records")
@@ -399,7 +411,7 @@ class SupportStaff(Base):
     is_active = Column(Boolean, default=True)
     max_tickets = Column(Integer, default=10)  # max concurrent open tickets
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     last_login = Column(DateTime, nullable=True)
 
     def set_password(self, password: str):
@@ -442,7 +454,7 @@ class StaffSession(Base):
     staff_id = Column(Integer, ForeignKey("support_staff.id", ondelete="CASCADE"), nullable=False, index=True)
     token = Column(String(128), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     staff = relationship("SupportStaff", backref="sessions")
 
@@ -473,8 +485,8 @@ class SupportTicket(Base):
     resolution_notes = Column(Text, nullable=True)
     satisfaction_rating = Column(Integer, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     resolved_at = Column(DateTime, nullable=True)
     first_response_at = Column(DateTime, nullable=True)
 
@@ -506,7 +518,7 @@ class TicketMessage(Base):
     message = Column(Text, nullable=False)
     attachment_url = Column(String(500), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     ticket = relationship("SupportTicket", back_populates="messages")
 
@@ -556,8 +568,8 @@ class PaymentGatewayConfig(Base):
     is_default = Column(Boolean, default=False)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class PaymentTransaction(Base):
@@ -603,7 +615,7 @@ class PaymentTransaction(Base):
     payment_url = Column(String(1000), nullable=True)  # URL user is redirected to
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     paid_at = Column(DateTime, nullable=True)
     expired_at = Column(DateTime, nullable=True)
     
@@ -619,7 +631,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    timestamp = Column(DateTime, default=_utcnow, nullable=False, index=True)
 
     # Who
     user_id = Column(Integer, nullable=True, index=True)

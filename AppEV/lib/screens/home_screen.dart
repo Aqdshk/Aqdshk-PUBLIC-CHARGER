@@ -115,7 +115,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           if (kIsWeb) {
             // On web: open the customer service chat page directly
             const botUrl = String.fromEnvironment('BOT_BASE_URL', defaultValue: '');
-            final url = botUrl.isNotEmpty ? botUrl : 'http://localhost:8001';
+            // Default to /bot/ path through Nginx (not direct port 8001)
+            const apiUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+            final derivedBotUrl = apiUrl.isNotEmpty
+                ? '${Uri.parse(apiUrl).scheme}://${Uri.parse(apiUrl).host}/bot'
+                : 'http://localhost:8001';
+            final url = botUrl.isNotEmpty ? botUrl : derivedBotUrl;
             await launchUrl(Uri.parse(url), mode: LaunchMode.platformDefault);
           } else {
             // On mobile: use native Flutter chat screen

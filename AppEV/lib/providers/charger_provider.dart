@@ -36,8 +36,13 @@ class ChargerProvider with ChangeNotifier {
       
       debugPrint('📡 Received ${chargers.length} chargers');
 
-      // Process all chargers (don't filter out any)
-      final chargersWithDistance = chargers.map((charger) {
+      // Filter: only show online chargers
+      final onlineChargers = chargers.where((charger) {
+        final status = charger['status']?.toString() ?? 'unknown';
+        return status == 'online';
+      }).toList();
+
+      final chargersWithDistance = onlineChargers.map((charger) {
         double distance = 0;
         if (_currentPosition != null) {
           // Mock location calculation - replace with actual charger location

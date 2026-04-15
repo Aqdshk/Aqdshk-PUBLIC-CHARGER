@@ -201,6 +201,17 @@ class ApiService {
             'vendor': charger['vendor']?.toString() ?? '',
             'model': charger['model']?.toString() ?? '',
             'firmware_version': charger['firmware_version']?.toString() ?? '',
+            // Physical / location info
+            'location': charger['location']?.toString(),
+            'latitude': charger['latitude'],
+            'longitude': charger['longitude'],
+            'connector_type': charger['connector_type']?.toString(),
+            'max_power_kw': charger['max_power_kw'],
+            'number_of_connectors': charger['number_of_connectors'] ?? 1,
+            // Pricing
+            'price_per_kwh': charger['price_per_kwh'],
+            // Active transaction
+            'active_transaction_id': charger['active_transaction_id'],
           };
         }).toList();
       }

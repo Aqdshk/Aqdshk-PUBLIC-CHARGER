@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 # SMTP Configuration
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")           # SMTP login credential
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "PlagSini EV")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_EMAIL)  # Verified sender (FROM address)
 
 
 def generate_otp(length: int = 6) -> str:
@@ -41,7 +42,7 @@ def _build_otp_email(to_email: str, otp_code: str) -> MIMEMultipart:
     """Build the OTP verification email with HTML template."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"PlagSini - Your Verification Code: {otp_code}"
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_EMAIL}>"
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
     msg["To"] = to_email
 
     # Plain text fallback
@@ -138,7 +139,7 @@ def _send_email_sync(to_email: str, otp_code: str) -> bool:
             server.starttls()
             server.ehlo()
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+            server.sendmail(SMTP_FROM_EMAIL, to_email, msg.as_string())
 
         logger.info(f"📧 OTP email sent to {to_email}")
         return True
@@ -167,7 +168,7 @@ def _build_ticket_email(to_email: str, subject: str, body_html: str) -> MIMEMult
     """Build a generic HTML email for ticket notifications."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_EMAIL}>"
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
     msg["To"] = to_email
 
     html = f"""

@@ -25,7 +25,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
   bool _isTyping = false;
   List<_QuickAction> _quickActions = [];
 
-  /// Bot API base URL — derives from the main API base URL
+  /// Bot API base URL — routes through /bot/ path on the main server (behind Nginx)
   String get _botBaseUrl {
     const envUrl = String.fromEnvironment('BOT_BASE_URL', defaultValue: '');
     if (envUrl.isNotEmpty) {
@@ -34,11 +34,12 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
       }
       return envUrl;
     }
-    // Derive from API_BASE_URL: replace port 8000 with 8001, remove /api
+    // Derive from API_BASE_URL: use /bot/ path instead of port 8001
+    // This routes through Nginx (SSL + rate limiting) instead of direct port access
     const apiUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
     if (apiUrl.isNotEmpty) {
       final uri = Uri.parse(apiUrl);
-      final derived = '${uri.scheme}://${uri.host}:8001';
+      final derived = '${uri.scheme}://${uri.host}/bot';
       if (kReleaseMode && derived.startsWith('http://')) {
         throw StateError('Derived BOT_BASE_URL must use HTTPS in release builds.');
       }
@@ -48,7 +49,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
     if (kReleaseMode) {
       throw StateError('BOT_BASE_URL is required for release builds.');
     }
-    // Web: use localhost; Native (Android emulator): use 10.0.2.2
+    // Dev: use localhost direct port (no Nginx in dev)
     if (kIsWeb) return 'http://localhost:8001';
     return 'http://10.0.2.2:8001';
   }

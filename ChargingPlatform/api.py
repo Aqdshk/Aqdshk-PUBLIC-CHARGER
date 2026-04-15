@@ -65,6 +65,46 @@ from security import (
 
 logger = logging.getLogger(__name__)
 
+
+def _utcnow():
+    """Timezone-safe replacement for deprecated _utcnow()"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ─── Charger metadata helpers ─────────────────────────────────────────────────
+
+def _parse_power_from_model(model: Optional[str]) -> Optional[float]:
+    """Extract kW rating from model name, e.g. '30kW' → 30.0, '7.4kw' → 7.4."""
+    if not model:
+        return None
+    match = re.search(r'(\d+\.?\d*)\s*kw', model, re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def _infer_connector_type(max_power_kw: Optional[float]) -> Optional[str]:
+    """Infer connector type from power rating. >22kW = DC CCS2, else AC Type 2."""
+    if max_power_kw is None:
+        return None
+    return "CCS2" if max_power_kw > 22 else "Type 2"
+
+
+def _effective_charger_specs(
+    max_power_kw: Optional[float],
+    connector_type: Optional[str],
+    model: Optional[str],
+) -> tuple[Optional[float], Optional[str]]:
+    """Return (max_power_kw, connector_type) filling blanks from model name heuristics."""
+    power = max_power_kw
+    if power is None:
+        power = _parse_power_from_model(model)
+    ctype = connector_type
+    if ctype is None:
+        ctype = _infer_connector_type(power)
+    return power, ctype
+
+
 # Base path for templates/static — use __file__ so paths work regardless of CWD
 _BASE_DIR = Path(__file__).resolve().parent
 
@@ -91,7 +131,7 @@ def _iso_myt_naive_local(v: Optional[datetime]) -> Optional[str]:
 
 
 def _iso_utc_naive_to_myt(v: Optional[datetime]) -> Optional[str]:
-    """Serialize naive datetimes stored from datetime.utcnow() as UTC, then show as MYT."""
+    """Serialize naive datetimes stored from _utcnow() as UTC, then show as MYT."""
     if v is None:
         return None
     if v.tzinfo is None:
@@ -243,13 +283,14 @@ async def _extract_callback_payload(request: Request) -> Dict[str, Any]:
         data = await request.json()
         if isinstance(data, dict):
             return data
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not extract JSON body: %s", e)
 
     try:
         form = await request.form()
         return {str(k): str(v) for k, v in form.items()}
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not extract form body: %s", e)
         return {}
 
 
@@ -306,7 +347,7 @@ def _extract_staff_token(request: Request) -> Optional[str]:
 
 def _get_staff_session_db(token: str, db: Session) -> Optional[dict]:
     """Look up a staff session from the database. Returns staff info dict or None."""
-    now = datetime.utcnow()
+    now = _utcnow()
     row = (
         db.query(StaffSession)
         .filter(StaffSession.token == token, StaffSession.expires_at > now)
@@ -449,7 +490,16 @@ class ChargerStatus(BaseModel):
     status: str
     availability: str
     last_heartbeat: Optional[datetime]
-    active_transaction_id: Optional[int] = None  # Add active transaction ID
+    active_transaction_id: Optional[int] = None
+    number_of_connectors: Optional[int] = None
+    # Physical / location info
+    location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    connector_type: Optional[str] = None
+    max_power_kw: Optional[float] = None
+    # Pricing (filled at query time)
+    price_per_kwh: Optional[float] = None
 
     @field_serializer("last_heartbeat")
     def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
@@ -703,13 +753,23 @@ async def get_chargers(
 ):
     """Get all chargers with their status. Use online_only=1 for dropdowns (metering, sessions, operations)."""
     chargers = db.query(Charger).all()
-    
+
+    # Load pricing once: per-charger entries keyed by charger_id; fallback = charger_id IS NULL
+    all_pricing = db.query(Pricing).filter(Pricing.is_active == True).all()
+    pricing_by_charger: dict[Optional[int], float] = {}
+    default_price: float = 0.50
+    for p in all_pricing:
+        if p.charger_id is None:
+            default_price = float(p.price_per_kwh)
+        else:
+            pricing_by_charger[p.charger_id] = float(p.price_per_kwh)
+
     # Add active transaction_id for each charger
     result = []
     for charger in chargers:
         # Find active session for this charger
         # Include both active and recent pending sessions (within PENDING_SESSION_WINDOW_MINUTES)
-        pending_cutoff = datetime.utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
+        pending_cutoff = _utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
         # Include interrupted/stopping so Stop button still gets a real OCPP transaction id
         active_session = db.query(ChargingSession).filter(
             ChargingSession.charger_id == charger.id,
@@ -723,14 +783,16 @@ async def get_chargers(
             ),
         ).order_by(desc(ChargingSession.start_time)).first()
 
-        # Compute effective status: WebSocket connected AND heartbeat within threshold
-        # Guards against stale/zombie connections
+        # Compute effective status: recent heartbeat = online.
+        # active_charge_points is in-memory and can desync on race conditions;
+        # last_heartbeat in DB is the reliable source of truth.
+        # If heartbeat is stale (> threshold), charger is offline regardless.
         heartbeat_age_ok = False
         if charger.last_heartbeat:
-            age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
+            age = _utcnow() - charger.last_heartbeat.replace(tzinfo=None)
             heartbeat_age_ok = age.total_seconds() < (OFFLINE_THRESHOLD_MINUTES * 60)
 
-        if charger.charge_point_id in active_charge_points and heartbeat_age_ok:
+        if heartbeat_age_ok:
             effective_status = "online"
         else:
             effective_status = "offline"
@@ -756,6 +818,13 @@ async def get_chargers(
             if not include:
                 continue
 
+        price_per_kwh = pricing_by_charger.get(charger.id, default_price)
+
+        # Fill max_power_kw / connector_type from model name if not manually set
+        eff_power, eff_connector = _effective_charger_specs(
+            charger.max_power_kw, charger.connector_type, charger.model
+        )
+
         charger_dict = {
             "id": charger.id,
             "charge_point_id": charger.charge_point_id,
@@ -765,7 +834,14 @@ async def get_chargers(
             "status": effective_status,
             "availability": effective_availability,
             "last_heartbeat": charger.last_heartbeat,
-            "active_transaction_id": active_txn_id
+            "active_transaction_id": active_txn_id,
+            "number_of_connectors": charger.number_of_connectors,
+            "location": charger.location,
+            "latitude": charger.latitude,
+            "longitude": charger.longitude,
+            "connector_type": eff_connector,
+            "max_power_kw": eff_power,
+            "price_per_kwh": price_per_kwh,
         }
         result.append(ChargerStatus(**charger_dict))
     
@@ -781,10 +857,10 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
 
     heartbeat_age_ok = False
     if charger.last_heartbeat:
-        age = datetime.utcnow() - charger.last_heartbeat.replace(tzinfo=None)
+        age = _utcnow() - charger.last_heartbeat.replace(tzinfo=None)
         heartbeat_age_ok = age.total_seconds() < (OFFLINE_THRESHOLD_MINUTES * 60)
 
-    if charge_point_id in active_charge_points and heartbeat_age_ok:
+    if heartbeat_age_ok:
         effective_status = "online"
     else:
         effective_status = "offline"
@@ -856,6 +932,127 @@ async def admin_create_charger(
     db.refresh(charger)
     logger.info(f"Charger {cp_id} manually registered by admin")
     return charger
+
+
+class UpdateChargerInfoRequest(BaseModel):
+    location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    connector_type: Optional[str] = None
+    max_power_kw: Optional[float] = None
+
+
+@app.patch("/api/admin/chargers/{charge_point_id}/info")
+async def update_charger_info(
+    charge_point_id: str,
+    req: UpdateChargerInfoRequest,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually update charger physical info: location, GPS, connector type, max power."""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+    if req.location is not None:
+        charger.location = req.location
+    if req.latitude is not None:
+        charger.latitude = req.latitude
+    if req.longitude is not None:
+        charger.longitude = req.longitude
+    if req.connector_type is not None:
+        charger.connector_type = req.connector_type
+    if req.max_power_kw is not None:
+        charger.max_power_kw = req.max_power_kw
+    db.commit()
+    logger.info(f"Charger {charge_point_id} info updated by admin")
+    eff_power, eff_connector = _effective_charger_specs(charger.max_power_kw, charger.connector_type, charger.model)
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "location": charger.location,
+        "latitude": charger.latitude,
+        "longitude": charger.longitude,
+        "connector_type": eff_connector,
+        "max_power_kw": eff_power,
+    }
+
+
+@app.post("/api/admin/chargers/{charge_point_id}/auto-detect")
+async def auto_detect_charger_info(
+    charge_point_id: str,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Query the charger via OCPP GetConfiguration to auto-detect location (GPS keys)
+    and update max_power_kw/connector_type from model name if not already set.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    updates = {}
+
+    # Auto-fill power + connector from model name if not manually set
+    if charger.max_power_kw is None and charger.model:
+        parsed = _parse_power_from_model(charger.model)
+        if parsed:
+            charger.max_power_kw = parsed
+            updates["max_power_kw"] = parsed
+
+    if charger.connector_type is None and charger.max_power_kw is not None:
+        inferred = _infer_connector_type(charger.max_power_kw)
+        if inferred:
+            charger.connector_type = inferred
+            updates["connector_type"] = inferred
+
+    # Try GetConfiguration for GPS location keys
+    cp = get_active_charge_point(charge_point_id)
+    gps_found = False
+    if cp:
+        try:
+            gps_keys = [
+                "ChargePointLatitude", "ChargePointLongitude",
+                "GPSLatitude", "GPSLongitude",
+                "Latitude", "Longitude",
+                "ChargePointLocation",
+            ]
+            config_resp = await cp.get_configuration(key=gps_keys)
+            if config_resp and hasattr(config_resp, 'configuration_key'):
+                config_map = {
+                    item['key'].lower(): item.get('value', '')
+                    for item in (config_resp.configuration_key or [])
+                }
+                lat_val = (
+                    config_map.get('chargepointlatitude') or
+                    config_map.get('gpslatitude') or
+                    config_map.get('latitude')
+                )
+                lng_val = (
+                    config_map.get('chargepointlongitude') or
+                    config_map.get('gpslongitude') or
+                    config_map.get('longitude')
+                )
+                if lat_val and lng_val:
+                    try:
+                        charger.latitude = float(lat_val)
+                        charger.longitude = float(lng_val)
+                        updates["latitude"] = charger.latitude
+                        updates["longitude"] = charger.longitude
+                        gps_found = True
+                    except ValueError:
+                        pass
+        except Exception as e:
+            logger.warning(f"GetConfiguration for GPS failed on {charge_point_id}: {e}")
+
+    db.commit()
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "updates": updates,
+        "gps_found_via_ocpp": gps_found,
+        "message": "GPS not available via OCPP — please set location manually via PATCH /api/admin/chargers/{id}/info" if not gps_found else "GPS coordinates retrieved from charger",
+    }
 
 
 @app.get("/api/sessions", response_model=List[ChargingSessionResponse])
@@ -1164,6 +1361,25 @@ class DataTransferRequest(BaseModel):
     vendor_id: str
     message_id: Optional[str] = None
     data: Optional[str] = None
+
+
+class GacSetChargingScheduleRequest(BaseModel):
+    """GAC vendor-specific SetChargingSchedule via DataTransfer.
+
+    dateSchedule: list of day numbers — 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+    start_time / end_time: "HH:MM" 24-hour format (e.g. "08:00", "18:30") in MYT (UTC+8)
+    date: optional "YYYY-MM-DD" — defaults to today in MYT. Use to schedule a future date.
+    reservation_id: integer, default 1
+    recurrency: true = repeats weekly on dateSchedule days; false = one-shot
+    purpose: "set" to set schedule, "clear" to remove
+    """
+    start_time: str           # "HH:MM"
+    end_time: str             # "HH:MM"
+    date_schedule: list[int]  # e.g. [1,2,3,4,5] for weekdays
+    date: Optional[str] = None  # "YYYY-MM-DD", defaults to today MYT
+    reservation_id: int = 1
+    recurrency: bool = True
+    purpose: str = "set"
 
 
 class SendLocalListRequest(BaseModel):
@@ -1476,6 +1692,106 @@ async def ocpp_data_transfer(charge_point_id: str, request: DataTransferRequest,
     else:
         msg = f"Status: {status}"
     return OcppOperationResponse(success=status == "Accepted", message=msg, data={"status": status, "data": resp_data})
+
+
+@app.post("/api/ocpp/{charge_point_id}/gac-set-charging-schedule", response_model=OcppOperationResponse)
+async def ocpp_gac_set_charging_schedule(
+    charge_point_id: str,
+    request: GacSetChargingScheduleRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """GAC vendor-specific scheduled charging via DataTransfer.
+
+    Sends SetChargingSchedule with base64-encoded JSON payload as required by GAC firmware.
+    Confirmed format: full ISO datetime with timezone (e.g. "2026-04-13T11:30:00+08:00").
+
+    dateSchedule day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun
+    startTime / endTime: "HH:MM" 24-hour format — server builds full ISO datetime in MYT (UTC+8).
+    """
+    import base64, json as _json
+
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+
+    # Validate time format
+    time_pattern = re.compile(r'^\d{2}:\d{2}$')
+    if not time_pattern.match(request.start_time) or not time_pattern.match(request.end_time):
+        raise HTTPException(status_code=400, detail="startTime and endTime must be in HH:MM format (e.g. '08:00')")
+
+    # Validate day numbers
+    valid_days = set(range(1, 8))  # 1–7
+    if not all(d in valid_days for d in request.date_schedule):
+        raise HTTPException(status_code=400, detail="dateSchedule values must be 1–7 (1=Mon ... 7=Sun)")
+
+    # Build full ISO datetime with MYT timezone (+08:00)
+    myt = timezone(timedelta(hours=8))
+    if request.date:
+        try:
+            base_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format")
+    else:
+        base_date = datetime.now(myt).date()
+
+    start_h, start_m = map(int, request.start_time.split(":"))
+    end_h, end_m = map(int, request.end_time.split(":"))
+
+    start_dt = datetime(base_date.year, base_date.month, base_date.day, start_h, start_m, 0, tzinfo=myt)
+    end_dt = datetime(base_date.year, base_date.month, base_date.day, end_h, end_m, 0, tzinfo=myt)
+
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+
+    # Build payload and base64-encode as required by GAC firmware
+    payload = {
+        "purpose": request.purpose,
+        "reservationId": request.reservation_id,
+        "recurrency": request.recurrency,
+        "startTime": start_iso,
+        "endTime": end_iso,
+        "dateSchedule": request.date_schedule,
+    }
+    encoded_data = base64.b64encode(_json.dumps(payload, separators=(',', ':')).encode()).decode()
+
+    logger.info(
+        f"GAC SetChargingSchedule → {charge_point_id}: "
+        f"days={request.date_schedule} {start_iso}–{end_iso} "
+        f"recurrency={request.recurrency} purpose={request.purpose}"
+    )
+
+    resp = await cp.data_transfer(
+        vendor_id="GAC",
+        message_id="SetChargingSchedule",
+        data=encoded_data,
+    )
+
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+
+    status = getattr(resp, "status", "Unknown")
+    resp_data = getattr(resp, "data", None)
+
+    if status == "Accepted":
+        day_names = {1:"Mon",2:"Tue",3:"Wed",4:"Thu",5:"Fri",6:"Sat",7:"Sun"}
+        days_str = ", ".join(day_names.get(d, str(d)) for d in request.date_schedule)
+        msg = f"Schedule set: {request.start_time}–{request.end_time} on {days_str}"
+    elif status == "Invalid":
+        msg = "Charger rejected the schedule (status: Invalid). Check time format or whether the feature is enabled on this unit."
+    elif status == "Timeout":
+        msg = "No response from charger within timeout. The unit may not support SetChargingSchedule."
+    else:
+        msg = f"Status: {status}"
+
+    return OcppOperationResponse(
+        success=status == "Accepted",
+        message=msg,
+        data={"status": status, "payload_sent": payload, "data": resp_data},
+    )
 
 
 @app.post("/api/ocpp/{charge_point_id}/get-local-list-version", response_model=OcppOperationResponse)
@@ -2021,7 +2337,7 @@ async def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
             db.query(OTPVerification)
             .filter(
                 OTPVerification.email == email,
-                OTPVerification.created_at > datetime.utcnow() - timedelta(seconds=60),
+                OTPVerification.created_at > _utcnow() - timedelta(seconds=60),
             )
             .first()
         )
@@ -2041,7 +2357,7 @@ async def send_otp(request: SendOTPRequest, db: Session = Depends(get_db)):
         otp_record = OTPVerification(
             email=email,
             otp_code=otp_hash,  # store hash, not plaintext
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            expires_at=_utcnow() + timedelta(minutes=5),
         )
         db.add(otp_record)
         db.commit()
@@ -2155,7 +2471,7 @@ async def forgot_password(request: ForgotPasswordRequest, req: Request, db: Sess
         otp_record = OTPVerification(
             email=email,
             otp_code=otp_code,
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            expires_at=_utcnow() + timedelta(minutes=5),
         )
         db.add(otp_record)
         db.commit()
@@ -2200,7 +2516,7 @@ async def reset_password(request: ResetPasswordRequest, req: Request, db: Sessio
                     OTPVerification.email == email,
                     OTPVerification.otp_code == otp_code,
                     OTPVerification.is_verified == False,
-                    OTPVerification.expires_at > datetime.utcnow(),
+                    OTPVerification.expires_at > _utcnow(),
                 )
                 .order_by(OTPVerification.created_at.desc())
                 .first()
@@ -2354,7 +2670,7 @@ async def register_user_with_otp(request: RegisterWithOTPRequest, db: Session = 
             )
 
         # Check OTP not older than 10 minutes (grace period after verification)
-        if otp_record.created_at < datetime.utcnow() - timedelta(minutes=10):
+        if otp_record.created_at < _utcnow() - timedelta(minutes=10):
             return AuthResponse(
                 success=False,
                 message="Verification expired. Please verify your email again."
@@ -2453,7 +2769,7 @@ async def login_user(request: UserLoginRequest, req: Request, db: Session = Depe
         
         # Successful login — reset failed attempts
         user.reset_failed_logins()
-        user.last_login = datetime.utcnow()
+        user.last_login = _utcnow()
         db.commit()
         
         # Get wallet
@@ -3158,7 +3474,7 @@ async def admin_login(request: AdminLoginRequest, db: Session = Depends(get_db))
         admin_sessions[admin_token] = user.id
         
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = _utcnow()
         db.commit()
         
         logger.info(f"Admin logged in: {user.email} (ID: {user.id})")
@@ -3449,7 +3765,7 @@ async def admin_get_stats(
     total_balance = float(db.query(func.sum(Wallet.balance)).scalar() or 0)
     
     # Recent registrations (last 7 days)
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = _utcnow() - timedelta(days=7)
     recent_registrations = db.query(User).filter(User.created_at >= week_ago).count()
     
     return {
@@ -3479,7 +3795,7 @@ async def admin_user_report(
     unverified = total - verified
 
     # Registration trend (last 30 days, grouped by day)
-    now = datetime.utcnow()
+    now = _utcnow()
     trend = []
     for i in range(29, -1, -1):
         day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -3728,7 +4044,7 @@ async def create_maintenance_record(data: MaintenanceCreate, db: Session = Depen
         technician_name=data.technician_name,
         status=data.status,
         date_scheduled=data.date_scheduled,
-        date_completed=data.date_completed or (datetime.utcnow() if data.status == "completed" else None),
+        date_completed=data.date_completed or (_utcnow() if data.status == "completed" else None),
         notes=data.notes
     )
     
@@ -3780,7 +4096,7 @@ async def update_maintenance_record(record_id: int, data: MaintenanceUpdate, db:
         record.status = data.status
         # Auto-set date_completed when status changes to completed
         if data.status == "completed" and not record.date_completed:
-            record.date_completed = datetime.utcnow()
+            record.date_completed = _utcnow()
     if data.date_scheduled is not None:
         record.date_scheduled = data.date_scheduled
     if data.date_completed is not None:
@@ -4109,7 +4425,7 @@ def _auto_assign_staff(db: Session, category: str, priority: str) -> Optional[Su
 
 def _generate_ticket_number(db: Session) -> str:
     """Generate a unique ticket number like TKT-20260215-0001."""
-    today = datetime.utcnow().strftime("%Y%m%d")
+    today = _utcnow().strftime("%Y%m%d")
     prefix = f"TKT-{today}-"
     last = (
         db.query(SupportTicket)
@@ -4136,7 +4452,7 @@ async def create_ticket(req: CreateTicketRequest, db: Session = Depends(get_db))
 
     # Calculate SLA deadline
     sla_hours = TICKET_SLA_HOURS.get(req.priority, 24)
-    due_at = datetime.utcnow() + timedelta(hours=sla_hours)
+    due_at = _utcnow() + timedelta(hours=sla_hours)
 
     ticket = SupportTicket(
         ticket_number=ticket_number,
@@ -4261,7 +4577,7 @@ async def list_tickets(
                 "resolved_at": t.resolved_at.isoformat() if t.resolved_at else None,
                 "due_at": t.due_at.isoformat() if t.due_at else None,
                 "escalated": t.escalated or False,
-                "is_overdue": (t.due_at is not None and datetime.utcnow() > t.due_at and t.status not in ("resolved", "closed")),
+                "is_overdue": (t.due_at is not None and _utcnow() > t.due_at and t.status not in ("resolved", "closed")),
                 "message_count": len(t.messages),
             }
             for t in tickets
@@ -4295,7 +4611,7 @@ async def ticket_stats(
     )
 
     # Overdue count
-    now = datetime.utcnow()
+    now = _utcnow()
     overdue_count = db.query(SupportTicket).filter(
         SupportTicket.due_at.isnot(None),
         SupportTicket.due_at < now,
@@ -4328,7 +4644,7 @@ async def ticket_stats(
 @app.get("/api/tickets/overdue")
 async def get_overdue_tickets(db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_admin)):
     """Get all overdue and soon-due tickets for reminder dashboard."""
-    now = datetime.utcnow()
+    now = _utcnow()
     warning_deadline = now + timedelta(hours=2)
 
     # Overdue tickets
@@ -4419,7 +4735,7 @@ async def get_ticket(ticket_id: int, db: Session = Depends(get_db), _auth: dict 
         "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at else None,
         "due_at": ticket.due_at.isoformat() if ticket.due_at else None,
         "escalated": ticket.escalated or False,
-        "is_overdue": (ticket.due_at is not None and datetime.utcnow() > ticket.due_at and ticket.status not in ("resolved", "closed")),
+        "is_overdue": (ticket.due_at is not None and _utcnow() > ticket.due_at and ticket.status not in ("resolved", "closed")),
         "sla_hours": TICKET_SLA_HOURS.get(ticket.priority, 24),
         "messages": [
             {
@@ -4445,12 +4761,12 @@ async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = 
     if req.status is not None:
         ticket.status = req.status
         if req.status in ("resolved", "closed") and not ticket.resolved_at:
-            ticket.resolved_at = datetime.utcnow()
+            ticket.resolved_at = _utcnow()
     if req.priority is not None:
         ticket.priority = req.priority
         # Recalculate SLA deadline based on new priority
         sla_hours = TICKET_SLA_HOURS.get(req.priority, 24)
-        ticket.due_at = ticket.created_at + timedelta(hours=sla_hours) if ticket.created_at else datetime.utcnow() + timedelta(hours=sla_hours)
+        ticket.due_at = ticket.created_at + timedelta(hours=sla_hours) if ticket.created_at else _utcnow() + timedelta(hours=sla_hours)
     if req.assigned_staff_id is not None:
         staff = db.query(SupportStaff).filter(SupportStaff.id == req.assigned_staff_id).first()
         if staff:
@@ -4461,7 +4777,7 @@ async def update_ticket(ticket_id: int, req: UpdateTicketRequest, db: Session = 
     if req.resolution_notes is not None:
         ticket.resolution_notes = req.resolution_notes
 
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = _utcnow()
     db.commit()
 
     # Email user on status change
@@ -4491,11 +4807,11 @@ async def add_ticket_message(ticket_id: int, req: TicketMessageRequest, db: Sess
 
     # If admin replies for the first time, record first response time
     if req.sender_type == "admin" and not ticket.first_response_at:
-        ticket.first_response_at = datetime.utcnow()
+        ticket.first_response_at = _utcnow()
     if req.sender_type == "admin" and ticket.status == "open":
         ticket.status = "in_progress"
 
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = _utcnow()
     db.commit()
 
     # Notify user by email when admin replies
@@ -4575,10 +4891,10 @@ async def staff_login(req: StaffLoginRequest, request: Request, db: Session = De
         elif not staff.is_active:
             raise HTTPException(status_code=403, detail="Account disabled")
 
-    staff.last_login = datetime.utcnow()
+    staff.last_login = _utcnow()
 
     token = secrets.token_hex(32)
-    expires = datetime.utcnow() + timedelta(days=_STAFF_SESSION_TTL_DAYS)
+    expires = _utcnow() + timedelta(days=_STAFF_SESSION_TTL_DAYS)
     db.add(StaffSession(staff_id=staff.id, token=token, expires_at=expires))
     db.commit()
 
@@ -4661,7 +4977,7 @@ async def staff_my_tickets(
                 "updated_at": t.updated_at.isoformat() if t.updated_at else None,
                 "due_at": t.due_at.isoformat() if t.due_at else None,
                 "escalated": t.escalated or False,
-                "is_overdue": (t.due_at is not None and datetime.utcnow() > t.due_at and t.status not in ("resolved", "closed")),
+                "is_overdue": (t.due_at is not None and _utcnow() > t.due_at and t.status not in ("resolved", "closed")),
                 "message_count": len(t.messages),
             }
             for t in tickets
@@ -5161,7 +5477,7 @@ async def create_topup(
         gateway_name=gw_config_dict["gateway_name"],
         status="pending",
         purpose="topup",
-        expired_at=datetime.utcnow() + timedelta(hours=1),
+        expired_at=_utcnow() + timedelta(hours=1),
     )
     db.add(txn)
     db.commit()
@@ -5297,7 +5613,7 @@ async def payment_callback(gateway_name: str, request: Request, db: Session = De
 
     if callback_status == "success":
         txn.status = "success"
-        txn.paid_at = datetime.utcnow()
+        txn.paid_at = _utcnow()
 
         # Credit user's wallet
         _credit_wallet(db, txn)
@@ -5399,7 +5715,7 @@ async def approve_manual_payment(
         return {"success": False, "message": "Only manual payments can be approved"}
 
     txn.status = "success"
-    txn.paid_at = datetime.utcnow()
+    txn.paid_at = _utcnow()
     txn.gateway_status = "admin_approved"
 
     _credit_wallet(db, txn)
@@ -5506,7 +5822,7 @@ async def analytics_overview(
     Comprehensive analytics overview — aggregates ALL platform data.
     Returns revenue, traffic, charger utilization, user growth, and more.
     """
-    now = datetime.utcnow()
+    now = _utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
@@ -5812,7 +6128,7 @@ async def analytics_insights(
     AI-powered insights and recommendations engine.
     Analyzes all platform data and generates actionable suggestions.
     """
-    now = datetime.utcnow()
+    now = _utcnow()
     month_ago = now - timedelta(days=30)
     week_ago = now - timedelta(days=7)
     prev_month_start = now - timedelta(days=60)
@@ -6092,7 +6408,7 @@ async def _check_and_send_reminders():
     from database import SessionLocal
     db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = _utcnow()
         warning_deadline = now + timedelta(hours=2)
         cooldown_cutoff = now - timedelta(hours=REMINDER_COOLDOWN_HOURS)
 

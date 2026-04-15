@@ -33,6 +33,12 @@ from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault, 
 
 logger = logging.getLogger(__name__)
 
+
+def _utcnow():
+    """Timezone-safe replacement for deprecated _utcnow()"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 # ─── Globals ─────────────────────────────────────────────────────────────
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 # Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
@@ -149,7 +155,7 @@ class ChargePoint(cp):
                     model=charge_point_model,
                     firmware_version=kwargs.get('firmware_version', 'Unknown'),
                     status="online",
-                    last_heartbeat=datetime.utcnow()
+                    last_heartbeat=_utcnow()
                 )
                 self.db.add(charger)
             else:
@@ -157,7 +163,7 @@ class ChargePoint(cp):
                 charger.model = charge_point_model
                 charger.firmware_version = kwargs.get('firmware_version', charger.firmware_version)
                 charger.status = "online"
-                charger.last_heartbeat = datetime.utcnow()
+                charger.last_heartbeat = _utcnow()
                 
                 # BootNotification means charger just rebooted — any active/pending sessions
                 # from before the reboot are orphaned (StopTransaction was never received).
@@ -168,7 +174,7 @@ class ChargePoint(cp):
                     ).all()
                     
                 if orphaned:
-                    now = datetime.utcnow()
+                    now = _utcnow()
                     for s in orphaned:
                         last_meter = (
                             self.db.query(MeterValue)
@@ -187,8 +193,18 @@ class ChargePoint(cp):
                     charger.availability = "available"
                     logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
             
+            # Auto-populate max_power_kw from model name if not manually set (e.g. "30kW" → 30.0)
+            if charger.max_power_kw is None and charge_point_model:
+                match = re.search(r'(\d+\.?\d*)\s*kw', charge_point_model, re.IGNORECASE)
+                if match:
+                    charger.max_power_kw = float(match.group(1))
+
+            # Auto-infer connector_type from power if not manually set (>22kW = DC CCS2, else AC Type 2)
+            if charger.connector_type is None and charger.max_power_kw is not None:
+                charger.connector_type = "CCS2" if charger.max_power_kw > 22 else "Type 2"
+
             self.db.commit()
-            
+
             # Get charger configuration for heartbeat interval
             # Cap at 30s so ESP32 sends heartbeats frequently - DB default 7200 causes "offline" after 90s
             raw_interval = getattr(charger, 'heartbeat_interval', None) or 10
@@ -311,7 +327,7 @@ class ChargePoint(cp):
                                 f"{active_session.transaction_id} (charger stopped charging)"
                             )
                             active_session.status = 'completed'
-                            active_session.stop_time = datetime.utcnow()
+                            active_session.stop_time = _utcnow()
                     else:
                         # Other statuses (Unavailable, Faulted, etc.) - update availability
                         charger.availability = new_availability
@@ -325,7 +341,7 @@ class ChargePoint(cp):
                         ).all()
                         for session in placeholder_sessions:
                             session.status = 'completed'
-                            session.stop_time = datetime.utcnow()
+                            session.stop_time = _utcnow()
                             logger.info(f"Cleared placeholder session (transaction_id={session.transaction_id}) for charger {self.id}")
                     except Exception as e:
                         logger.error(f"Error clearing placeholder sessions for charger {self.id}: {e}", exc_info=True)
@@ -335,7 +351,7 @@ class ChargePoint(cp):
                     # Fallback: use simple status mapping when error occurs
                     charger.availability = status_map.get(status, 'unknown')
             
-            charger.last_heartbeat = datetime.utcnow()
+            charger.last_heartbeat = _utcnow()
             charger.status = 'online'  # Update status to online when we receive StatusNotification
             
             # Handle faults
@@ -359,7 +375,7 @@ class ChargePoint(cp):
                         charger_id=charger.id,
                         fault_type=fault_type,
                         message=f"Error code: {error_code}, Status: {status}",
-                        timestamp=datetime.utcnow()
+                        timestamp=_utcnow()
                     )
                     self.db.add(fault)
             
@@ -368,7 +384,7 @@ class ChargePoint(cp):
                 self.db.query(Fault).filter(
                     Fault.charger_id == charger.id,
                     Fault.cleared == False
-                ).update({'cleared': True, 'cleared_at': datetime.utcnow()})
+                ).update({'cleared': True, 'cleared_at': _utcnow()})
             
             try:
                 self.db.commit()
@@ -592,7 +608,7 @@ class ChargePoint(cp):
         try:
             charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
             if charger:
-                charger.last_heartbeat = datetime.utcnow()
+                charger.last_heartbeat = _utcnow()
                 charger.status = "online"
                 try:
                     self.db.commit()
@@ -612,6 +628,46 @@ class ChargePoint(cp):
             except Exception:
                 pass
             return call_result.Heartbeat(current_time=utc_now_iso_z())
+
+    @on('DataTransfer')
+    async def on_data_transfer(self, vendor_id: str, message_id: str = None, data: str = None, **kwargs):
+        """Handle incoming DataTransfer from charger (e.g. ChargingScheduleReport from GAC)."""
+        import base64, json as _json
+        logger.info(f"DataTransfer from {self.id}: vendor={vendor_id} messageId={message_id}")
+
+        if message_id == "ChargingScheduleReport" and vendor_id == "GAC":
+            # Charger reporting its current schedule — decode and log
+            schedule = None
+            if data:
+                try:
+                    # Try base64 decode first (GAC sends base64-encoded JSON)
+                    decoded = base64.b64decode(data).decode()
+                    schedule = _json.loads(decoded)
+                except Exception:
+                    try:
+                        # Fallback: plain JSON string
+                        schedule = _json.loads(data)
+                    except Exception:
+                        schedule = data
+
+            day_names = {1:"Mon",2:"Tue",3:"Wed",4:"Thu",5:"Fri",6:"Sat",7:"Sun"}
+            if isinstance(schedule, dict):
+                days = [day_names.get(d, str(d)) for d in schedule.get("dateSchedule", [])]
+                logger.info(
+                    f"GAC ChargingScheduleReport from {self.id}: "
+                    f"reservationId={schedule.get('reservationId')} "
+                    f"recurrency={schedule.get('recurrency')} "
+                    f"{schedule.get('startTime')}–{schedule.get('endTime')} "
+                    f"days={days}"
+                )
+            else:
+                logger.info(f"GAC ChargingScheduleReport raw from {self.id}: {data}")
+
+            return call_result.DataTransfer(status="Accepted")
+
+        # Generic handler for any other vendor DataTransfer
+        logger.info(f"DataTransfer from {self.id} (unhandled): vendor={vendor_id} messageId={message_id}")
+        return call_result.DataTransfer(status="Accepted")
 
     # ─── Outbound OCPP Commands (Server → Charger) ─────────────────────────
     async def remote_start_transaction(self, connector_id: int = 1, id_tag: str = "APP_USER"):
@@ -1054,7 +1110,7 @@ async def on_connect(websocket):
             db = SessionLocal()
             charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
             if charger:
-                charger.last_heartbeat = datetime.utcnow()
+                charger.last_heartbeat = _utcnow()
                 charger.status = "online"
                 db.commit()
                 logger.info(f"Updated last_heartbeat for {charge_point_id} on connect")
@@ -1142,7 +1198,7 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
         await asyncio.sleep(interval_seconds)
         try:
             db = SessionLocal()
-            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            cutoff = _utcnow() - timedelta(minutes=30)
 
             stuck_sessions = db.query(ChargingSession).filter(
                 ChargingSession.status.in_(["active", "pending"]),
@@ -1170,7 +1226,7 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
 
                 final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
                 s.status = "interrupted"
-                s.stop_time = datetime.utcnow()
+                s.stop_time = _utcnow()
                 s.energy_consumed = final_energy
 
                 if charger:

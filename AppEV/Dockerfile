@@ -15,7 +15,7 @@ COPY . .
 RUN BUILD_ARGS=""; \
     if [ -n "$API_BASE_URL" ]; then BUILD_ARGS="$BUILD_ARGS --dart-define=API_BASE_URL=$API_BASE_URL"; fi; \
     if [ -n "$BOT_BASE_URL" ]; then BUILD_ARGS="$BUILD_ARGS --dart-define=BOT_BASE_URL=$BOT_BASE_URL"; fi; \
-    flutter build web --release $BUILD_ARGS
+    flutter build web --release --base-href /app/ $BUILD_ARGS
 
 FROM nginx:alpine
 

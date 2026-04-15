@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
 import 'live_charging_screen.dart';
@@ -25,6 +26,30 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
     final isAvailable = status == 'available' || status == 'preparing';
     final vendor = widget.charger['vendor'] ?? 'Unknown';
     final model = widget.charger['model'] ?? '';
+
+    // Real data from DB
+    final location = widget.charger['location']?.toString();
+    final double? distance = (widget.charger['distance'] as num?)?.toDouble();
+    final connectorType = widget.charger['connector_type']?.toString();
+    final double? maxPowerKw = (widget.charger['max_power_kw'] as num?)?.toDouble();
+    final double? pricePerKwh = (widget.charger['price_per_kwh'] as num?)?.toDouble();
+    final int numConnectors = ((widget.charger['number_of_connectors'] as num?)?.toInt()) ?? 1;
+
+    final distanceStr = (distance != null && distance > 0)
+        ? '${distance.toStringAsFixed(1)} km'
+        : '—';
+    final priceStr = pricePerKwh != null
+        ? 'RM ${pricePerKwh.toStringAsFixed(2)}/kWh'
+        : 'RM 0.50/kWh';
+    final powerStr = maxPowerKw != null
+        ? '${maxPowerKw % 1 == 0 ? maxPowerKw.toInt() : maxPowerKw} kW'
+        : '—';
+    // Determine AC/DC from connector type
+    final bool isDC = connectorType != null &&
+        (connectorType.toLowerCase().contains('ccs') ||
+         connectorType.toLowerCase().contains('chademo') ||
+         connectorType.toLowerCase().contains('dc'));
+    final connectorLabel = connectorType ?? 'Type 2';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -147,10 +172,10 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         ),
                         Expanded(
                           child: _InfoItem(
-                            icon: Icons.star,
-                            iconColor: Colors.amber,
-                            label: 'Rating',
-                            value: '4.9 (128)',
+                            icon: Icons.power,
+                            iconColor: AppColors.primaryGreen,
+                            label: 'Power',
+                            value: powerStr,
                           ),
                         ),
                         Container(
@@ -163,7 +188,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             icon: Icons.location_on,
                             iconColor: AppColors.primaryGreen,
                             label: 'Distance',
-                            value: '1.5 km',
+                            value: distanceStr,
                           ),
                         ),
                       ],
@@ -199,9 +224,9 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Lot 123, Jalan Perusahaan,\nShah Alam, Selangor',
+                          location ?? 'Location not available',
                           style: TextStyle(
-                            color: AppColors.textLight,
+                            color: location != null ? AppColors.textLight : AppColors.textLight.withOpacity(0.5),
                             fontSize: 14,
                             height: 1.5,
                           ),
@@ -211,13 +236,27 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Text('Opening navigation...'),
-                                      backgroundColor: AppColors.primaryGreen,
-                                    ),
+                                onPressed: () async {
+                                  final lat = widget.charger['latitude'];
+                                  final lng = widget.charger['longitude'];
+                                  final name = Uri.encodeComponent(
+                                    widget.charger['charge_point_id']?.toString() ?? 'EV Charger'
                                   );
+                                  Uri mapsUrl;
+                                  if (lat != null && lng != null) {
+                                    mapsUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving');
+                                  } else {
+                                    mapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$name+EV+charger');
+                                  }
+                                  if (await canLaunchUrl(mapsUrl)) {
+                                    await launchUrl(mapsUrl, mode: LaunchMode.externalApplication);
+                                  } else {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Could not open Maps')),
+                                      );
+                                    }
+                                  }
                                 },
                                 icon: Icon(Icons.directions, color: AppColors.primaryGreen),
                                 label: Text('Get Directions', style: TextStyle(color: AppColors.primaryGreen)),
@@ -264,9 +303,10 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         ),
                         const SizedBox(height: 16),
                         _DetailRow(label: 'Vendor', value: vendor),
-                        _DetailRow(label: 'Model', value: model.isNotEmpty ? model : 'Standard AC/DC'),
-                        _DetailRow(label: 'Max Power', value: '40 kW'),
-                        _DetailRow(label: 'Pricing', value: 'RM 0.60/kWh'),
+                        _DetailRow(label: 'Model', value: model.isNotEmpty ? model : '—'),
+                        _DetailRow(label: 'Connectors', value: numConnectors.toString()),
+                        _DetailRow(label: 'Max Power', value: powerStr),
+                        _DetailRow(label: 'Pricing', value: priceStr),
                         _DetailRow(label: 'Operating Hours', value: '24/7'),
                       ],
                     ),
@@ -300,22 +340,20 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        _ConnectorTile(
-                          type: 'DC',
-                          name: 'CCS2',
-                          power: '50 kW',
-                          isAvailable: true,
-                          isSelected: _selectedConnector == 0,
-                          onTap: () => setState(() => _selectedConnector = 0),
-                        ),
-                        const SizedBox(height: 8),
-                        _ConnectorTile(
-                          type: 'AC',
-                          name: 'Type 2',
-                          power: '22 kW',
-                          isAvailable: true,
-                          isSelected: _selectedConnector == 1,
-                          onTap: () => setState(() => _selectedConnector = 1),
+                        // Build connector tiles from real data
+                        ...List.generate(
+                          numConnectors,
+                          (index) => Padding(
+                            padding: EdgeInsets.only(bottom: index < numConnectors - 1 ? 8 : 0),
+                            child: _ConnectorTile(
+                              type: isDC ? 'DC' : 'AC',
+                              name: connectorLabel,
+                              power: powerStr,
+                              isAvailable: isAvailable,
+                              isSelected: _selectedConnector == index,
+                              onTap: () => setState(() => _selectedConnector = index),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -399,7 +437,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                       ),
                     ),
                     Text(
-                      'RM 0.60/kWh',
+                      priceStr,
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 18,

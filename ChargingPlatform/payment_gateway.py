@@ -23,7 +23,7 @@ import os
 import secrets
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
@@ -32,6 +32,11 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow():
+    """Timezone-safe replacement for deprecated _utcnow()"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ═══════════════════════════════════════════
@@ -379,7 +384,7 @@ class BillplzGateway(BasePaymentGateway):
             status = "success" if data.get("paid") else "pending"
             if data.get("state") == "due" and data.get("due_at"):
                 due = datetime.fromisoformat(data["due_at"].replace("Z", "+00:00"))
-                if due < datetime.utcnow():
+                if due < _utcnow():
                     status = "expired"
 
             return {
@@ -615,7 +620,8 @@ class TngGateway(BasePaymentGateway):
 
         # Value in cents per TNG Money type (RM 10.00 = 1000 sen)
         value_cents = str(int(round(amount * 100)))
-        req_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        malaysia_time = _utcnow() + timedelta(hours=8)
+        req_time = malaysia_time.strftime("%Y-%m-%dT%H:%M:%S+08:00")
         req_msg_id = str(uuid.uuid4()).replace("-", "")[:32]
 
         # Product code: TNGD QR (default) or DuitNow QR via extra_config
@@ -633,10 +639,10 @@ class TngGateway(BasePaymentGateway):
             "orderAmount": {"value": value_cents, "currency": (currency or "MYR")},
             "merchantTransId": transaction_ref,
             "productCode": product_code,
-            "envinfo": {"terminalType": "SYSTEM", "orderTerminalType": "WEB"},
+            "envInfo": {"terminalType": "SYSTEM", "orderTerminalType": "WEB"},
             "effectiveSeconds": "600",
             "notifyUrl": self.callback_url or "",
-            "extendinfo": json.dumps({"PARTNER_TRANSACTION_ID": transaction_ref}),
+            "extendInfo": json.dumps({"PARTNER_TRANSACTION_ID": transaction_ref}),
         }
         if self.extra_config.get("sub_merchant_id"):
             body["subMerchantId"] = self.extra_config["sub_merchant_id"]
@@ -764,13 +770,82 @@ class TngGateway(BasePaymentGateway):
 
     async def check_status(self, gateway_transaction_id: str) -> dict:
         """
-        Check TNG payment status from gateway.
-        TODO: Implement when TNG status query API spec is available.
+        Check TNG payment status by querying the order query API.
+        Signs request with RSA private key (same pattern as create_payment).
+        Maps TNG resultStatus: S=success, F=failed, U=pending/unknown.
         """
-        return {
-            "status": "pending",
-            "message": "TNG status check scaffold is ready. Waiting for final API spec mapping.",
+        api_url = self._get_api_url()
+        if not api_url:
+            return {"status": "pending", "message": "TNG not configured"}
+
+        client_id = self.api_key or os.getenv("PAYMENT_TNG_API_KEY", "").strip()
+        client_secret = self.api_secret or os.getenv("PAYMENT_TNG_API_SECRET", "").strip()
+        merchant_id = self.merchant_id or os.getenv("PAYMENT_TNG_MERCHANT_ID", "").strip()
+        private_key = self._get_private_key()
+
+        if not all([client_id, merchant_id, private_key]):
+            return {"status": "pending", "message": "TNG not configured"}
+
+        malaysia_time = _utcnow() + timedelta(hours=8)
+        req_time = malaysia_time.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        req_msg_id = str(uuid.uuid4()).replace("-", "")[:32]
+
+        request_obj = {
+            "request": {
+                "head": {
+                    "version": "1.0",
+                    "function": "alipayplus.acquiring.order.query",
+                    "clientId": client_id,
+                    "reqTime": req_time,
+                    "reqMsgId": req_msg_id,
+                },
+                "body": {
+                    "merchantId": merchant_id,
+                    "orderId": gateway_transaction_id,
+                },
+            }
         }
+        if client_secret:
+            request_obj["request"]["head"]["clientSecret"] = client_secret
+
+        try:
+            signature = _tng_sign_message(request_obj["request"], private_key)
+            payload = {**request_obj, "signature": signature}
+
+            # Derive query endpoint from base URL
+            if api_url.endswith("/ordercode") or "/ordercode" in api_url:
+                endpoint = api_url.rsplit("/ordercode", 1)[0] + "/order/query"
+            elif api_url.startswith("http"):
+                endpoint = f"{api_url}/order/query"
+            else:
+                endpoint = f"{api_url}/aps/api/v1/order/query"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(endpoint, json=payload)
+                data = resp.json() if resp.content else {}
+
+            body = data.get("response", data).get("body", data.get("body", {}))
+            result_info = body.get("resultInfo", {})
+            result_status = result_info.get("resultStatus", "")
+            result_msg = result_info.get("resultMsg", "")
+
+            # TNG status codes: S=success, F=failure, U=unknown/processing
+            if result_status == "S":
+                status = "success"
+            elif result_status == "F":
+                status = "failed"
+            else:
+                status = "pending"
+
+            return {
+                "status": status,
+                "message": result_msg,
+                "gateway_transaction_id": body.get("acquirementId", gateway_transaction_id),
+                "raw_response": data,
+            }
+        except Exception as e:
+            logger.error(f"TNG check_status error: {e}", exc_info=True)
+            return {"status": "pending", "message": f"TNG status check error: {e}"}
 
 
 # ═══════════════════════════════════════════
@@ -858,6 +933,6 @@ def get_gateway(config: dict) -> BasePaymentGateway:
 
 def generate_transaction_ref() -> str:
     """Generate unique transaction reference: TXN-YYYYMMDD-XXXXX"""
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = _utcnow().strftime("%Y%m%d")
     random_part = secrets.token_hex(4).upper()
     return f"TXN-{date_str}-{random_part}"

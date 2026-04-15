@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -115,6 +117,8 @@ class _TopUpScreenState extends State<TopUpScreen>
         user.id,
         amount: _amount,
         paymentMethod: _selectedPaymentMethod,
+        // Pass gateway_name for TNG so backend routes to TNG OrderCode API
+        gatewayName: _selectedPaymentMethod == 'tng' ? 'tng' : null,
       );
 
       if (!mounted) return;
@@ -122,10 +126,16 @@ class _TopUpScreenState extends State<TopUpScreen>
 
       if (result['success'] == true) {
         final paymentUrl = result['payment_url'];
+        final qrCode = result['qr_code'] as String?;
         final txnRef = result['transaction_ref'] as String?;
         final status = result['status'] as String?;
 
-        if (paymentUrl != null && paymentUrl.toString().isNotEmpty) {
+        if (qrCode != null && qrCode.isNotEmpty) {
+          // TNG (or DuitNow) returned a QR code string — show QR dialog for user to scan
+          _showTngQrDialog(qrCode, txnRef ?? '', _amount);
+          // Start polling so the dialog auto-closes on payment success
+          _startStatusPolling(txnRef ?? '');
+        } else if (paymentUrl != null && paymentUrl.toString().isNotEmpty) {
           // Gateway returned a payment URL — open in browser
           _showPaymentPendingDialog(txnRef ?? '', _amount);
 
@@ -200,6 +210,152 @@ class _TopUpScreenState extends State<TopUpScreen>
         }
       } catch (_) {}
     });
+  }
+
+  void _showTngQrDialog(String qrData, String txnRef, double amount) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBackground,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1565C0).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.wallet_outlined, color: Color(0xFF1565C0), size: 22),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Touch 'n Go Payment",
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'RM${amount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: AppColors.primaryGreen,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // QR Code
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 220,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Open TNG eWallet app and\nscan this QR code to pay',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textLight,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Ref + copy button
+            GestureDetector(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: txnRef));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Ref copied'), duration: Duration(seconds: 1)),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Ref: $txnRef',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.copy, size: 12, color: AppColors.textLight),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Waiting indicator
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryGreen),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Waiting for payment...',
+                  style: TextStyle(color: AppColors.textLight, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () {
+                _statusPollTimer?.cancel();
+                Navigator.pop(ctx);
+              },
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.textLight, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showPaymentPendingDialog(String txnRef, double amount) {

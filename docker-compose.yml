@@ -129,7 +129,7 @@ services:
 
   # ── Loki — Log storage & indexing ──────────────────────────────────────────
   loki:
-    image: grafana/loki:2.9.4
+    image: grafana/loki:3.3.2
     container_name: loki
     ports:
       - "127.0.0.1:3100:3100"
@@ -148,13 +148,16 @@ services:
 
   # ── Promtail — Log collector (reads Docker container logs → sends to Loki) ──
   promtail:
-    image: grafana/promtail:2.9.4
+    image: grafana/promtail:3.3.2
     container_name: promtail
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log:/var/log:ro
     command: -config.file=/etc/promtail/config.yml
+    environment:
+      # Docker 29+ requires API ≥ 1.44; tell the Go SDK to negotiate at 1.44
+      - DOCKER_API_VERSION=1.44
     networks:
       - ev-network
     depends_on:

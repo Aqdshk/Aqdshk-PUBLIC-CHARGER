@@ -13,7 +13,7 @@ Provides:
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -25,6 +25,12 @@ from sqlalchemy.orm import Session
 from database import AuditLog, User, Wallet, WalletTransaction, get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow():
+    """Timezone-safe replacement for deprecated datetime.utcnow()"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 # ═══════════════════════════════════════════
 #  JWT CONFIGURATION
@@ -55,7 +61,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 def create_access_token(user_id: int, email: str, is_admin: bool = False) -> str:
     """Create a short-lived access token."""
-    now = datetime.utcnow()
+    now = _utcnow()
     payload = {
         "sub": str(user_id),
         "email": email,
@@ -69,7 +75,7 @@ def create_access_token(user_id: int, email: str, is_admin: bool = False) -> str
 
 def create_refresh_token(user_id: int) -> str:
     """Create a long-lived refresh token (for token renewal)."""
-    now = datetime.utcnow()
+    now = _utcnow()
     payload = {
         "sub": str(user_id),
         "type": "refresh",
@@ -249,7 +255,7 @@ def validate_topup_daily_limit(db: Session, user_id: int, amount: Decimal) -> No
     Check that the user has not exceeded MAX_TOPUP_PER_DAY for today.
     Raises HTTPException(400) if the limit would be breached.
     """
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     daily_total = (
         db.query(WalletTransaction)
         .filter(
