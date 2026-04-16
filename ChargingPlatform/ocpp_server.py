@@ -33,6 +33,19 @@ from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault, 
 
 logger = logging.getLogger(__name__)
 
+# ─── Edge Sync (Local Server Mode) ────────────────────────────────────────────
+# When LOCAL_SERVER_MODE=true (Banana Pi), push data to VPS after each OCPP event.
+_LOCAL = os.getenv("LOCAL_SERVER_MODE", "false").lower() == "true"
+if _LOCAL:
+    try:
+        import vps_sync as _sync
+        logger.info("Edge sync enabled — charger/session data will be pushed to VPS")
+    except ImportError:
+        _sync = None  # type: ignore
+        logger.warning("LOCAL_SERVER_MODE=true but vps_sync.py not found — sync disabled")
+else:
+    _sync = None  # type: ignore
+
 
 def _utcnow():
     """Timezone-safe replacement for deprecated _utcnow()"""
@@ -204,6 +217,21 @@ class ChargePoint(cp):
                 charger.connector_type = "CCS2" if charger.max_power_kw > 22 else "Type 2"
 
             self.db.commit()
+
+            # Edge sync → push charger info to VPS
+            if _sync:
+                _sync.sync_charger(
+                    self.id,
+                    status="online",
+                    availability=charger.availability or "available",
+                    vendor=charger.vendor,
+                    model=charger.model,
+                    firmware_version=charger.firmware_version,
+                    connector_type=charger.connector_type,
+                    max_power_kw=charger.max_power_kw,
+                    number_of_connectors=charger.number_of_connectors,
+                    last_heartbeat=utc_now_iso_z(),
+                )
 
             # Get charger configuration for heartbeat interval
             # Cap at 30s so ESP32 sends heartbeats frequently - DB default 7200 causes "offline" after 90s
@@ -393,7 +421,16 @@ class ChargePoint(cp):
                 self.db.rollback()
                 # Don't fail the StatusNotification - just log the error
                 # Return success response to prevent charger from disconnecting
-            
+
+            # Edge sync → push availability update to VPS
+            if _sync:
+                _sync.sync_charger(
+                    self.id,
+                    status="online",
+                    availability=charger.availability,
+                    last_heartbeat=utc_now_iso_z(),
+                )
+
             return call_result.StatusNotification()
         except Exception as e:
             logger.error(f"Unexpected error in StatusNotification handler for charger {self.id}: {e}", exc_info=True)
@@ -455,7 +492,18 @@ class ChargePoint(cp):
                 charger.availability = "charging"
                 charger.status = "online"
                 self.db.commit()
-                
+
+                # Edge sync → push new session to VPS
+                if _sync:
+                    _sync.sync_session_start(
+                        self.id,
+                        transaction_id,
+                        connector_id=connector_id,
+                        start_time=start_dt.isoformat(),
+                        meter_start=meter_start,
+                        user_id=id_tag,
+                    )
+
                 logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
                 
                 return call_result.StartTransaction(
@@ -505,13 +553,23 @@ class ChargePoint(cp):
                 # Else keep energy_consumed from MeterValues stream
 
                 self.db.commit()
-                
+
+                # Edge sync → push completed session to VPS
+                if _sync:
+                    _sync.sync_session_stop(
+                        transaction_id,
+                        stop_time=session.stop_time.isoformat(),
+                        meter_stop=meter_stop,
+                        energy_consumed=session.energy_consumed,
+                        stop_reason=kwargs.get("reason"),
+                    )
+
                 # Update charger availability
                 charger = self.db.query(Charger).filter(Charger.id == session.charger_id).first()
                 if charger:
                     charger.availability = "available"
                     self.db.commit()
-            
+
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}
             )
@@ -580,8 +638,31 @@ class ChargePoint(cp):
                     self.db.commit()
         
         self.db.commit()
+
+        # Edge sync → push latest meter sample to VPS (only last sample per MeterValues message)
+        if _sync and meter_value:
+            last_mv = meter_value[-1]
+            sampled = last_mv.get('sampled_value', last_mv.get('sampledValue', []))
+            _v = _c = _p = _e = None
+            for sv in sampled:
+                try:
+                    val = float(sv.get('value', 0) or 0)
+                except (ValueError, TypeError):
+                    val = 0.0
+                m = sv.get('measurand', '')
+                if m == 'Voltage':                          _v = val
+                elif m == 'Current.Import':                 _c = val
+                elif m == 'Power.Active.Import':            _p = val
+                elif m == 'Energy.Active.Import.Register':  _e = val / 1000.0
+            _sync.sync_meter_value(
+                self.id,
+                transaction_id=transaction_id,
+                timestamp=last_mv.get('timestamp', utc_now_iso_z()),
+                voltage=_v, current=_c, power=_p, total_kwh=_e,
+            )
+
         return call_result.MeterValues()
-    
+
     @on('FirmwareStatusNotification')
     async def on_firmware_status_notification(self, status: str, **kwargs):
         """Handle FirmwareStatusNotification from charging station."""
@@ -613,6 +694,9 @@ class ChargePoint(cp):
                 try:
                     self.db.commit()
                     logger.debug(f"Heartbeat received from {self.id}, status updated to online")
+                    # Edge sync → lightweight heartbeat ping to VPS
+                    if _sync:
+                        _sync.sync_charger(self.id, status="online", last_heartbeat=utc_now_iso_z())
                 except Exception as e:
                     logger.error(f"Error committing heartbeat for charger {self.id}: {e}", exc_info=True)
                     self.db.rollback()

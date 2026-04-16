@@ -443,6 +443,10 @@ app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="sta
 from ocpi import router as ocpi_router
 app.include_router(ocpi_router)
 
+# Edge Sync - receive charger/session data pushed from local OCPP edge servers (Banana Pi)
+from edge_sync import router as edge_sync_router
+app.include_router(edge_sync_router)
+
 
 # ─── Health Check & Global Exception Handler ───────────────────────────────
 
