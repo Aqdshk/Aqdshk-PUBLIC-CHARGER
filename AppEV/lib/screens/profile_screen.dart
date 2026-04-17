@@ -83,149 +83,85 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
 
                         return Opacity(
                           opacity: fadeIn.value,
-                          child: Container(
-                            height: 280,
+                          child: SizedBox(
+                            height: 260,
                             width: double.infinity,
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xFF0A1628),
-                                  Color(0xFF0D1F3C),
-                                  Color(0xFF061020),
-                                ],
-                              ),
-                            ),
                             child: Stack(
-                              alignment: Alignment.center,
+                              fit: StackFit.expand,
                               children: [
-                                // Outer glow ring
+                                // Real EV charging photo
+                                Image.asset(
+                                  'assets/ev_charging_real.jpg',
+                                  fit: BoxFit.cover,
+                                  alignment: const Alignment(0.0, 0.3),
+                                ),
+                                // Dark overlay so text is readable
                                 Container(
-                                  width: 200 + pulse * 20,
-                                  height: 200 + pulse * 20,
                                   decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: RadialGradient(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
                                       colors: [
-                                        AppColors.primaryGreen.withOpacity(0.08 + pulse * 0.06),
+                                        Colors.black.withOpacity(0.45),
+                                        Colors.black.withOpacity(0.65),
+                                        AppColors.background,
+                                      ],
+                                      stops: const [0.0, 0.7, 1.0],
+                                    ),
+                                  ),
+                                ),
+                                // Green tint overlay
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: RadialGradient(
+                                      center: Alignment.center,
+                                      radius: 1.0,
+                                      colors: [
+                                        AppColors.primaryGreen.withOpacity(0.08 + pulse * 0.05),
                                         Colors.transparent,
                                       ],
                                     ),
                                   ),
                                 ),
-                                // Mid glow ring
-                                Container(
-                                  width: 140 + pulse * 10,
-                                  height: 140 + pulse * 10,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: RadialGradient(
-                                      colors: [
-                                        AppColors.primaryGreen.withOpacity(0.12 + pulse * 0.08),
-                                        Colors.transparent,
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                // Floating charger icon
-                                Transform.translate(
-                                  offset: Offset(0, -6 + float * 8),
-                                  child: Container(
-                                    width: 100,
-                                    height: 100,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: const Color(0xFF0D2137),
-                                      border: Border.all(
-                                        color: AppColors.primaryGreen.withOpacity(0.5 + pulse * 0.3),
-                                        width: 2.5,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: AppColors.primaryGreen.withOpacity(0.25 + pulse * 0.2),
-                                          blurRadius: 30 + pulse * 20,
-                                          spreadRadius: 4,
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.ev_station_rounded,
-                                          color: AppColors.primaryGreen,
-                                          size: 42,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'EV',
-                                          style: TextStyle(
-                                            color: AppColors.primaryGreen,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: 2,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                // Small stat chips around the circle
+                                // Stat chips — top corners
                                 Positioned(
-                                  top: 52,
-                                  left: 40,
+                                  top: 16,
+                                  left: 16,
                                   child: _StatChip(
                                     icon: Icons.bolt,
-                                    label: '22 kW',
+                                    label: '22 kW Fast',
                                     color: Colors.amber,
-                                    opacity: 0.7 + pulse * 0.3,
+                                    opacity: 0.85 + pulse * 0.15,
                                   ),
                                 ),
                                 Positioned(
-                                  top: 52,
-                                  right: 40,
+                                  top: 16,
+                                  right: 16,
                                   child: _StatChip(
                                     icon: Icons.eco,
-                                    label: 'Green',
+                                    label: 'Green Energy',
                                     color: AppColors.primaryGreen,
-                                    opacity: 0.7 + pulse * 0.3,
+                                    opacity: 0.85 + pulse * 0.15,
                                   ),
                                 ),
+                                // Pulsing glow dot — centre bottom
                                 Positioned(
-                                  bottom: 44,
-                                  left: 48,
-                                  child: _StatChip(
-                                    icon: Icons.speed,
-                                    label: 'Fast',
-                                    color: const Color(0xFF00E5FF),
-                                    opacity: 0.6 + pulse * 0.3,
-                                  ),
-                                ),
-                                Positioned(
-                                  bottom: 44,
-                                  right: 48,
-                                  child: _StatChip(
-                                    icon: Icons.account_balance_wallet_outlined,
-                                    label: 'Smart',
-                                    color: const Color(0xFF9C88FF),
-                                    opacity: 0.6 + pulse * 0.3,
-                                  ),
-                                ),
-                                // Bottom fade
-                                Positioned(
-                                  bottom: 0,
+                                  bottom: 70,
                                   left: 0,
                                   right: 0,
-                                  child: Container(
-                                    height: 60,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.bottomCenter,
-                                        end: Alignment.topCenter,
-                                        colors: [
-                                          AppColors.background,
-                                          Colors.transparent,
+                                  child: Center(
+                                    child: Container(
+                                      width: 10 + pulse * 4,
+                                      height: 10 + pulse * 4,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: AppColors.primaryGreen,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: AppColors.primaryGreen.withOpacity(0.6),
+                                            blurRadius: 16 + pulse * 12,
+                                            spreadRadius: 2,
+                                          ),
                                         ],
                                       ),
                                     ),

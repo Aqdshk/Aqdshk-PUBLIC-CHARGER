@@ -35,8 +35,9 @@
 <body>
   <script>
     // Register PWA Service Worker for Web Push Notifications
+    // SW is served from /app/push-sw.js (same path as the app base-href)
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/push-sw.js').then(function(reg) {
+      navigator.serviceWorker.register('push-sw.js', {scope: './'}).then(function(reg) {
         console.log('Push SW registered:', reg.scope);
       }).catch(function(err) {
         console.warn('Push SW registration failed:', err);
