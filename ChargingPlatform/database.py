@@ -207,7 +207,7 @@ class PushSubscription(Base):
 
     id         = Column(Integer, primary_key=True, index=True)
     user_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
-    endpoint   = Column(Text, nullable=False, unique=True)
+    endpoint   = Column(String(512), nullable=False, unique=True)  # VARCHAR for MySQL UNIQUE index
     p256dh     = Column(Text, nullable=False)   # browser public key
     auth       = Column(Text, nullable=False)   # auth secret
     user_agent = Column(String(255), nullable=True)
