@@ -67,6 +67,8 @@ class User(Base):
     wallet = relationship("Wallet", back_populates="user", uselist=False)
     wallet_transactions = relationship("WalletTransaction", back_populates="user")
     vehicles = relationship("Vehicle", back_populates="user")
+    charger_reviews  = relationship("ChargerReview",  back_populates="user")
+    charger_bookings = relationship("ChargerBooking", back_populates="user")
     
     def set_password(self, password: str):
         """Hash and set password using PBKDF2-SHA256 with 100k iterations."""
@@ -248,6 +250,8 @@ class Charger(Base):
     meter_values = relationship("MeterValue", back_populates="charger")
     faults = relationship("Fault", back_populates="charger")
     maintenance_records = relationship("MaintenanceRecord", back_populates="charger")
+    reviews  = relationship("ChargerReview",  back_populates="charger")
+    bookings = relationship("ChargerBooking", back_populates="charger")
 
 
 class ChargingSession(Base):
@@ -328,6 +332,40 @@ class Fault(Base):
     cleared_at = Column(DateTime)
     
     charger = relationship("Charger", back_populates="faults")
+
+
+class ChargerReview(Base):
+    """User ratings and reviews for chargers"""
+    __tablename__ = "charger_reviews"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    charger_id = Column(Integer, ForeignKey("chargers.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rating     = Column(Integer, nullable=False)          # 1–5 stars
+    comment    = Column(String(1000), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+    charger = relationship("Charger", back_populates="reviews")
+    user    = relationship("User", back_populates="charger_reviews")
+
+
+class ChargerBooking(Base):
+    """Charger slot reservations made by users"""
+    __tablename__ = "charger_bookings"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    charger_id   = Column(Integer, ForeignKey("chargers.id"), nullable=False)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    connector_id = Column(Integer, default=1)
+    start_time   = Column(DateTime, nullable=False)
+    end_time     = Column(DateTime, nullable=False)
+    # pending → confirmed → completed | cancelled
+    status       = Column(String(50), default="confirmed")
+    notes        = Column(String(500), nullable=True)
+    created_at   = Column(DateTime, default=_utcnow)
+
+    charger = relationship("Charger", back_populates="bookings")
+    user    = relationship("User",    back_populates="charger_bookings")
 
 
 class MaintenanceRecord(Base):

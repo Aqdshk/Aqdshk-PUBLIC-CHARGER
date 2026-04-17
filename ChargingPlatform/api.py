@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
-    Charger, ChargingSession, Fault, MaintenanceRecord, MeterValue,
+    Charger, ChargerReview, ChargerBooking, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     OTPVerification, PaymentGatewayConfig, PaymentTransaction,
     Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
@@ -446,6 +446,10 @@ app.include_router(ocpi_router)
 # Edge Sync - receive charger/session data pushed from local OCPP edge servers (Banana Pi)
 from edge_sync import router as edge_sync_router
 app.include_router(edge_sync_router)
+
+# App Features — reviews, bookings, cost estimate, carbon footprint, kW graph, issue report
+from features_router import router as features_router
+app.include_router(features_router)
 
 
 # ─── Health Check & Global Exception Handler ───────────────────────────────

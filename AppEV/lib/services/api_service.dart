@@ -896,4 +896,168 @@ class ApiService {
       return false;
     }
   }
+
+  // ==================== REVIEWS ====================
+
+  static Future<List<Map<String, dynamic>>> getChargerReviews(String chargePointId) async {
+    try {
+      final response = await _authGet('$baseUrl/chargers/$chargePointId/reviews');
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(json.decode(response.body));
+      }
+      return [];
+    } catch (e) {
+      debugPrint('❌ Get reviews error: $e');
+      return [];
+    }
+  }
+
+  static Future<bool> submitReview(String chargePointId, int rating, String? comment) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/chargers/$chargePointId/reviews',
+        body: json.encode({'rating': rating, 'comment': comment}),
+      );
+      return response.statusCode == 201;
+    } catch (e) {
+      debugPrint('❌ Submit review error: $e');
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> getChargerRating(String chargePointId) async {
+    try {
+      final response = await _authGet('$baseUrl/chargers/$chargePointId/rating');
+      if (response.statusCode == 200) return json.decode(response.body);
+      return {'average': null, 'count': 0};
+    } catch (e) {
+      return {'average': null, 'count': 0};
+    }
+  }
+
+  // ==================== ISSUE REPORT ====================
+
+  static Future<bool> reportChargerIssue(String chargePointId, String issueType, String? description) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/chargers/$chargePointId/report',
+        body: json.encode({'issue_type': issueType, 'description': description}),
+      );
+      return response.statusCode == 201;
+    } catch (e) {
+      debugPrint('❌ Report issue error: $e');
+      return false;
+    }
+  }
+
+  // ==================== COST ESTIMATE ====================
+
+  static Future<Map<String, dynamic>> getCostEstimate(
+    String chargePointId, {
+    double batteryKwh = 60.0,
+    double currentSoc = 20.0,
+    double targetSoc  = 80.0,
+  }) async {
+    try {
+      final response = await _authGet(
+        '$baseUrl/chargers/$chargePointId/cost-estimate'
+        '?battery_kwh=$batteryKwh&current_soc=$currentSoc&target_soc=$targetSoc',
+      );
+      if (response.statusCode == 200) return json.decode(response.body);
+      return {};
+    } catch (e) {
+      debugPrint('❌ Cost estimate error: $e');
+      return {};
+    }
+  }
+
+  // ==================== kW GRAPH ====================
+
+  static Future<List<Map<String, dynamic>>> getSessionMeterValues(int transactionId) async {
+    try {
+      final response = await _authGet('$baseUrl/sessions/$transactionId/meter-values?limit=60');
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(json.decode(response.body));
+      }
+      return [];
+    } catch (e) {
+      debugPrint('❌ Meter values error: $e');
+      return [];
+    }
+  }
+
+  // ==================== CARBON FOOTPRINT ====================
+
+  static Future<Map<String, dynamic>> getCarbonFootprint(int userId) async {
+    try {
+      final response = await _authGet('$baseUrl/users/$userId/carbon-footprint');
+      if (response.statusCode == 200) return json.decode(response.body);
+      return {};
+    } catch (e) {
+      debugPrint('❌ Carbon footprint error: $e');
+      return {};
+    }
+  }
+
+  // ==================== BOOKING ====================
+
+  static Future<List<dynamic>> getAvailableSlots(String chargePointId, String date) async {
+    try {
+      final response = await _authGet('$baseUrl/chargers/$chargePointId/available-slots?date=$date');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['slots'] ?? [];
+      }
+      return [];
+    } catch (e) {
+      debugPrint('❌ Get slots error: $e');
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> createBooking(
+    String chargePointId, {
+    required String startTime,
+    required int durationMin,
+    int connectorId = 1,
+    String? notes,
+  }) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/chargers/$chargePointId/book',
+        body: json.encode({
+          'start_time':   startTime,
+          'duration_min': durationMin,
+          'connector_id': connectorId,
+          'notes':        notes,
+        }),
+      );
+      if (response.statusCode == 201) return json.decode(response.body);
+      final err = json.decode(response.body);
+      return {'error': err['detail'] ?? 'Booking failed'};
+    } catch (e) {
+      return {'error': e.toString()};
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getUserBookings(int userId) async {
+    try {
+      final response = await _authGet('$baseUrl/users/$userId/bookings');
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(json.decode(response.body));
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<bool> cancelBooking(int bookingId) async {
+    try {
+      final response = await _authDelete('$baseUrl/bookings/$bookingId');
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
 }
