@@ -67,8 +67,9 @@ class User(Base):
     wallet = relationship("Wallet", back_populates="user", uselist=False)
     wallet_transactions = relationship("WalletTransaction", back_populates="user")
     vehicles = relationship("Vehicle", back_populates="user")
-    charger_reviews  = relationship("ChargerReview",  back_populates="user")
-    charger_bookings = relationship("ChargerBooking", back_populates="user")
+    charger_reviews    = relationship("ChargerReview",    back_populates="user")
+    charger_bookings   = relationship("ChargerBooking",   back_populates="user")
+    push_subscriptions = relationship("PushSubscription", back_populates="user")
     
     def set_password(self, password: str):
         """Hash and set password using PBKDF2-SHA256 with 100k iterations."""
@@ -199,6 +200,21 @@ class Vehicle(Base):
 
 
 # ==================== OTP VERIFICATION ====================
+
+class PushSubscription(Base):
+    """Browser Web Push subscriptions for PWA notifications."""
+    __tablename__ = "push_subscriptions"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    endpoint   = Column(Text, nullable=False, unique=True)
+    p256dh     = Column(Text, nullable=False)   # browser public key
+    auth       = Column(Text, nullable=False)   # auth secret
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+    user = relationship("User", back_populates="push_subscriptions")
+
 
 class OTPVerification(Base):
     """Store OTP codes for email verification during registration."""

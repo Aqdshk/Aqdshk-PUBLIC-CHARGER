@@ -33,6 +33,16 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script>
+    // Register PWA Service Worker for Web Push Notifications
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/push-sw.js').then(function(reg) {
+        console.log('Push SW registered:', reg.scope);
+      }).catch(function(err) {
+        console.warn('Push SW registration failed:', err);
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

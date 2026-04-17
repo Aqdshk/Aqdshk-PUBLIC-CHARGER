@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from database import (
     SessionLocal, get_db,
     Charger, ChargerReview, ChargerBooking, ChargingSession,
-    Fault, MeterValue, Pricing, User,
+    Fault, MeterValue, Pricing, PushSubscription, User,
 )
 from security import decode_access_token
 
@@ -445,3 +445,59 @@ def cancel_booking(
     booking.status = "cancelled"
     db.commit()
     return {"status": "ok", "message": "Booking cancelled"}
+
+
+# ─── Web Push (PWA) ───────────────────────────────────────────────────────────
+
+class PushSubscriptionIn(BaseModel):
+    endpoint: str
+    p256dh:   str
+    auth:     str
+    user_agent: Optional[str] = None
+
+
+@router.get("/push/vapid-public-key")
+def get_vapid_key():
+    """Return VAPID public key for browser push subscription."""
+    from push_service import get_vapid_public_key
+    key = get_vapid_public_key()
+    if not key:
+        raise HTTPException(503, "Push notifications not configured")
+    return {"public_key": key}
+
+
+@router.post("/push/subscribe", status_code=201)
+def subscribe_push(
+    body: PushSubscriptionIn,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Save browser push subscription. Upserts by endpoint."""
+    user_id = _get_user_id(authorization)
+    existing = db.query(PushSubscription).filter(PushSubscription.endpoint == body.endpoint).first()
+    if existing:
+        existing.p256dh     = body.p256dh
+        existing.auth       = body.auth
+        existing.user_id    = user_id or existing.user_id
+        existing.user_agent = body.user_agent
+    else:
+        sub = PushSubscription(
+            user_id=user_id,
+            endpoint=body.endpoint,
+            p256dh=body.p256dh,
+            auth=body.auth,
+            user_agent=body.user_agent,
+        )
+        db.add(sub)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/push/unsubscribe")
+def unsubscribe_push(
+    endpoint: str,
+    db: Session = Depends(get_db),
+):
+    db.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).delete()
+    db.commit()
+    return {"status": "ok"}
