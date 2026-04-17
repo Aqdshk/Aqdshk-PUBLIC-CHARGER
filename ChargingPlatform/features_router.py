@@ -25,7 +25,7 @@ from database import (
     Charger, ChargerReview, ChargerBooking, ChargingSession,
     Fault, MeterValue, Pricing, PushSubscription, User,
 )
-from security import decode_access_token
+from security import verify_access_token as decode_access_token
 
 logger = logging.getLogger(__name__)
 
