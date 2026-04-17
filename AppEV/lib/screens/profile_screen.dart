@@ -59,12 +59,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
 
   @override
   Widget build(BuildContext context) {
-    final screenW = MediaQuery.of(context).size.width;
-    final screenH = MediaQuery.of(context).size.height;
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    final topPad = MediaQuery.of(context).padding.top;
-    // Full-width image, fills top half of screen
-    final illustrationH = (screenH * 0.45).clamp(260.0, 460.0);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -77,92 +72,167 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
               children: [
                 Column(
                   children: [
-                    // ── Full-width illustration ──
+                    // ── Premium animated hero — no image, pure widget ──
                     AnimatedBuilder(
-                      animation: Listenable.merge([_sceneCtrl, _floatCtrl]),
+                      animation: Listenable.merge([_sceneCtrl, _pulseCtrl, _floatCtrl]),
                       builder: (_, __) {
                         final fadeIn = Tween<double>(begin: 0, end: 1)
                             .animate(CurvedAnimation(parent: _sceneCtrl, curve: Curves.easeOut));
+                        final pulse = _pulseCtrl.value;
+                        final float = _floatCtrl.value;
 
                         return Opacity(
                           opacity: fadeIn.value,
-                          child: Stack(
-                            children: [
-                              // EV city night image — FULL, edge-to-edge, fills entire area
-                              SizedBox(
-                                height: illustrationH,
-                                width: screenW,
-                                child: Image.asset(
-                                  'assets/ev_city_night.jpg',
-                                  fit: BoxFit.cover,
-                                  alignment: const Alignment(0.0, 0.6), // bias bottom to keep car+road visible, crop sky
-                                ),
+                          child: Container(
+                            height: 280,
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color(0xFF0A1628),
+                                  Color(0xFF0D1F3C),
+                                  Color(0xFF061020),
+                                ],
                               ),
-                              // Gradient overlay at bottom for smooth blend
-                              Positioned(
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                child: Container(
-                                  height: illustrationH * 0.35,
+                            ),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Outer glow ring
+                                Container(
+                                  width: 200 + pulse * 20,
+                                  height: 200 + pulse * 20,
                                   decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.bottomCenter,
-                                      end: Alignment.topCenter,
+                                    shape: BoxShape.circle,
+                                    gradient: RadialGradient(
                                       colors: [
-                                        AppColors.background,
-                                        AppColors.background.withOpacity(0.7),
+                                        AppColors.primaryGreen.withOpacity(0.08 + pulse * 0.06),
                                         Colors.transparent,
                                       ],
-                                      stops: const [0.0, 0.45, 1.0],
                                     ),
                                   ),
                                 ),
-                              ),
-                              // Charging bolt badge — positioned in top safe area
-                              AnimatedBuilder(
-                                animation: _pulseCtrl,
-                                builder: (_, __) {
-                                  final s = 1.0 + _pulseCtrl.value * 0.06;
-                                  return Positioned(
-                                    top: topPad + 8,
-                                    left: 0,
-                                    right: 0,
-                                    child: Center(
-                                      child: Transform.scale(
-                                        scale: s,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF00E5FF).withOpacity(0.15),
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: const Color(0xFF00E5FF).withOpacity(0.35),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.bolt, color: const Color(0xFF00E5FF), size: 16),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'EV Charging',
-                                                style: TextStyle(
-                                                  color: const Color(0xFF00E5FF),
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
-                                                  letterSpacing: 0.5,
-                                                ),
-                                              ),
-                                            ],
+                                // Mid glow ring
+                                Container(
+                                  width: 140 + pulse * 10,
+                                  height: 140 + pulse * 10,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: RadialGradient(
+                                      colors: [
+                                        AppColors.primaryGreen.withOpacity(0.12 + pulse * 0.08),
+                                        Colors.transparent,
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // Floating charger icon
+                                Transform.translate(
+                                  offset: Offset(0, -6 + float * 8),
+                                  child: Container(
+                                    width: 100,
+                                    height: 100,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: const Color(0xFF0D2137),
+                                      border: Border.all(
+                                        color: AppColors.primaryGreen.withOpacity(0.5 + pulse * 0.3),
+                                        width: 2.5,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.primaryGreen.withOpacity(0.25 + pulse * 0.2),
+                                          blurRadius: 30 + pulse * 20,
+                                          spreadRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.ev_station_rounded,
+                                          color: AppColors.primaryGreen,
+                                          size: 42,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'EV',
+                                          style: TextStyle(
+                                            color: AppColors.primaryGreen,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 2,
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // Small stat chips around the circle
+                                Positioned(
+                                  top: 52,
+                                  left: 40,
+                                  child: _StatChip(
+                                    icon: Icons.bolt,
+                                    label: '22 kW',
+                                    color: Colors.amber,
+                                    opacity: 0.7 + pulse * 0.3,
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 52,
+                                  right: 40,
+                                  child: _StatChip(
+                                    icon: Icons.eco,
+                                    label: 'Green',
+                                    color: AppColors.primaryGreen,
+                                    opacity: 0.7 + pulse * 0.3,
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 44,
+                                  left: 48,
+                                  child: _StatChip(
+                                    icon: Icons.speed,
+                                    label: 'Fast',
+                                    color: const Color(0xFF00E5FF),
+                                    opacity: 0.6 + pulse * 0.3,
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 44,
+                                  right: 48,
+                                  child: _StatChip(
+                                    icon: Icons.account_balance_wallet_outlined,
+                                    label: 'Smart',
+                                    color: const Color(0xFF9C88FF),
+                                    opacity: 0.6 + pulse * 0.3,
+                                  ),
+                                ),
+                                // Bottom fade
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.bottomCenter,
+                                        end: Alignment.topCenter,
+                                        colors: [
+                                          AppColors.background,
+                                          Colors.transparent,
+                                        ],
                                       ),
                                     ),
-                                  );
-                                },
-                              ),
-                            ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -301,6 +371,39 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
           ),
         );
       },
+    );
+  }
+}
+
+// Small stat chip used inside hero header
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final double opacity;
+
+  const _StatChip({required this.icon, required this.label, required this.color, this.opacity = 1.0});
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: opacity.clamp(0.0, 1.0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.35)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 12),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
     );
   }
 }
