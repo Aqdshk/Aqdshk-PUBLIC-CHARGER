@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/locale_provider.dart';
 import '../constants/app_colors.dart';
 import 'payment_screen.dart';
 import 'history_screen.dart';
@@ -18,6 +19,8 @@ import 'faq_screen.dart';
 import 'contact_us_screen.dart';
 import 'chat_support_screen.dart';
 import 'app_walkthrough_screen.dart';
+import 'my_bookings_screen.dart';
+import 'carbon_footprint_screen.dart';
 
 // ─────────────────────────────────────────────
 // Animated login prompt with EV illustration image
@@ -581,6 +584,16 @@ class ProfileScreen extends StatelessWidget {
                 _MenuItem(icon: Icons.directions_car_outlined, title: 'My Vehicles', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyVehiclesScreen()))),
                 _MenuItem(icon: Icons.subscriptions_outlined, title: 'My Subscriptions', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionsScreen()))),
                 _MenuItem(icon: Icons.history, title: 'Charging History', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()))),
+                _MenuItem(
+                  icon: Icons.calendar_today_outlined,
+                  title: 'My Bookings',
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyBookingsScreen())),
+                ),
+                _MenuItem(
+                  icon: Icons.eco_outlined,
+                  title: 'Carbon Footprint',
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CarbonFootprintScreen())),
+                ),
                 _MenuItem(icon: Icons.business_outlined, title: 'Business Accounts', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessAccountsScreen()))),
 
                 const SizedBox(height: 24),
@@ -592,6 +605,72 @@ class ProfileScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 _SectionHeader('Others'),
                 const SizedBox(height: 8),
+                // Language switcher tile
+                Consumer<LocaleProvider>(
+                  builder: (context, localeProvider, _) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBackground,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.borderLight, width: 1),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.language, color: AppColors.primaryGreen, size: 20),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                'Language / Bahasa',
+                                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w400),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => localeProvider.setLocale(const Locale('en')),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: !localeProvider.isMalay ? AppColors.primaryGreen : AppColors.surface,
+                                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+                                  border: Border.all(color: AppColors.primaryGreen.withOpacity(0.5)),
+                                ),
+                                child: Text(
+                                  'EN',
+                                  style: TextStyle(
+                                    color: !localeProvider.isMalay ? Colors.black : AppColors.textLight,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => localeProvider.setLocale(const Locale('ms')),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: localeProvider.isMalay ? AppColors.primaryGreen : AppColors.surface,
+                                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+                                  border: Border.all(color: AppColors.primaryGreen.withOpacity(0.5)),
+                                ),
+                                child: Text(
+                                  'BM',
+                                  style: TextStyle(
+                                    color: localeProvider.isMalay ? Colors.black : AppColors.textLight,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 _MenuItem(
                   icon: Icons.help_outline,
                   title: 'App Walkthrough',

@@ -4,7 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
+import '../services/api_service.dart';
 import 'live_charging_screen.dart';
+import 'booking_screen.dart';
+import 'rating_review_screen.dart';
 
 class ChargerDetailScreen extends StatefulWidget {
   final Map<String, dynamic> charger;
@@ -18,6 +21,149 @@ class ChargerDetailScreen extends StatefulWidget {
 class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
   bool _isFavourite = false;
   int _selectedConnector = 0;
+  double _avgRating = 0;
+  int _reviewCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRating();
+  }
+
+  Future<void> _loadRating() async {
+    try {
+      final chargerId = widget.charger['charge_point_id']?.toString() ?? '';
+      if (chargerId.isEmpty) return;
+      final data = await ApiService.getChargerRating(chargerId);
+      if (mounted) {
+        setState(() {
+          _avgRating = (data['avg_rating'] as num?)?.toDouble() ?? 0;
+          _reviewCount = (data['review_count'] as num?)?.toInt() ?? 0;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _showReportIssueSheet(BuildContext context, String chargerId) {
+    String _selectedIssue = 'connector_damaged';
+    final _descController = TextEditingController();
+    bool _submitting = false;
+
+    final issueTypes = [
+      {'value': 'connector_damaged', 'label': 'Connector Damaged'},
+      {'value': 'no_power', 'label': 'No Power / Dead'},
+      {'value': 'payment_issue', 'label': 'Payment Issue'},
+      {'value': 'screen_broken', 'label': 'Screen Broken'},
+      {'value': 'vandalism', 'label': 'Vandalism'},
+      {'value': 'other', 'label': 'Other'},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.cardBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 24,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.report_problem, color: Colors.orange),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Report Charger Issue',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('Issue Type', style: TextStyle(color: AppColors.textLight, fontSize: 13)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _selectedIssue,
+                  dropdownColor: AppColors.surface,
+                  style: TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  ),
+                  items: issueTypes.map((t) => DropdownMenuItem(
+                    value: t['value'],
+                    child: Text(t['label']!),
+                  )).toList(),
+                  onChanged: (v) => setModalState(() => _selectedIssue = v ?? _selectedIssue),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _descController,
+                  maxLines: 3,
+                  style: TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: 'Describe the issue (optional)...',
+                    hintStyle: TextStyle(color: AppColors.textLight),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.orange)),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _submitting ? null : () async {
+                      setModalState(() => _submitting = true);
+                      final ok = await ApiService.reportChargerIssue(
+                        chargerId,
+                        _selectedIssue,
+                        _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(ok ? 'Report submitted. Thank you!' : 'Failed to submit report.'),
+                            backgroundColor: ok ? Colors.orange : Colors.red,
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.send, color: Colors.white),
+                    label: Text(_submitting ? 'Submitting...' : 'SUBMIT REPORT', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +548,104 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 100),
+                  const SizedBox(height: 16),
+
+                  // Rating & Reviews Card
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBackground,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderLight),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.star, color: Colors.amber),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Rating & Reviews',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RatingReviewScreen(
+                                    chargePointId: name,
+                                    chargerName: name,
+                                  ),
+                                ),
+                              ).then((_) => _loadRating()),
+                              child: Text(
+                                'See All',
+                                style: TextStyle(color: AppColors.primaryGreen),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text(
+                              _avgRating > 0 ? _avgRating.toStringAsFixed(1) : '—',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 36,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: List.generate(5, (i) => Icon(
+                                    i < _avgRating.round() ? Icons.star : Icons.star_border,
+                                    color: Colors.amber,
+                                    size: 20,
+                                  )),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$_reviewCount review${_reviewCount != 1 ? 's' : ''}',
+                                  style: TextStyle(color: AppColors.textLight, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RatingReviewScreen(
+                                    chargePointId: name,
+                                    chargerName: name,
+                                  ),
+                                ),
+                              ).then((_) => _loadRating()),
+                              icon: const Icon(Icons.rate_review, size: 16, color: Colors.black),
+                              label: const Text('Review', style: TextStyle(color: Colors.black, fontSize: 12)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryGreen,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 120),
                 ],
               ),
             ),
@@ -422,48 +665,90 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
           ],
         ),
         child: SafeArea(
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Estimated Cost',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        fontSize: 12,
+              // Secondary action buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => BookingScreen(charger: widget.charger),
+                        ),
+                      ),
+                      icon: Icon(Icons.calendar_today, color: AppColors.primaryGreen, size: 16),
+                      label: Text('Book Slot', style: TextStyle(color: AppColors.primaryGreen, fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: AppColors.primaryGreen),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
-                    Text(
-                      priceStr,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showReportIssueSheet(context, name),
+                      icon: const Icon(Icons.report_problem, color: Colors.orange, size: 16),
+                      label: const Text('Report Issue', style: TextStyle(color: Colors.orange, fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.orange),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: isAvailable ? () => _startCharging(context) : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isAvailable ? AppColors.primaryGreen : Colors.grey,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 10),
+              // Main price + start charging row
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Estimated Cost',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          priceStr,
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Text(
-                    isAvailable ? 'START CHARGING' : 'NOT AVAILABLE',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: isAvailable ? () => _startCharging(context) : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isAvailable ? AppColors.primaryGreen : Colors.grey,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        isAvailable ? 'START CHARGING' : 'NOT AVAILABLE',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ],
           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
 import 'dart:ui';
@@ -16,6 +17,10 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
   late AnimationController _pulseController;
   SessionProvider? _sessionProvider;
 
+  // Power history for kW chart (x = seconds elapsed, y = kW)
+  final List<FlSpot> _powerHistory = [];
+  double _chartTime = 0;
+
   @override
   void initState() {
     super.initState();
@@ -27,12 +32,28 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sessionProvider = Provider.of<SessionProvider>(context, listen: false);
       _sessionProvider?.startPolling();
+      _sessionProvider?.addListener(_onSessionUpdate);
     });
+  }
+
+  void _onSessionUpdate() {
+    final session = _sessionProvider?.activeSession;
+    if (session == null) return;
+    final power = ((session['power'] as num?)?.toDouble() ?? 0) / 1000; // W → kW
+    if (mounted) {
+      setState(() {
+        _chartTime += 10; // each poll ≈ 10s
+        _powerHistory.add(FlSpot(_chartTime, power));
+        // Keep only last 30 data points
+        if (_powerHistory.length > 30) _powerHistory.removeAt(0);
+      });
+    }
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
+    _sessionProvider?.removeListener(_onSessionUpdate);
     _sessionProvider?.stopPolling();
     super.dispose();
   }
@@ -181,6 +202,18 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 32),
+
+                  // Power kW Chart
+                  Text(
+                    'POWER GRAPH',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.primaryGreen,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _PowerChart(spots: _powerHistory),
                   const SizedBox(height: 32),
 
                   // Stop Button
@@ -532,6 +565,82 @@ class _EnergyDisplay extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _PowerChart extends StatelessWidget {
+  final List<FlSpot> spots;
+
+  const _PowerChart({required this.spots});
+
+  @override
+  Widget build(BuildContext context) {
+    final displaySpots = spots.isEmpty ? [const FlSpot(0, 0)] : spots;
+    final maxY = spots.isEmpty
+        ? 10.0
+        : (spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) * 1.2).clamp(1.0, double.infinity);
+
+    return Container(
+      height: 180,
+      padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primaryGreen.withOpacity(0.3)),
+      ),
+      child: LineChart(
+        LineChartData(
+          minY: 0,
+          maxY: maxY,
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: maxY / 4,
+            getDrawingHorizontalLine: (v) => FlLine(
+              color: AppColors.primaryGreen.withOpacity(0.1),
+              strokeWidth: 1,
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 36,
+                getTitlesWidget: (v, _) => Text(
+                  v.toStringAsFixed(1),
+                  style: TextStyle(color: AppColors.textLight, fontSize: 10),
+                ),
+              ),
+            ),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          lineBarsData: [
+            LineChartBarData(
+              spots: displaySpots,
+              isCurved: true,
+              curveSmoothness: 0.35,
+              color: AppColors.primaryGreen,
+              barWidth: 2.5,
+              dotData: const FlDotData(show: false),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.primaryGreen.withOpacity(0.25),
+                    AppColors.primaryGreen.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

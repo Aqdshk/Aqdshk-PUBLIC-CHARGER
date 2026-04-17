@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '../providers/session_provider.dart';
+import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 
 class CarbonFootprintScreen extends StatefulWidget {
@@ -22,7 +22,7 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
   }
 
   Future<void> _load() async {
-    final userId = context.read<SessionProvider>().userId;
+    final userId = context.read<AuthProvider>().currentUser?.id;
     if (userId == null) {
       setState(() => _loading = false);
       return;

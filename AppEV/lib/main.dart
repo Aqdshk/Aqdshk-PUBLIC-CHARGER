@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'screens/splash_screen.dart';
@@ -6,6 +7,7 @@ import 'providers/auth_provider.dart';
 import 'providers/charger_provider.dart';
 import 'providers/payment_provider.dart';
 import 'providers/session_provider.dart';
+import 'providers/locale_provider.dart';
 
 void main() {
   // Prevent uncaught errors from crashing the app (e.g. Google Maps API not loaded)
@@ -33,10 +35,22 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChargerProvider()),
         ChangeNotifierProvider(create: (_) => PaymentProvider()),
         ChangeNotifierProvider(create: (_) => SessionProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
       ],
-      child: MaterialApp(
-        title: 'EV Charging App',
+      child: Consumer<LocaleProvider>(
+        builder: (context, localeProvider, child) => MaterialApp(
+        title: 'PlagSini EV',
         debugShowCheckedModeBanner: false,
+        locale: localeProvider.locale,
+        supportedLocales: const [
+          Locale('en'),
+          Locale('ms'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         theme: ThemeData(
           useMaterial3: true,
           brightness: Brightness.dark,
@@ -183,6 +197,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
         home: const SplashScreen(),
+        ),
       ),
     );
   }
