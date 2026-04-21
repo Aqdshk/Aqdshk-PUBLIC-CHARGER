@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import 'live_charging_screen.dart';
 import 'booking_screen.dart';
 import 'rating_review_screen.dart';
+import 'charger_settings_screen.dart';
 
 class ChargerDetailScreen extends StatefulWidget {
   final Map<String, dynamic> charger;
@@ -221,6 +222,24 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         ? 'Added to favourites' 
                         : 'Removed from favourites'),
                       backgroundColor: AppColors.primaryGreen,
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                tooltip: 'Tetapan Charger',
+                onPressed: () {
+                  final chargerId = widget.charger['charge_point_id']?.toString() ?? '';
+                  final chargerName = widget.charger['name']?.toString() ?? chargerId;
+                  if (chargerId.isEmpty) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChargerSettingsScreen(
+                        chargerId: chargerId,
+                        chargerName: chargerName,
+                      ),
                     ),
                   );
                 },

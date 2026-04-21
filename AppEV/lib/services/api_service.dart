@@ -1060,4 +1060,61 @@ class ApiService {
       return false;
     }
   }
+
+  // ── Charger Configuration ──────────────────────────────────────────────────
+
+  static Future<List<Map<String, dynamic>>> getChargerConfiguration(String chargerId) async {
+    try {
+      final response = await _authGet('$baseUrl/chargers/$chargerId/configuration');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> keys = data['configuration'] ?? [];
+        return keys.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Error getChargerConfiguration: $e');
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> changeChargerConfiguration(
+      String chargerId, String key, String value) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/chargers/$chargerId/configuration/change',
+        body: json.encode({'key': key, 'value': value}),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Error changeChargerConfiguration: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> changeChargerAvailability(
+      String chargerId, String type) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/ocpp/$chargerId/change-availability',
+        body: json.encode({'connector_id': 0, 'type': type}),
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Error changeChargerAvailability: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
 }
