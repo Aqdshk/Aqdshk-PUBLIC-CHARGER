@@ -31,15 +31,15 @@ class OfflineChargersScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.orange.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.build, color: Colors.orange, size: 28),
+                  child: Icon(Icons.build, color: Colors.orange, size: 28),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Under Maintenance', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
+                      Text('Under Maintenance', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
                       Text('These chargers are currently offline for maintenance or repair.', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                     ],
                   ),
@@ -52,7 +52,7 @@ class OfflineChargersScreen extends StatelessWidget {
             child: Consumer<ChargerProvider>(
               builder: (context, chargerProvider, _) {
                 if (chargerProvider.isLoading) {
-                  return const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
+                  return Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
                 }
                 final offlineChargers = chargerProvider.nearbyChargers.where((c) {
                   final status = c['status']?.toString().toLowerCase() ?? '';
@@ -85,9 +85,9 @@ class OfflineChargersScreen extends StatelessWidget {
               decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.1), shape: BoxShape.circle),
               child: Icon(Icons.check_circle_outline, size: 64, color: AppColors.primaryGreen),
             ),
-            const SizedBox(height: 24),
-            Text('All Chargers Online!', style: TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            SizedBox(height: 24),
+            Text('All Chargers Online!', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
             Text('Great news! All nearby chargers are currently operational.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight, fontSize: 14)),
           ],
         ),
@@ -120,23 +120,23 @@ class _OfflineChargerCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: Colors.orange.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
-              child: const Icon(Icons.ev_station, color: Colors.orange, size: 28),
+              child: Icon(Icons.ev_station, color: Colors.orange, size: 28),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
+                  Text(name, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 4),
                   Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(color: Colors.orange.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
-                        child: Text(availability == 'faulted' ? 'FAULTED' : 'OFFLINE', style: const TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold)),
+                        child: Text(availability == 'faulted' ? 'FAULTED' : 'OFFLINE', style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8),
                       Text('• 2.5 km', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                     ],
                   ),
@@ -147,7 +147,7 @@ class _OfflineChargerCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Icon(Icons.notifications_outlined, color: AppColors.primaryGreen),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text('Notify me', style: TextStyle(color: AppColors.primaryGreen, fontSize: 11, fontWeight: FontWeight.w500)),
               ],
             ),

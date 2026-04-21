@@ -20,7 +20,7 @@ class InfoChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: AppColors.primaryGreen.withOpacity(0.7)),
-          const SizedBox(width: 4),
+          SizedBox(width: 4),
           Text(
             text,
             style: TextStyle(

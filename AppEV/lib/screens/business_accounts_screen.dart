@@ -39,16 +39,16 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.business_center, color: Colors.white, size: 32),
+                    child: Icon(Icons.business_center, color: Colors.white, size: 32),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text('Business Charging', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                         SizedBox(height: 4),
-                        Text('Link your company account for fleet charging', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        Text('Link your company account for fleet charging', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                       ],
                     ),
                   ),
@@ -56,7 +56,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               width: double.infinity,
@@ -65,23 +65,23 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Business Account Benefits', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
+                  Text('Business Account Benefits', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 16),
                   _BenefitItem(icon: Icons.receipt_long, title: 'Consolidated Billing', description: 'All charges billed directly to your company'),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _BenefitItem(icon: Icons.discount, title: 'Corporate Discounts', description: 'Up to 15% off on all charging sessions'),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _BenefitItem(icon: Icons.analytics, title: 'Fleet Reports', description: 'Detailed usage reports for each vehicle'),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _BenefitItem(icon: Icons.support_agent, title: 'Priority Support', description: 'Dedicated account manager'),
                 ],
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Text('LINKED BUSINESS ACCOUNTS', style: TextStyle(color: AppColors.primaryGreen.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1)),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             if (_linkedAccounts.isEmpty)
               _buildEmptyState()
@@ -93,15 +93,15 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                 onRemove: () => _removeAccount(account),
               )),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             SizedBox(
               width: double.infinity,
               height: 52,
               child: OutlinedButton.icon(
                 onPressed: _showLinkAccountDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('LINK BUSINESS ACCOUNT'),
+                icon: Icon(Icons.add),
+                label: Text('LINK BUSINESS ACCOUNT'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primaryGreen,
                   side: BorderSide(color: AppColors.primaryGreen),
@@ -110,7 +110,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               padding: const EdgeInsets.all(16),
@@ -122,15 +122,15 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               child: Row(
                 children: [
                   Icon(Icons.info_outline, color: Colors.blue.shade300),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Want to register your company?', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
+                        Text('Want to register your company?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        SizedBox(height: 4),
                         Text('Contact our business team to set up a corporate account.', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         GestureDetector(
                           onTap: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact: business@plagsini.com.my'), backgroundColor: Colors.blue)),
                           child: Text('Contact Business Team →', style: TextStyle(color: Colors.blue.shade300, fontWeight: FontWeight.w600, fontSize: 13)),
@@ -155,9 +155,9 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
       child: Column(
         children: [
           Icon(Icons.business_center_outlined, size: 48, color: AppColors.textLight),
-          const SizedBox(height: 16),
-          Text('No Business Account Linked', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
+          SizedBox(height: 16),
+          Text('No Business Account Linked', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+          SizedBox(height: 8),
           Text('Link your company account to enjoy business charging benefits', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight, fontSize: 13)),
         ],
       ),
@@ -178,14 +178,14 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.borderLight, borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text('Link Business Account', style: TextStyle(color: AppColors.primaryGreen, fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text('Enter the invitation code provided by your company administrator.', style: TextStyle(color: AppColors.textLight, fontSize: 13)),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             TextField(
               controller: codeController,
-              style: TextStyle(color: AppColors.textPrimary, letterSpacing: 2),
+              style: TextStyle(color: Colors.white, letterSpacing: 2),
               textCapitalization: TextCapitalization.characters,
               decoration: InputDecoration(
                 labelText: 'Invitation Code',
@@ -193,7 +193,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                 prefixIcon: Icon(Icons.vpn_key, color: AppColors.primaryGreen),
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               height: 52,
@@ -207,13 +207,13 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                   setState(() {
                     _linkedAccounts.add({'name': 'AGMO Holdings Sdn Bhd', 'role': 'Employee', 'status': 'active'});
                   });
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Business account linked successfully!'), backgroundColor: AppColors.primaryGreen));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Business account linked successfully!'), backgroundColor: AppColors.primaryGreen));
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen, foregroundColor: AppColors.background, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: const Text('LINK ACCOUNT', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text('LINK ACCOUNT', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
           ],
         ),
       ),
@@ -237,7 +237,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account unlinked'), backgroundColor: Colors.orange));
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Remove'),
+            child: Text('Remove'),
           ),
         ],
       ),
@@ -261,12 +261,12 @@ class _BenefitItem extends StatelessWidget {
           decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
           child: Icon(icon, color: AppColors.primaryGreen, size: 20),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),
@@ -293,17 +293,17 @@ class _BusinessAccountCard extends StatelessWidget {
       child: Row(
         children: [
           Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(12)), child: Icon(Icons.business, color: AppColors.primaryGreen, size: 28)),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(companyName, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                Text(companyName, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                SizedBox(height: 4),
                 Row(
                   children: [
                     Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(10)), child: Text(role, style: TextStyle(color: AppColors.textLight, fontSize: 11))),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(10)), child: Text(status.toUpperCase(), style: TextStyle(color: AppColors.primaryGreen, fontSize: 10, fontWeight: FontWeight.bold))),
                   ],
                 ),

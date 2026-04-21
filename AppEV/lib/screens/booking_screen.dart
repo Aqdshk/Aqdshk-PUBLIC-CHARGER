@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../constants/app_colors.dart';
 
 class BookingScreen extends StatefulWidget {
   final Map<String, dynamic> charger;
@@ -64,7 +65,7 @@ class _BookingScreenState extends State<BookingScreen> {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          backgroundColor: const Color(0xFF1A1A2E),
+          backgroundColor: AppColors.cardBackground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text('Tempahan Berjaya! ✅',
               style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -72,7 +73,7 @@ class _BookingScreenState extends State<BookingScreen> {
             'Tempahan anda untuk ${widget.charger['charge_point_id']} pada '
             '${DateFormat('d MMM yyyy').format(_selectedDate)} jam $_selectedSlotStart '
             'selama $_durationMin minit telah disahkan.',
-            style: GoogleFonts.inter(color: Colors.white70),
+            style: GoogleFonts.inter(color: AppColors.textSecondary),
           ),
           actions: [
             TextButton(
@@ -94,12 +95,12 @@ class _BookingScreenState extends State<BookingScreen> {
     final location = widget.charger['location'] ?? 'Lokasi tidak diketahui';
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A1A),
+        backgroundColor: AppColors.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Tempah Slot',
@@ -112,7 +113,7 @@ class _BookingScreenState extends State<BookingScreen> {
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1A2E),
+              color: AppColors.cardBackground,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFF00D4AA).withOpacity(0.3)),
             ),
@@ -125,9 +126,9 @@ class _BookingScreenState extends State<BookingScreen> {
                     color: const Color(0xFF00D4AA).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.ev_station, color: Color(0xFF00D4AA)),
+                  child: Icon(Icons.ev_station, color: Color(0xFF00D4AA)),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +136,7 @@ class _BookingScreenState extends State<BookingScreen> {
                       Text(chargePointId,
                           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
                       Text(location,
-                          style: GoogleFonts.inter(color: Colors.white54, fontSize: 12),
+                          style: GoogleFonts.inter(color: AppColors.textTertiary, fontSize: 12),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   ),
@@ -150,7 +151,7 @@ class _BookingScreenState extends State<BookingScreen> {
             child: Row(
               children: [
                 Text('Pilih Tarikh',
-                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 13)),
+                    style: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 GestureDetector(
                   onTap: () async {
@@ -174,14 +175,14 @@ class _BookingScreenState extends State<BookingScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A2E),
+                      color: AppColors.cardBackground,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFF00D4AA).withOpacity(0.4)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today, color: Color(0xFF00D4AA), size: 16),
-                        const SizedBox(width: 6),
+                        Icon(Icons.calendar_today, color: Color(0xFF00D4AA), size: 16),
+                        SizedBox(width: 6),
                         Text(
                           DateFormat('d MMM yyyy').format(_selectedDate),
                           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
@@ -194,14 +195,14 @@ class _BookingScreenState extends State<BookingScreen> {
             ),
           ),
 
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
 
           // Duration selector
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Text('Tempoh', style: GoogleFonts.inter(color: Colors.white70, fontSize: 13)),
+                Text('Tempoh', style: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 13)),
                 const Spacer(),
                 for (final dur in [30, 60, 90, 120])
                   Padding(
@@ -213,14 +214,14 @@ class _BookingScreenState extends State<BookingScreen> {
                         decoration: BoxDecoration(
                           color: _durationMin == dur
                               ? const Color(0xFF00D4AA)
-                              : const Color(0xFF1A1A2E),
+                              : AppColors.cardBackground,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: const Color(0xFF00D4AA).withOpacity(0.4)),
                         ),
                         child: Text(
                           '${dur}m',
                           style: GoogleFonts.inter(
-                            color: _durationMin == dur ? Colors.black : Colors.white70,
+                            color: _durationMin == dur ? Colors.black : AppColors.textSecondary,
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                           ),
@@ -232,26 +233,26 @@ class _BookingScreenState extends State<BookingScreen> {
             ),
           ),
 
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
 
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text('Pilih Masa',
-                  style: GoogleFonts.inter(color: Colors.white70, fontSize: 13)),
+                  style: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 13)),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
 
           // Slots grid
           Expanded(
             child: _loadingSlots
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF00D4AA)))
+                ? Center(child: CircularProgressIndicator(color: Color(0xFF00D4AA)))
                 : _slots.isEmpty
                     ? Center(
                         child: Text('Tiada slot tersedia',
-                            style: GoogleFonts.inter(color: Colors.white54)))
+                            style: GoogleFonts.inter(color: AppColors.textTertiary)))
                     : GridView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -278,7 +279,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                 color: selected
                                     ? const Color(0xFF00D4AA)
                                     : available
-                                        ? const Color(0xFF1A1A2E)
+                                        ? AppColors.cardBackground
                                         : const Color(0xFF2A1A1A),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
@@ -323,7 +324,7 @@ class _BookingScreenState extends State<BookingScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 child: _loading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(

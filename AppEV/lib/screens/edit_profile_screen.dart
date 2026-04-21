@@ -50,7 +50,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Profile updated successfully!'),
+            content: Text('Profile updated successfully!'),
             backgroundColor: AppColors.primaryGreen,
           ),
         );
@@ -71,7 +71,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Edit Profile',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -112,7 +112,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           _nameController.text.isNotEmpty
                               ? _nameController.text[0].toUpperCase()
                               : '?',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 40,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
@@ -133,7 +133,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             width: 3,
                           ),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.camera_alt,
                           color: Colors.white,
                           size: 16,
@@ -144,7 +144,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
 
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
 
               // Name field
               Text(
@@ -155,10 +155,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               TextFormField(
                 controller: _nameController,
-                style: const TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
                   hintText: 'Enter your full name',
                   hintStyle: TextStyle(color: AppColors.textLight),
@@ -187,7 +187,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 onChanged: (_) => setState(() {}),
               ),
 
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
 
               // Phone field
               Text(
@@ -198,10 +198,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               TextFormField(
                 controller: _phoneController,
-                style: const TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: AppColors.textPrimary),
                 keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
                   hintText: '+60123456789',
@@ -224,7 +224,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
 
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
 
               // Email field (read-only)
               Consumer<AuthProvider>(
@@ -240,7 +240,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -251,7 +251,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         child: Row(
                           children: [
                             Icon(Icons.email_outlined, color: AppColors.textLight),
-                            const SizedBox(width: 12),
+                            SizedBox(width: 12),
                             Text(
                               auth.currentUser?.email ?? '',
                               style: TextStyle(
@@ -264,7 +264,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         'Email cannot be changed',
                         style: TextStyle(
@@ -277,7 +277,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 },
               ),
 
-              const SizedBox(height: 40),
+              SizedBox(height: 40),
 
               // Save button
               SizedBox(
@@ -294,7 +294,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     elevation: 0,
                   ),
                   child: _isLoading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(
@@ -302,7 +302,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Text(
+                      : Text(
                           'SAVE CHANGES',
                           style: TextStyle(
                             fontSize: 16,

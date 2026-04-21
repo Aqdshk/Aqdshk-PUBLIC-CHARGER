@@ -150,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ],
           ),
-          child: const Icon(Icons.support_agent, color: Colors.black, size: 28),
+          child: Icon(Icons.support_agent, color: Colors.black, size: 28),
         ),
       ),
       bottomNavigationBar: BottomNavBar(
@@ -205,7 +205,7 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
 
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
 
                 // ===== HUMAN-FRIENDLY WELCOME CARD =====
                 const _WelcomeCard(),
@@ -221,7 +221,7 @@ class DashboardScreen extends StatelessWidget {
 
                 // ===== QUICK ACTIONS =====
                 _sectionHeader(context, 'Quick Actions'),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: GridView.count(
@@ -277,7 +277,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ===== NEARBY STATIONS =====
                 Padding(
@@ -287,7 +287,7 @@ class DashboardScreen extends StatelessWidget {
                     children: [
                       Text('Nearby Stations',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+                                color: Colors.white, fontWeight: FontWeight.bold)),
                       Consumer<ChargerProvider>(
                         builder: (context, cp, _) => Text(
                           '${cp.nearbyChargers.length} found',
@@ -297,11 +297,11 @@ class DashboardScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Consumer<ChargerProvider>(
                   builder: (context, chargerProvider, _) {
                     if (chargerProvider.isLoading) {
-                      return const SizedBox(
+                      return SizedBox(
                         height: 110,
                         child: Center(child: CircularProgressIndicator(color: AppColors.primaryGreen)),
                       );
@@ -323,11 +323,11 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ===== FEATURED / RECOMMENDED =====
                 _sectionHeader(context, 'Recommended'),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Consumer<ChargerProvider>(
                   builder: (context, chargerProvider, _) {
                     if (chargerProvider.isLoading) {
@@ -345,7 +345,7 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ===== ALL CHARGERS LIST (compact) =====
                 if (true) // Always show
@@ -356,14 +356,14 @@ class DashboardScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _sectionHeader(context, 'All Chargers'),
-                          const SizedBox(height: 12),
+                          SizedBox(height: 12),
                           ...chargerProvider.nearbyChargers.skip(1).map((charger) => _CompactChargerTile(charger: charger)),
                         ],
                       );
                     },
                   ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // ===== FAVOURITES =====
                 Padding(
@@ -373,7 +373,7 @@ class DashboardScreen extends StatelessWidget {
                     children: [
                       Text('Favourite Stations',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+                                color: Colors.white, fontWeight: FontWeight.bold)),
                       GestureDetector(
                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavouriteStationsScreen())),
                         child: Text('See all',
@@ -382,7 +382,7 @@ class DashboardScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Container(
@@ -397,7 +397,7 @@ class DashboardScreen extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.bookmark_border_rounded, color: AppColors.textLight.withOpacity(0.3), size: 32),
-                          const SizedBox(height: 8),
+                          SizedBox(height: 8),
                           Text('No favourite stations yet',
                               style: TextStyle(color: AppColors.textLight, fontSize: 13)),
                         ],
@@ -406,7 +406,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 100), // Space for bottom nav
+                SizedBox(height: 100), // Space for bottom nav
               ],
             ),
           ),
@@ -428,12 +428,12 @@ class DashboardScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           Text(title,
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
-                  ?.copyWith(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+                  ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -453,7 +453,7 @@ class DashboardScreen extends StatelessWidget {
           child: Column(
             children: [
               Icon(icon, color: AppColors.textLight.withOpacity(0.3), size: 36),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(text, style: TextStyle(color: AppColors.textLight, fontSize: 13)),
             ],
           ),
@@ -489,7 +489,7 @@ class _WelcomeCard extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 14),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF101A2A),
+          color: AppColors.cardBackground,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.borderLight),
         ),
@@ -502,9 +502,9 @@ class _WelcomeCard extends StatelessWidget {
                 color: AppColors.primaryGreen.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.handshake_rounded, color: AppColors.primaryGreen, size: 22),
+              child: Icon(Icons.handshake_rounded, color: AppColors.primaryGreen, size: 22),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -512,12 +512,12 @@ class _WelcomeCard extends StatelessWidget {
                   Text(
                     'Welcome back',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 14,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2),
                   Text(
                     'Choose an action below to start your charging journey.',
                     style: TextStyle(
@@ -570,16 +570,16 @@ class _ActiveSessionBanner extends StatelessWidget {
                 color: AppColors.primaryGreen.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.bolt_rounded, color: AppColors.primaryGreen, size: 22),
+              child: Icon(Icons.bolt_rounded, color: AppColors.primaryGreen, size: 22),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Charging in progress',
+                  Text('Charging in progress',
                       style: TextStyle(color: AppColors.primaryGreen, fontSize: 13, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2),
                   Text('$chargerId · ${energy.toStringAsFixed(2)} kWh',
                       style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                 ],
@@ -591,7 +591,7 @@ class _ActiveSessionBanner extends StatelessWidget {
                 color: AppColors.primaryGreen,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Text('View', style: TextStyle(color: AppColors.background, fontSize: 12, fontWeight: FontWeight.bold)),
+              child: Text('View', style: TextStyle(color: AppColors.background, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -655,16 +655,16 @@ class _CompactChargerTile extends StatelessWidget {
                 gradient: LinearGradient(colors: [dotColor, dotColor.withOpacity(0.7)]),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.ev_station_rounded, color: Colors.white, size: 18),
+              child: Icon(Icons.ev_station_rounded, color: Colors.white, size: 18),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             // Name & vendor
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(name,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                   if (vendor.isNotEmpty || model.isNotEmpty)
@@ -686,12 +686,12 @@ class _CompactChargerTile extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text(statusText, style: TextStyle(color: dotColor, fontSize: 11, fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: 6),
             Icon(Icons.chevron_right_rounded, color: AppColors.textLight, size: 20),
           ],
         ),

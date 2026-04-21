@@ -231,9 +231,9 @@ class _TopUpScreenState extends State<TopUpScreen>
                     color: const Color(0xFF1565C0).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.wallet_outlined, color: Color(0xFF1565C0), size: 22),
+                  child: Icon(Icons.wallet_outlined, color: Color(0xFF1565C0), size: 22),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: 10),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -257,7 +257,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             // QR Code
             Container(
               padding: const EdgeInsets.all(16),
@@ -279,7 +279,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text(
               'Open TNG eWallet app and\nscan this QR code to pay',
               textAlign: TextAlign.center,
@@ -289,7 +289,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 height: 1.5,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             // Ref + copy button
             GestureDetector(
               onTap: () {
@@ -315,13 +315,13 @@ class _TopUpScreenState extends State<TopUpScreen>
                         fontFamily: 'monospace',
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Icon(Icons.copy, size: 12, color: AppColors.textLight),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             // Waiting indicator
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -334,14 +334,14 @@ class _TopUpScreenState extends State<TopUpScreen>
                     valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryGreen),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Text(
                   'Waiting for payment...',
                   style: TextStyle(color: AppColors.textLight, fontSize: 12),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             TextButton(
               onPressed: () {
                 _statusPollTimer?.cancel();
@@ -368,7 +368,7 @@ class _TopUpScreenState extends State<TopUpScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             AnimatedBuilder(
               animation: _pulseController,
               builder: (context, child) {
@@ -389,7 +389,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 );
               },
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text(
               'Completing Payment',
               style: TextStyle(
@@ -398,7 +398,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'RM${amount.toStringAsFixed(2)}',
               style: TextStyle(
@@ -407,7 +407,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               'Please complete payment in the opened browser.\nThis page will update automatically.',
               textAlign: TextAlign.center,
@@ -416,7 +416,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontSize: 13,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Ref: $txnRef',
               style: TextStyle(
@@ -425,7 +425,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontFamily: 'monospace',
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             SizedBox(
               width: 24,
               height: 24,
@@ -434,7 +434,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryGreen),
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             TextButton(
               onPressed: () {
                 _statusPollTimer?.cancel();
@@ -460,20 +460,20 @@ class _TopUpScreenState extends State<TopUpScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.orange.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.hourglass_bottom,
                 color: Colors.orange,
                 size: 48,
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text(
               'Payment Pending',
               style: TextStyle(
@@ -482,7 +482,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'RM${amount.toStringAsFixed(2)}',
               style: TextStyle(
@@ -491,7 +491,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               'Your top-up request has been submitted.\nOur team will verify and approve it shortly.',
               textAlign: TextAlign.center,
@@ -501,7 +501,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 height: 1.5,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -517,7 +517,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -529,7 +529,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                   backgroundColor: AppColors.primaryGreen,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('OK, Got it', style: TextStyle(color: Colors.white)),
+                child: Text('OK, Got it', style: TextStyle(color: Colors.white)),
               ),
             ),
           ],
@@ -547,7 +547,7 @@ class _TopUpScreenState extends State<TopUpScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -560,7 +560,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 size: 56,
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text(
               'Top-Up Successful!',
               style: TextStyle(
@@ -569,7 +569,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'RM${amount.toStringAsFixed(2)}',
               style: TextStyle(
@@ -578,7 +578,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'has been added to your PlagSini Credits',
               style: TextStyle(
@@ -586,7 +586,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontSize: 13,
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -596,7 +596,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                child: const Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
           ],
@@ -617,7 +617,7 @@ class _TopUpScreenState extends State<TopUpScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Top Up',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -666,24 +666,24 @@ class _TopUpScreenState extends State<TopUpScreen>
                       Row(
                         children: [
                           Icon(Icons.account_balance_wallet, color: AppColors.primaryGreen, size: 20),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8),
                           Text(
                             'PlagSini Credits',
                             style: TextStyle(color: AppColors.textLight, fontSize: 14),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       Text(
                         'RM${balance.toStringAsFixed(2)}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 36,
                           fontWeight: FontWeight.bold,
                           letterSpacing: -1,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         '🎁 $points reward points',
                         style: TextStyle(color: AppColors.primaryGreen.withOpacity(0.8), fontSize: 12),
@@ -694,7 +694,7 @@ class _TopUpScreenState extends State<TopUpScreen>
               },
             ),
 
-            const SizedBox(height: 28),
+            SizedBox(height: 28),
 
             // Quick amount selection
             Text(
@@ -705,7 +705,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             GridView.builder(
               shrinkWrap: true,
@@ -766,7 +766,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                                 color: Colors.orange.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
+                              child: Text(
                                 '+BONUS',
                                 style: TextStyle(color: Colors.orange, fontSize: 7, fontWeight: FontWeight.bold),
                               ),
@@ -779,23 +779,23 @@ class _TopUpScreenState extends State<TopUpScreen>
               },
             ),
 
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Custom amount
             Text(
               'Or enter custom amount',
               style: TextStyle(color: AppColors.textLight, fontSize: 12),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextField(
               controller: _customAmountController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: AppColors.textPrimary, fontSize: 18),
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
               decoration: InputDecoration(
                 hintText: '0.00',
                 hintStyle: TextStyle(color: AppColors.textLight),
                 prefixText: 'RM ',
-                prefixStyle: const TextStyle(
+                prefixStyle: TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -820,7 +820,7 @@ class _TopUpScreenState extends State<TopUpScreen>
               },
             ),
 
-            const SizedBox(height: 28),
+            SizedBox(height: 28),
 
             // Payment method selection
             Text(
@@ -831,7 +831,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             ...(_paymentMethods.map((method) {
               final isSelected = _selectedPaymentMethod == method['id'];
@@ -868,7 +868,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                           size: 22,
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -904,7 +904,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                           color: isSelected ? AppColors.primaryGreen : Colors.transparent,
                         ),
                         child: isSelected
-                            ? const Icon(Icons.check, color: Colors.white, size: 14)
+                            ? Icon(Icons.check, color: Colors.white, size: 14)
                             : null,
                       ),
                     ],
@@ -913,7 +913,7 @@ class _TopUpScreenState extends State<TopUpScreen>
               );
             })),
 
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Summary
             if (_amount > 0) ...[
@@ -930,33 +930,33 @@ class _TopUpScreenState extends State<TopUpScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text('Top-up Amount', style: TextStyle(color: AppColors.textLight)),
-                        Text('RM${_amount.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+                        Text('RM${_amount.toStringAsFixed(2)}', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                       ],
                     ),
                     if (_amount >= 50) ...[
-                      const SizedBox(height: 6),
+                      SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('Bonus Points', style: TextStyle(color: Colors.orange.withOpacity(0.8), fontSize: 12)),
-                          Text('+${((_amount.toInt()) * 10) + 50} pts', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600, fontSize: 12)),
+                          Text('+${((_amount.toInt()) * 10) + 50} pts', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600, fontSize: 12)),
                         ],
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    const Divider(height: 1),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
+                    Divider(height: 1),
+                    SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Total', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text('Total', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                         Text('RM${_amount.toStringAsFixed(2)}', style: TextStyle(color: AppColors.primaryGreen, fontSize: 22, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
             ],
 
             // Top up button
@@ -975,7 +975,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                   elevation: 0,
                 ),
                 child: _isLoading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
@@ -986,13 +986,13 @@ class _TopUpScreenState extends State<TopUpScreen>
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.lock_outline, size: 18),
-                          const SizedBox(width: 8),
+                          Icon(Icons.lock_outline, size: 18),
+                          SizedBox(width: 8),
                           Text(
                             _amount > 0
                                 ? 'PAY RM${_amount.toStringAsFixed(2)}'
                                 : 'SELECT AMOUNT',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 0.5,
@@ -1003,14 +1003,14 @@ class _TopUpScreenState extends State<TopUpScreen>
               ),
             ),
 
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             Center(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.shield_outlined, color: AppColors.textLight, size: 14),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text(
                     'Secured by PlagSini Payment Gateway',
                     style: TextStyle(color: AppColors.textLight, fontSize: 11),
@@ -1019,7 +1019,7 @@ class _TopUpScreenState extends State<TopUpScreen>
               ),
             ),
 
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
           ],
         ),
       ),

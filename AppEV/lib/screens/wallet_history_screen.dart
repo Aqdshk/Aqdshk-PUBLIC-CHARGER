@@ -44,10 +44,10 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Credits History',
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -56,7 +56,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
         iconTheme: IconThemeData(color: AppColors.primaryGreen),
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(),
             )
           : _transactions.isEmpty
@@ -85,7 +85,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
             size: 80,
             color: AppColors.textLight.withOpacity(0.5),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(
             'No transactions yet',
             style: TextStyle(
@@ -94,7 +94,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             'Your transaction history will appear here',
             style: TextStyle(
@@ -133,11 +133,11 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
             child: Center(
               child: Text(
                 transaction.displayIcon,
-                style: const TextStyle(fontSize: 24),
+                style: TextStyle(fontSize: 24),
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
 
           // Details
           Expanded(
@@ -146,13 +146,13 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
               children: [
                 Text(
                   transaction.displayTitle,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(
                   transaction.description ?? _formatDate(transaction.createdAt),
                   style: TextStyle(
@@ -163,7 +163,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 if (transaction.description != null) ...[
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2),
                   Text(
                     _formatDate(transaction.createdAt),
                     style: TextStyle(
@@ -188,7 +188,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(

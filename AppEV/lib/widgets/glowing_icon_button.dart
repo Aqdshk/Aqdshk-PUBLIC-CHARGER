@@ -35,7 +35,7 @@ class GlowingIconButton extends StatelessWidget {
               top: 0,
               child: Container(
                 padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: Color(0xFFFF006E),
                   shape: BoxShape.circle,
                 ),
@@ -45,7 +45,7 @@ class GlowingIconButton extends StatelessWidget {
                 ),
                 child: Text(
                   badge!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 9,
                     fontWeight: FontWeight.bold,

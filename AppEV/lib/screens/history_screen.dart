@@ -12,13 +12,13 @@ class HistoryScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Charging History'),
+        title: Text('Charging History'),
         backgroundColor: Colors.transparent,
       ),
       body: Consumer<SessionProvider>(
         builder: (context, sessionProvider, _) {
           if (sessionProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
+            return Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
           }
 
           if (sessionProvider.history.isEmpty) {
@@ -27,7 +27,7 @@ class HistoryScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.history, size: 64, color: AppColors.textLight),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text('No charging history', style: TextStyle(fontSize: 18, color: AppColors.textLight)),
                 ],
               ),
@@ -53,9 +53,9 @@ class HistoryScreen extends StatelessWidget {
                       backgroundColor: session['status'] == 'completed'
                           ? AppColors.primaryGreen
                           : Colors.orange,
-                      child: const Icon(Icons.bolt, color: Colors.white),
+                      child: Icon(Icons.bolt, color: Colors.white),
                     ),
-                    title: Text(session['charger_id'] ?? 'Unknown Charger', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+                    title: Text(session['charger_id'] ?? 'Unknown Charger', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                     subtitle: Text(
                       DateFormat('MMM dd, yyyy • HH:mm').format(
                         DateTime.parse(session['start_time'] ?? DateTime.now().toString()),
@@ -110,7 +110,7 @@ class _HistoryRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(color: AppColors.textLight)),
-          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         ],
       ),
     );

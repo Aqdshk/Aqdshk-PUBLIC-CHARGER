@@ -107,24 +107,24 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, color: AppColors.textPrimary, size: 20),
+          icon: Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.notifications_rounded, color: AppColors.primaryGreen, size: 22),
-            const SizedBox(width: 8),
-            const Text(
+            Icon(Icons.notifications_rounded, color: AppColors.primaryGreen, size: 22),
+            SizedBox(width: 8),
+            Text(
               'Notifications',
               style: TextStyle(
-                color: AppColors.textPrimary,
+                color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
             ),
             if (_unreadCount > 0) ...[
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
@@ -134,7 +134,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 ),
                 child: Text(
                   '$_unreadCount new',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.primaryGreen,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
@@ -195,16 +195,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               color: AppColors.primaryGreen.withOpacity(0.5),
             ),
           ),
-          const SizedBox(height: 16),
-          const Text(
+          SizedBox(height: 16),
+          Text(
             'No Notifications',
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             'You\'re all caught up!',
             style: TextStyle(
@@ -228,7 +228,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
         color: Colors.red.withOpacity(0.15),
-        child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 24),
+        child: Icon(Icons.delete_outline, color: Colors.redAccent, size: 24),
       ),
       onDismissed: (_) => _clearNotification(index),
       child: Container(
@@ -278,7 +278,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                     ),
                     child: Icon(notif.icon, color: color, size: 20),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   // Content
                   Expanded(
                     child: Column(
@@ -290,7 +290,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               child: Text(
                                 notif.title,
                                 style: TextStyle(
-                                  color: AppColors.textPrimary,
+                                  color: Colors.white,
                                   fontSize: 14,
                                   fontWeight: notif.isRead
                                       ? FontWeight.w500
@@ -315,7 +315,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: 4),
                         Text(
                           notif.message,
                           style: TextStyle(
@@ -326,7 +326,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: 6),
                         Text(
                           notif.time,
                           style: TextStyle(

@@ -24,14 +24,14 @@ class NavItem extends StatelessWidget {
         children: [
           Icon(
             icon,
-            color: isActive ? AppColors.primaryGreen : Colors.white38,
+            color: isActive ? AppColors.primaryGreen : AppColors.textLight,
             size: 24,
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 4),
           Text(
             label,
             style: TextStyle(
-              color: isActive ? AppColors.primaryGreen : Colors.white38,
+              color: isActive ? AppColors.primaryGreen : AppColors.textLight,
               fontSize: 11,
               fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
             ),

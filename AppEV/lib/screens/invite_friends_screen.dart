@@ -34,17 +34,17 @@ class InviteFriendsScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
-                    child: const Icon(Icons.card_giftcard, size: 48, color: Colors.white),
+                    child: Icon(Icons.card_giftcard, size: 48, color: Colors.white),
                   ),
-                  const SizedBox(height: 16),
-                  const Text('Invite & Earn!', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Get RM5 credits for every friend who joins and makes their first charge!', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  SizedBox(height: 16),
+                  Text('Invite & Earn!', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8),
+                  Text('Get RM5 credits for every friend who joins and makes their first charge!', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
                 ],
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               width: double.infinity,
@@ -53,7 +53,7 @@ class InviteFriendsScreen extends StatelessWidget {
               child: Column(
                 children: [
                   Text('Your Referral Code', style: TextStyle(color: AppColors.textLight, fontSize: 14)),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                     decoration: BoxDecoration(
@@ -65,18 +65,18 @@ class InviteFriendsScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(referralCode, style: TextStyle(color: AppColors.primaryGreen, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 4)),
-                        const SizedBox(width: 16),
+                        SizedBox(width: 16),
                         IconButton(
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: referralCode));
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Referral code copied!'), backgroundColor: AppColors.primaryGreen));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Referral code copied!'), backgroundColor: AppColors.primaryGreen));
                           },
                           icon: Icon(Icons.copy, color: AppColors.primaryGreen),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  SizedBox(height: 20),
                   Row(
                     children: [
                       Expanded(
@@ -89,13 +89,13 @@ class InviteFriendsScreen extends StatelessWidget {
                             Clipboard.setData(ClipboardData(text: shareText));
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: const Text('Referral message copied! Paste it to share with friends.'),
+                                content: Text('Referral message copied! Paste it to share with friends.'),
                                 backgroundColor: AppColors.primaryGreen,
                               ),
                             );
                           },
-                          icon: const Icon(Icons.share),
-                          label: const Text('SHARE'),
+                          icon: Icon(Icons.share),
+                          label: Text('SHARE'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primaryGreen,
                             foregroundColor: AppColors.background,
@@ -110,7 +110,7 @@ class InviteFriendsScreen extends StatelessWidget {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               width: double.infinity,
@@ -119,20 +119,20 @@ class InviteFriendsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('How It Works', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
+                  Text('How It Works', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 16),
                   _HowItWorksStep(number: '1', title: 'Share Your Code', description: 'Send your referral code to friends'),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   _HowItWorksStep(number: '2', title: 'Friend Signs Up', description: 'They register using your code'),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   _HowItWorksStep(number: '3', title: 'First Charge', description: 'Your friend completes a charging session'),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   _HowItWorksStep(number: '4', title: 'Earn Rewards', description: 'Both of you get RM5 credits!'),
                 ],
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               width: double.infinity,
@@ -141,14 +141,14 @@ class InviteFriendsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Your Referral Stats', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
+                  Text('Your Referral Stats', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(child: _StatCard(icon: Icons.people_outline, value: '0', label: 'Friends Invited')),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(child: _StatCard(icon: Icons.check_circle_outline, value: '0', label: 'Completed')),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(child: _StatCard(icon: Icons.account_balance_wallet_outlined, value: 'RM0', label: 'Earned')),
                     ],
                   ),
@@ -156,7 +156,7 @@ class InviteFriendsScreen extends StatelessWidget {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Text(
               'Terms & Conditions apply. Rewards are credited after your friend\'s first successful charging session.',
               textAlign: TextAlign.center,
@@ -183,14 +183,14 @@ class _HowItWorksStep extends StatelessWidget {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(color: AppColors.primaryGreen, shape: BoxShape.circle),
-          child: Center(child: Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          child: Center(child: Text(number, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),
@@ -215,9 +215,9 @@ class _StatCard extends StatelessWidget {
       child: Column(
         children: [
           Icon(icon, color: AppColors.primaryGreen, size: 24),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(value, style: TextStyle(color: AppColors.primaryGreen, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
+          SizedBox(height: 4),
           Text(label, textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight, fontSize: 10)),
         ],
       ),

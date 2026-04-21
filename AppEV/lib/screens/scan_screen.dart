@@ -204,17 +204,17 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             Text('Charger Found!',
                 style: TextStyle(
                     color: AppColors.primaryGreen,
                     fontSize: 22,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(name,
                 style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w600)),
             if (vendor.isNotEmpty || model.isNotEmpty)
@@ -224,7 +224,7 @@ class _ScanScreenState extends State<ScanScreen>
                     style: TextStyle(
                         color: AppColors.textLight, fontSize: 13)),
               ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             // Status badge
             Container(
@@ -248,7 +248,7 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Buttons
             Row(
@@ -266,10 +266,10 @@ class _ScanScreenState extends State<ScanScreen>
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                     ),
-                    child: const Text('Scan Again'),
+                    child: Text('Scan Again'),
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
@@ -291,7 +291,7 @@ class _ScanScreenState extends State<ScanScreen>
                           borderRadius: BorderRadius.circular(14)),
                       elevation: 4,
                     ),
-                    child: const Text('View Charger',
+                    child: Text('View Charger',
                         style: TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 15)),
                   ),
@@ -331,19 +331,19 @@ class _ScanScreenState extends State<ScanScreen>
               ),
             ),
             Icon(Icons.error_outline, color: AppColors.error, size: 48),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text('Charger Not Found',
                 style: TextStyle(
                     color: AppColors.error,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'No charger found for code:\n"$code"',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textLight, fontSize: 14),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -358,7 +358,7 @@ class _ScanScreenState extends State<ScanScreen>
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('Try Again',
+                child: Text('Try Again',
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
@@ -412,21 +412,21 @@ class _ScanScreenState extends State<ScanScreen>
               ),
               Text('Enter Charger ID',
                   style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontSize: 20,
                       fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 'Type the charger ID printed on the station',
                 style: TextStyle(color: AppColors.textLight, fontSize: 13),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               TextField(
                 controller: _manualController,
                 autofocus: true,
                 textCapitalization: TextCapitalization.characters,
                 style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 2),
@@ -450,7 +450,7 @@ class _ScanScreenState extends State<ScanScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -468,7 +468,7 @@ class _ScanScreenState extends State<ScanScreen>
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: const Text('Find Charger',
+                  child: Text('Find Charger',
                       style: TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
@@ -484,7 +484,7 @@ class _ScanScreenState extends State<ScanScreen>
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -498,7 +498,7 @@ class _ScanScreenState extends State<ScanScreen>
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('SCAN QR CODE'),
+          title: Text('SCAN QR CODE'),
           backgroundColor: Colors.transparent,
           actions: [
             // Torch toggle
@@ -598,10 +598,10 @@ class _ScanScreenState extends State<ScanScreen>
                   children: [
                     CircularProgressIndicator(
                         color: AppColors.primaryGreen, strokeWidth: 3),
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     Text('Looking up charger...',
                         style: TextStyle(
-                            color: AppColors.textPrimary, fontSize: 14)),
+                            color: Colors.white, fontSize: 14)),
                   ],
                 ),
               ),
@@ -627,19 +627,19 @@ class _ScanScreenState extends State<ScanScreen>
               child: Icon(Icons.camera_alt_outlined,
                   color: AppColors.warning, size: 48),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Text('Camera Permission Required',
                 style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               'To scan QR codes on chargers, please allow camera access in your device settings.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textLight, fontSize: 14),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: () {
                 // Re-init scanner
@@ -650,8 +650,8 @@ class _ScanScreenState extends State<ScanScreen>
                 _scannerController?.dispose();
                 _initScanner();
               },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try Again'),
+              icon: Icon(Icons.refresh),
+              label: Text('Try Again'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
                 foregroundColor: AppColors.background,
@@ -661,7 +661,7 @@ class _ScanScreenState extends State<ScanScreen>
                     borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               'Or use manual entry below',
               style: TextStyle(color: AppColors.textLight, fontSize: 12),
@@ -688,24 +688,24 @@ class _ScanScreenState extends State<ScanScreen>
               child: Icon(Icons.videocam_off_rounded,
                   color: AppColors.error, size: 48),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Text('Camera Not Available',
                 style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               message ??
                   'Unable to access the camera. You can enter the charger ID manually.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textLight, fontSize: 14),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _showManualEntry,
-              icon: const Icon(Icons.keyboard),
-              label: const Text('Enter Manually'),
+              icon: Icon(Icons.keyboard),
+              label: Text('Enter Manually'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
                 foregroundColor: AppColors.background,
@@ -735,7 +735,7 @@ class _ScanScreenState extends State<ScanScreen>
               children: [
                 Icon(Icons.qr_code_scanner_rounded,
                     color: AppColors.primaryGreen, size: 18),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(
                   'Point your camera at the QR code',
                   style: TextStyle(
@@ -745,12 +745,12 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             Text(
               'Located on the EV charger station',
               style: TextStyle(color: AppColors.textLight, fontSize: 11),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
 
             // Manual entry button
             SizedBox(

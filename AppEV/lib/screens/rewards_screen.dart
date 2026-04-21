@@ -136,9 +136,9 @@ class _RewardsScreenState extends State<RewardsScreen>
         title: Row(
           children: [
             Icon(Icons.lock_outline, color: AppColors.warning, size: 28),
-            const SizedBox(width: 10),
+            SizedBox(width: 10),
             Text('Not Enough Points',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
+                style: TextStyle(color: Colors.white, fontSize: 18)),
           ],
         ),
         content: Column(
@@ -149,12 +149,12 @@ class _RewardsScreenState extends State<RewardsScreen>
               'You need $needed points but only have $current.',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               'Keep charging to earn more points!',
               style: TextStyle(color: AppColors.textLight, fontSize: 13),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             // Progress bar
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -166,7 +166,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                     AlwaysStoppedAnimation<Color>(AppColors.primaryGreen),
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               '${((current / needed) * 100).toStringAsFixed(0)}% there — ${needed - current} more points needed',
               style: TextStyle(
@@ -199,7 +199,7 @@ class _RewardsScreenState extends State<RewardsScreen>
         backgroundColor: AppColors.cardBackground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Confirm Redemption',
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -213,13 +213,13 @@ class _RewardsScreenState extends State<RewardsScreen>
               child: Icon(Icons.card_giftcard,
                   color: AppColors.primaryGreen, size: 40),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text(title,
                 style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             // Details
             _confirmRow('Points to spend', '$pointsCost pts', AppColors.warning),
             if (walletCredit > 0)
@@ -242,7 +242,7 @@ class _RewardsScreenState extends State<RewardsScreen>
               padding:
                   const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
             ),
-            child: const Text('Redeem', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text('Redeem', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -274,7 +274,7 @@ class _RewardsScreenState extends State<RewardsScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             // Animated check
             TweenAnimationBuilder<double>(
               tween: Tween(begin: 0.0, end: 1.0),
@@ -302,16 +302,16 @@ class _RewardsScreenState extends State<RewardsScreen>
                 );
               },
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             Text('Reward Redeemed!',
                 style: TextStyle(
                     color: AppColors.primaryGreen,
                     fontSize: 22,
                     fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(title,
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
-            const SizedBox(height: 16),
+                style: TextStyle(color: Colors.white, fontSize: 16)),
+            SizedBox(height: 16),
             if (walletCredit > 0)
               Container(
                 padding:
@@ -327,7 +327,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                   children: [
                     Icon(Icons.account_balance_wallet,
                         color: AppColors.primaryGreen, size: 20),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Text(
                       '+RM ${walletCredit.toStringAsFixed(2)} added to wallet',
                       style: TextStyle(
@@ -338,7 +338,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                   ],
                 ),
               ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Remaining: ${result['points_after'] ?? 0} pts',
               style: TextStyle(color: AppColors.textLight, fontSize: 13),
@@ -357,11 +357,11 @@ class _RewardsScreenState extends State<RewardsScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
               ),
-              child: const Text('Awesome!',
+              child: Text('Awesome!',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
         ],
       ),
     );
@@ -372,8 +372,8 @@ class _RewardsScreenState extends State<RewardsScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.error_outline, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
+            Icon(Icons.error_outline, color: Colors.white, size: 20),
+            SizedBox(width: 8),
             Expanded(child: Text(message)),
           ],
         ),
@@ -389,7 +389,7 @@ class _RewardsScreenState extends State<RewardsScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Rewards'),
+        title: Text('Rewards'),
         backgroundColor: Colors.transparent,
         bottom: TabBar(
           controller: _tabController,
@@ -397,7 +397,7 @@ class _RewardsScreenState extends State<RewardsScreen>
           labelColor: AppColors.primaryGreen,
           unselectedLabelColor: AppColors.textLight,
           indicatorWeight: 3,
-          tabs: const [
+          tabs: [
             Tab(text: 'Rewards'),
             Tab(text: 'History'),
           ],
@@ -429,11 +429,11 @@ class _RewardsScreenState extends State<RewardsScreen>
               children: [
                 // Points Card
                           _buildPointsCard(points),
-                          const SizedBox(height: 24),
+                          SizedBox(height: 24),
 
                           // Earn more section
                           _buildEarnSection(),
-                          const SizedBox(height: 24),
+                          SizedBox(height: 24),
 
                           // Available Rewards
                           Text(
@@ -445,7 +445,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                               letterSpacing: 1,
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: 16),
 
                           if (_loadingCatalog)
                             Center(
@@ -471,7 +471,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                                   userPoints: points,
                                   onRedeem: () => _redeemReward(reward),
                                 )),
-                          const SizedBox(height: 40),
+                          SizedBox(height: 40),
                         ],
                       ),
                     ),
@@ -538,10 +538,10 @@ class _RewardsScreenState extends State<RewardsScreen>
                               strokeWidth: 3,
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: 16),
                           Text('Redeeming...',
                               style: TextStyle(
-                                  color: AppColors.textPrimary,
+                                  color: Colors.white,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600)),
                         ],
@@ -597,13 +597,13 @@ class _RewardsScreenState extends State<RewardsScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.stars, color: Colors.white.withOpacity(0.9), size: 22),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text('Your Points',
                   style: TextStyle(
                       color: Colors.white.withOpacity(0.9), fontSize: 16)),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           TweenAnimationBuilder<int>(
             tween: IntTween(begin: 0, end: points),
             duration: const Duration(milliseconds: 800),
@@ -611,7 +611,7 @@ class _RewardsScreenState extends State<RewardsScreen>
             builder: (context, value, child) {
               return Text(
                 value.toString(),
-                style: const TextStyle(
+                style: TextStyle(
                     color: Colors.white,
                     fontSize: 48,
                     fontWeight: FontWeight.bold),
@@ -621,7 +621,7 @@ class _RewardsScreenState extends State<RewardsScreen>
 
           // Progress to next reward
           if (cheapestCost != null && cheapestTitle != null) ...[
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
@@ -632,7 +632,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                     const AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       Text(
               points >= cheapestCost
                   ? '🎉 You can redeem $cheapestTitle!'
@@ -644,14 +644,14 @@ class _RewardsScreenState extends State<RewardsScreen>
                       ),
           ],
 
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () {
               _tabController.animateTo(1);
               if (_history.isEmpty && !_loadingHistory) _loadHistory();
             },
-            icon: const Icon(Icons.history, size: 18),
-            label: const Text('View History'),
+            icon: Icon(Icons.history, size: 18),
+            label: Text('View History'),
             style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
               side: BorderSide(color: Colors.white.withOpacity(0.4)),
@@ -681,7 +681,7 @@ class _RewardsScreenState extends State<RewardsScreen>
             children: [
               Icon(Icons.info_outline,
                   color: AppColors.primaryGreen.withOpacity(0.7), size: 18),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text('HOW TO EARN POINTS',
                   style: TextStyle(
                       color: AppColors.primaryGreen.withOpacity(0.7),
@@ -690,7 +690,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                       letterSpacing: 1)),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _earnRow(Icons.bolt, 'Charge your EV', '1 pt per RM spent'),
           _earnRow(Icons.login, 'Daily login', '+5 pts per day'),
           _earnRow(Icons.rate_review, 'Leave a review', '+50 pts'),
@@ -706,7 +706,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       child: Row(
         children: [
           Icon(icon, color: AppColors.primaryGreen.withOpacity(0.6), size: 18),
-          const SizedBox(width: 12),
+          SizedBox(width: 12),
           Expanded(
             child: Text(title,
                 style: TextStyle(
@@ -759,7 +759,7 @@ class _RewardsScreenState extends State<RewardsScreen>
               size: 24,
             ),
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: 14),
           // Info
           Expanded(
             child: Column(
@@ -767,10 +767,10 @@ class _RewardsScreenState extends State<RewardsScreen>
               children: [
                 Text(title,
                     style: TextStyle(
-                        color: AppColors.textPrimary,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                         fontSize: 14)),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(
                   redeemedAt != null
                       ? '${redeemedAt.day}/${redeemedAt.month}/${redeemedAt.year} ${redeemedAt.hour.toString().padLeft(2, '0')}:${redeemedAt.minute.toString().padLeft(2, '0')}'
@@ -811,10 +811,10 @@ class _RewardsScreenState extends State<RewardsScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, color: AppColors.textLight.withOpacity(0.3), size: 60),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(message,
               style: TextStyle(color: AppColors.textLight, fontSize: 15)),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text('Pull down to refresh',
               style: TextStyle(
                   color: AppColors.textLight.withOpacity(0.5),
@@ -894,7 +894,7 @@ class _RewardCard extends StatelessWidget {
                         ? AppColors.primaryGreen
                         : AppColors.textLight),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
               // Info
           Expanded(
             child: Column(
@@ -902,15 +902,15 @@ class _RewardCard extends StatelessWidget {
               children: [
                     Text(title,
                         style: TextStyle(
-                            color: AppColors.textPrimary,
+                            color: Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 15)),
-                    const SizedBox(height: 4),
+                    SizedBox(height: 4),
                     Text(description,
                         style: TextStyle(
                             color: AppColors.textLight, fontSize: 12)),
                     if (walletCredit > 0) ...[
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                       Text(
                         '+RM ${walletCredit.toStringAsFixed(2)} wallet credit',
                         style: TextStyle(
@@ -933,7 +933,7 @@ class _RewardCard extends StatelessWidget {
                               ? AppColors.primaryGreen
                               : AppColors.warning,
                           fontSize: 14)),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               ElevatedButton(
                     onPressed: onRedeem,
                 style: ElevatedButton.styleFrom(
@@ -950,7 +950,7 @@ class _RewardCard extends StatelessWidget {
                 ),
                     child: Text(
                       canRedeem ? 'Redeem' : 'Locked',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -960,7 +960,7 @@ class _RewardCard extends StatelessWidget {
           ),
           // Progress bar (only show if can't redeem yet)
           if (!canRedeem) ...[
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
@@ -971,7 +971,7 @@ class _RewardCard extends StatelessWidget {
                     AlwaysStoppedAnimation<Color>(AppColors.primaryGreen.withOpacity(0.6)),
               ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             Align(
               alignment: Alignment.centerRight,
               child: Text(

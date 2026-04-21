@@ -71,17 +71,17 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                 Text(
                   'Write a Review',
                   style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(
                   widget.chargerName,
                   style: TextStyle(color: AppColors.textLight, fontSize: 13),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 // Star selector
                 Center(
                   child: Row(
@@ -101,12 +101,12 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                     }),
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 TextField(
                   controller: _commentController,
                   maxLines: 3,
                   maxLength: 300,
-                  style: TextStyle(color: AppColors.textPrimary),
+                  style: TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: 'Share your experience (optional)...',
                     hintStyle: TextStyle(color: AppColors.textLight),
@@ -127,7 +127,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                     counterStyle: TextStyle(color: AppColors.textLight),
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -148,7 +148,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: const Text('Review submitted! Thank you.'),
+                                    content: Text('Review submitted! Thank you.'),
                                     backgroundColor: AppColors.primaryGreen,
                                   ),
                                 );
@@ -170,12 +170,12 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: _submitting
-                        ? const SizedBox(
+                        ? SizedBox(
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                           )
-                        : const Text(
+                        : Text(
                             'SUBMIT REVIEW',
                             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
                           ),
@@ -194,10 +194,10 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Reviews'),
+        title: Text('Reviews'),
         backgroundColor: AppColors.primaryGreen,
         iconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           color: Colors.white,
           fontSize: 18,
           fontWeight: FontWeight.bold,
@@ -205,8 +205,8 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
         actions: [
           TextButton.icon(
             onPressed: _showWriteReviewDialog,
-            icon: const Icon(Icons.rate_review, color: Colors.white, size: 18),
-            label: const Text('Write', style: TextStyle(color: Colors.white)),
+            icon: Icon(Icons.rate_review, color: Colors.white, size: 18),
+            label: Text('Write', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -231,7 +231,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                           Text(
                             _avgRating.toStringAsFixed(1),
                             style: TextStyle(
-                              color: AppColors.textPrimary,
+                              color: Colors.white,
                               fontSize: 48,
                               fontWeight: FontWeight.bold,
                             ),
@@ -245,14 +245,14 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                               );
                             }),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Text(
                             '${_reviews.length} review${_reviews.length != 1 ? 's' : ''}',
                             style: TextStyle(color: AppColors.textLight, fontSize: 12),
                           ),
                         ],
                       ),
-                      const SizedBox(width: 24),
+                      SizedBox(width: 24),
                       Expanded(
                         child: _reviews.isEmpty
                             ? Text(
@@ -269,9 +269,9 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                                     child: Row(
                                       children: [
                                         Text('$star', style: TextStyle(color: AppColors.textLight, fontSize: 11)),
-                                        const SizedBox(width: 4),
+                                        SizedBox(width: 4),
                                         Icon(Icons.star, color: Colors.amber, size: 11),
-                                        const SizedBox(width: 6),
+                                        SizedBox(width: 6),
                                         Expanded(
                                           child: ClipRRect(
                                             borderRadius: BorderRadius.circular(4),
@@ -283,7 +283,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(width: 6),
+                                        SizedBox(width: 6),
                                         Text('$count', style: TextStyle(color: AppColors.textLight, fontSize: 11)),
                                       ],
                                     ),
@@ -302,19 +302,19 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(Icons.rate_review_outlined, color: AppColors.textLight, size: 64),
-                              const SizedBox(height: 16),
+                              SizedBox(height: 16),
                               Text(
                                 'No reviews yet',
                                 style: TextStyle(color: AppColors.textLight, fontSize: 16),
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: 8),
                               ElevatedButton(
                                 onPressed: _showWriteReviewDialog,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primaryGreen,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
-                                child: const Text('Write First Review', style: TextStyle(color: Colors.black)),
+                                child: Text('Write First Review', style: TextStyle(color: Colors.black)),
                               ),
                             ],
                           ),
@@ -356,10 +356,10 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                                     ],
                                   ),
                                   if (comment.isNotEmpty) ...[
-                                    const SizedBox(height: 8),
+                                    SizedBox(height: 8),
                                     Text(
                                       comment,
-                                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14, height: 1.4),
+                                      style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
                                     ),
                                   ],
                                 ],

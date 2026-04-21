@@ -16,10 +16,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'My Subscriptions',
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -56,14 +56,14 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                         color: Colors.white,
                         size: 32,
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               _currentPlan ?? 'No Active Plan',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
@@ -73,8 +73,8 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                               _currentPlan == null
                                   ? 'Subscribe to save more on charging'
                                   : 'Valid until Dec 31, 2026',
-                              style: const TextStyle(
-                                color: Colors.white70,
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
                                 fontSize: 12,
                               ),
                             ),
@@ -84,14 +84,14 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                     ],
                   ),
                   if (_currentPlan != null) ...[
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text(
+                      child: Text(
                         '10% OFF on all charging sessions',
                         style: TextStyle(
                           color: Colors.white,
@@ -105,7 +105,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Text(
               'AVAILABLE PLANS',
@@ -116,7 +116,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                 letterSpacing: 1,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             // Free Plan
             _PlanCard(
@@ -133,7 +133,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               onSubscribe: () {},
             ),
             
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             // Basic Plan
             _PlanCard(
@@ -151,7 +151,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               onSubscribe: () => _subscribeToPlan('Basic'),
             ),
             
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             // Premium Plan
             _PlanCard(
@@ -171,7 +171,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               onSubscribe: () => _subscribeToPlan('Premium'),
             ),
             
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             // Business Plan
             _PlanCard(
@@ -191,7 +191,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               onSubscribe: () => _subscribeToPlan('Business'),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // FAQ Section
             Container(
@@ -208,12 +208,12 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                   Text(
                     'Frequently Asked Questions',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   _FAQItem(
                     question: 'Can I cancel anytime?',
                     answer: 'Yes, you can cancel your subscription at any time. Your benefits will remain active until the end of the billing period.',
@@ -240,7 +240,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.cardBackground,
-        title: Text('Subscribe to $plan?', style: TextStyle(color: AppColors.textPrimary)),
+        title: Text('Subscribe to $plan?', style: TextStyle(color: Colors.white)),
         content: Text(
           'You will be charged monthly. You can cancel anytime.',
           style: TextStyle(color: AppColors.textLight),
@@ -262,7 +262,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen),
-            child: const Text('Subscribe'),
+            child: Text('Subscribe'),
           ),
         ],
       ),
@@ -313,7 +313,7 @@ class _PlanCard extends StatelessWidget {
                   Text(
                     planName,
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -336,7 +336,7 @@ class _PlanCard extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -348,7 +348,7 @@ class _PlanCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
@@ -361,18 +361,18 @@ class _PlanCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               ...features.map((feature) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
                     Icon(Icons.check_circle, color: AppColors.primaryGreen, size: 18),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         feature,
                         style: TextStyle(
-                          color: AppColors.textPrimary,
+                          color: Colors.white,
                           fontSize: 13,
                         ),
                       ),
@@ -380,7 +380,7 @@ class _PlanCard extends StatelessWidget {
                   ],
                 ),
               )),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               if (!isCurrentPlan && price != 'RM0')
                 SizedBox(
                   width: double.infinity,
@@ -413,7 +413,7 @@ class _PlanCard extends StatelessWidget {
                 color: AppColors.primaryGreen,
                 borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
               ),
-              child: const Text(
+              child: Text(
                 'POPULAR',
                 style: TextStyle(
                   color: Colors.white,
@@ -455,7 +455,7 @@ class _FAQItemState extends State<_FAQItem> {
                   child: Text(
                     widget.question,
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),

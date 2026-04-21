@@ -261,23 +261,23 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF12192B),
+        backgroundColor: AppColors.cardBackground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(children: [
           Icon(Icons.confirmation_number, color: AppColors.primaryGreen, size: 22),
-          const SizedBox(width: 8),
-          const Text('Create Support Ticket', style: TextStyle(fontSize: 18, color: Colors.white)),
+          SizedBox(width: 8),
+          Text('Create Support Ticket', style: TextStyle(fontSize: 18, color: Colors.white)),
         ]),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildDialogField('Email', emailCtrl, Icons.email),
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               _buildDialogField('Name', nameCtrl, Icons.person),
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               _buildDialogField('Subject', subjectCtrl, Icons.subject),
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               _buildDialogField('Describe your issue', descCtrl, Icons.description, maxLines: 4),
             ],
           ),
@@ -302,7 +302,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
               Navigator.pop(ctx);
               _createTicket(emailCtrl.text, nameCtrl.text, subjectCtrl.text, descCtrl.text);
             },
-            child: const Text('Submit', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: Text('Submit', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -313,15 +313,15 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
     return TextField(
       controller: ctrl,
       maxLines: maxLines,
-      style: const TextStyle(color: Colors.white, fontSize: 14),
+      style: TextStyle(color: Colors.white, fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: TextStyle(color: Colors.white38),
+        hintStyle: TextStyle(color: AppColors.textLight),
         prefixIcon: maxLines == 1 ? Icon(icon, color: AppColors.primaryGreen, size: 20) : null,
         filled: true,
-        fillColor: const Color(0xFF0A0A1A),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white12)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.white12)),
+        fillColor: AppColors.background,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primaryGreen)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
@@ -333,12 +333,12 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF12192B),
+        backgroundColor: AppColors.cardBackground,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(children: [
@@ -349,9 +349,9 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
               gradient: LinearGradient(colors: [AppColors.primaryGreen, const Color(0xFF00AA55)]),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Center(child: Text('⚡', style: TextStyle(fontSize: 18))),
+            child: Center(child: Text('⚡', style: TextStyle(fontSize: 18))),
           ),
-          const SizedBox(width: 10),
+          SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -394,7 +394,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _quickActions.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                separatorBuilder: (_, __) => SizedBox(width: 6),
                 itemBuilder: (ctx, i) {
                   final action = _quickActions[i];
                   return GestureDetector(
@@ -445,7 +445,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
               bottom: MediaQuery.of(context).padding.bottom + 8,
             ),
             decoration: BoxDecoration(
-              color: const Color(0xFF12192B),
+              color: AppColors.cardBackground,
               border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
             ),
             child: Row(
@@ -453,26 +453,26 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
                 Expanded(
                   child: TextField(
                     controller: _msgController,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    style: TextStyle(color: Colors.white, fontSize: 15),
                     decoration: InputDecoration(
                       hintText: 'Type a message...',
-                      hintStyle: TextStyle(color: Colors.white30),
+                      hintStyle: TextStyle(color: AppColors.textLight),
                       filled: true,
-                      fillColor: const Color(0xFF0A0A1A),
+                      fillColor: AppColors.background,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     ),
                     onSubmitted: (t) => _sendMessage(t),
                   ),
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [AppColors.primaryGreen, const Color(0xFF00AA55)]),
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.send_rounded, color: Colors.black, size: 20),
+                    icon: Icon(Icons.send_rounded, color: Colors.black, size: 20),
                     onPressed: () => _sendMessage(_msgController.text),
                   ),
                 ),
@@ -495,16 +495,16 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
             CircleAvatar(
               radius: 16,
               backgroundColor: AppColors.primaryGreen.withOpacity(0.2),
-              child: const Text('⚡', style: TextStyle(fontSize: 14)),
+              child: Text('⚡', style: TextStyle(fontSize: 14)),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
           ],
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: msg.isBot
-                    ? const Color(0xFF12192B)
+                    ? AppColors.cardBackground
                     : AppColors.primaryGreen.withOpacity(0.15),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
@@ -521,7 +521,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
               child: _buildFormattedText(msg.text, msg.isBot),
             ),
           ),
-          if (!msg.isBot) const SizedBox(width: 32),
+          if (!msg.isBot) SizedBox(width: 32),
         ],
       ),
     );
@@ -539,7 +539,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
       if (i % 2 == 0) {
         spans.add(TextSpan(text: parts[i]));
       } else {
-        spans.add(TextSpan(text: parts[i], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00FF88))));
+        spans.add(TextSpan(text: parts[i], style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00FF88))));
       }
     }
     return RichText(text: TextSpan(style: TextStyle(color: Colors.white, fontSize: 14, height: 1.5), children: spans));
@@ -553,13 +553,13 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
           CircleAvatar(
             radius: 16,
             backgroundColor: AppColors.primaryGreen.withOpacity(0.2),
-            child: const Text('⚡', style: TextStyle(fontSize: 14)),
+            child: Text('⚡', style: TextStyle(fontSize: 14)),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF12192B),
+              color: AppColors.cardBackground,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white.withOpacity(0.06)),
             ),

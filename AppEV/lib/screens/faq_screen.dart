@@ -9,7 +9,7 @@ class FAQScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'F.A.Q.',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -36,7 +36,7 @@ class FAQScreen extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(Icons.search, color: AppColors.textLight),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: TextField(
                       style: TextStyle(color: AppColors.textPrimary),
@@ -51,7 +51,7 @@ class FAQScreen extends StatelessWidget {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // Categories
             Wrap(
@@ -66,7 +66,7 @@ class FAQScreen extends StatelessWidget {
               ],
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // FAQ Items
             _FAQSection(
@@ -95,7 +95,7 @@ class FAQScreen extends StatelessWidget {
               ],
             ),
             
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             
             _FAQSection(
               title: 'Charging',
@@ -124,7 +124,7 @@ class FAQScreen extends StatelessWidget {
               ],
             ),
             
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             
             _FAQSection(
               title: 'Billing & Payment',
@@ -144,7 +144,7 @@ class FAQScreen extends StatelessWidget {
               ],
             ),
             
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             
             _FAQSection(
               title: 'Troubleshooting',
@@ -164,7 +164,7 @@ class FAQScreen extends StatelessWidget {
               ],
             ),
             
-            const SizedBox(height: 32),
+            SizedBox(height: 32),
             
             // Still need help?
             Container(
@@ -178,7 +178,7 @@ class FAQScreen extends StatelessWidget {
               child: Column(
                 children: [
                   Icon(Icons.headset_mic_outlined, color: AppColors.primaryGreen, size: 40),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Text(
                     'Still need help?',
                     style: TextStyle(
@@ -187,7 +187,7 @@ class FAQScreen extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     'Our support team is ready to assist you',
                     style: TextStyle(
@@ -195,13 +195,13 @@ class FAQScreen extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
                     },
-                    icon: const Icon(Icons.chat_bubble_outline),
-                    label: const Text('CONTACT SUPPORT'),
+                    icon: Icon(Icons.chat_bubble_outline),
+                    label: Text('CONTACT SUPPORT'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
                       foregroundColor: Colors.white,

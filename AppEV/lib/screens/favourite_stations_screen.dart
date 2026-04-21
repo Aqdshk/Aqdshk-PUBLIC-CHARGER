@@ -18,7 +18,7 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Favourite Stations',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -52,7 +52,7 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
                 color: AppColors.primaryGreen,
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Text(
               'No Favourite Stations',
               style: TextStyle(
@@ -61,7 +61,7 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Tap the bookmark icon on any charger to add it to your favourites for quick access.',
               textAlign: TextAlign.center,
@@ -70,13 +70,13 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
                 fontSize: 14,
               ),
             ),
-            const SizedBox(height: 32),
+            SizedBox(height: 32),
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.pop(context);
               },
-              icon: const Icon(Icons.search),
-              label: const Text('FIND CHARGERS'),
+              icon: Icon(Icons.search),
+              label: Text('FIND CHARGERS'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
                 foregroundColor: Colors.white,
@@ -114,7 +114,7 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
             });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text('Removed from favourites'),
+                content: Text('Removed from favourites'),
                 backgroundColor: Colors.orange,
                 action: SnackBarAction(
                   label: 'UNDO',
@@ -162,7 +162,7 @@ class _FavouriteStationCard extends StatelessWidget {
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.delete, color: Colors.white),
+        child: Icon(Icons.delete, color: Colors.white),
       ),
       onDismissed: (_) => onRemove(),
       child: Container(
@@ -193,7 +193,7 @@ class _FavouriteStationCard extends StatelessWidget {
                       size: 28,
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,7 +206,7 @@ class _FavouriteStationCard extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: 4),
                         Row(
                           children: [
                             Container(
@@ -226,7 +226,7 @@ class _FavouriteStationCard extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               '• 1.5 km',
                               style: TextStyle(

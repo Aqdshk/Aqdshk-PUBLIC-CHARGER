@@ -68,9 +68,9 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'App Walkthrough',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -116,7 +116,7 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
                         ),
                         child: Icon(step.icon, size: 64, color: step.color),
                       ),
-                      const SizedBox(height: 40),
+                      SizedBox(height: 40),
                       // Step counter
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -130,17 +130,17 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
                           style: TextStyle(color: step.color, fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      SizedBox(height: 20),
                       // Title
                       Text(
                         step.title,
                         style: TextStyle(
-                          color: AppColors.textPrimary,
+                          color: Colors.white,
                           fontSize: 26,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
                       // Description
                       Text(
                         step.description,
@@ -180,7 +180,7 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
                     );
                   }),
                 ),
-                const SizedBox(height: 28),
+                SizedBox(height: 28),
                 // Next / Get Started button
                 SizedBox(
                   width: double.infinity,
@@ -204,7 +204,7 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
                     ),
                     child: Text(
                       _currentPage == _steps.length - 1 ? 'Get Started' : 'Next',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,

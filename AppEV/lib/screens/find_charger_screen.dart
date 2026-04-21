@@ -116,7 +116,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.bolt_rounded,
                 color: Colors.white,
                 size: 20,
@@ -150,7 +150,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
+      builder: (context) => Center(
         child: Card(
           child: Padding(
             padding: EdgeInsets.all(20),
@@ -159,7 +159,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
               children: [
                 CircularProgressIndicator(color: AppColors.primaryGreen),
                 SizedBox(height: 16),
-                Text('Starting charging...', style: TextStyle(color: AppColors.textPrimary)),
+                Text('Starting charging...', style: TextStyle(color: Colors.white)),
               ],
             ),
           ),
@@ -225,7 +225,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -239,11 +239,11 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('FIND CHARGER'),
+          title: Text('FIND CHARGER'),
           backgroundColor: Colors.transparent,
         ),
         body: !_locationLoaded
-            ? const Center(
+            ? Center(
                 child: CircularProgressIndicator(color: AppColors.primaryGreen),
               )
             : Stack(
@@ -313,7 +313,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.my_location,
                           color: AppColors.primaryGreen,
                           size: 20,
@@ -434,26 +434,26 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
                                                   ),
                                                 ],
                                               ),
-                                              child: const Icon(
+                                              child: Icon(
                                                 Icons.bolt_rounded,
                                                 color: Colors.white,
                                                 size: 20,
                                               ),
                                             ),
-                                            const SizedBox(width: 16),
+                                            SizedBox(width: 16),
                                             Expanded(
                                               child: Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     chargePointId,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       color: AppColors.textTertiary,
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.bold,
                                                     ),
                                                   ),
-                                                  const SizedBox(height: 4),
+                                                  SizedBox(height: 4),
                                                   Wrap(
                                                     spacing: 8,
                                                     runSpacing: 4,
@@ -493,7 +493,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
                                                       ),
                                                       Text(
                                                         '$distance km',
-                                                        style: const TextStyle(
+                                                        style: TextStyle(
                                                           color: AppColors.textLight,
                                                           fontSize: 12,
                                                         ),
@@ -525,7 +525,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
                                                         ),
                                                       ],
                                                     ),
-                                                    child: const Text(
+                                                    child: Text(
                                                       'START',
                                                       style: TextStyle(
                                                         color: AppColors.textTertiary,

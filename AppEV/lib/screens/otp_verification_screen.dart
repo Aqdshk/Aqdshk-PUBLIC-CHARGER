@@ -151,7 +151,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
         // Success — go back to home
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Registration successful! Welcome!'),
+            content: Text('Registration successful! Welcome!'),
             backgroundColor: AppColors.primaryGreen,
           ),
         );
@@ -182,7 +182,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
         _startCountdown();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('New verification code sent!'),
+            content: Text('New verification code sent!'),
             backgroundColor: AppColors.primaryGreen,
           ),
         );
@@ -202,7 +202,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
         backgroundColor: AppColors.background,
         elevation: 0,
         iconTheme: IconThemeData(color: AppColors.primaryGreen),
-        title: const Text(
+        title: Text(
           'Verify Email',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -214,7 +214,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
           children: [
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
 
             // Email icon with pulse animation
             AnimatedBuilder(
@@ -257,14 +257,14 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               },
             ),
 
-            const SizedBox(height: 28),
+            SizedBox(height: 28),
 
             // Title
             ShaderMask(
               shaderCallback: (bounds) => LinearGradient(
                 colors: [AppColors.primaryGreen, AppColors.textPrimary],
               ).createShader(bounds),
-              child: const Text(
+              child: Text(
                 'Email Verification',
                 style: TextStyle(
                   color: Colors.white,
@@ -274,7 +274,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ),
             ),
 
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             // Description
             Text(
@@ -285,7 +285,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                 fontSize: 14,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Text(
               widget.email,
               textAlign: TextAlign.center,
@@ -296,7 +296,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ),
             ),
 
-            const SizedBox(height: 36),
+            SizedBox(height: 36),
 
             // OTP Input Fields
             Row(
@@ -364,7 +364,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
 
             // Error message
             if (_errorMessage != null) ...[
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
@@ -375,12 +375,12 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red, size: 18),
-                    const SizedBox(width: 8),
+                    Icon(Icons.error_outline, color: Colors.red, size: 18),
+                    SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                        style: TextStyle(color: Colors.red, fontSize: 13),
                       ),
                     ),
                   ],
@@ -388,7 +388,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ),
             ],
 
-            const SizedBox(height: 32),
+            SizedBox(height: 32),
 
             // Verify button
             SizedBox(
@@ -406,7 +406,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                   disabledBackgroundColor: AppColors.primaryGreen.withOpacity(0.5),
                 ),
                 child: _isVerifying
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
@@ -414,7 +414,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
-                    : const Text(
+                    : Text(
                         'VERIFY & REGISTER',
                         style: TextStyle(
                           fontSize: 16,
@@ -425,7 +425,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ),
             ),
 
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Resend OTP
             Row(
@@ -470,7 +470,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ],
             ),
 
-            const SizedBox(height: 36),
+            SizedBox(height: 36),
 
             // Info note
             Container(
@@ -489,7 +489,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                     color: AppColors.primaryGreen.withOpacity(0.7),
                     size: 20,
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Check your email inbox and spam folder. The code expires in 5 minutes.',
@@ -504,7 +504,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
               ),
             ),
 
-            const SizedBox(height: 40),
+            SizedBox(height: 40),
           ],
         ),
       ),

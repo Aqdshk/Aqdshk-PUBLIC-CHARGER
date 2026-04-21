@@ -42,17 +42,17 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
-                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 48),
+                    child: Icon(Icons.auto_awesome, color: Colors.white, size: 48),
                   ),
-                  const SizedBox(height: 16),
-                  const Text('Plug & Charge', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Just plug in and charging starts automatically.\nNo app interaction needed!', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  SizedBox(height: 16),
+                  Text('Plug & Charge', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8),
+                  Text('Just plug in and charging starts automatically.\nNo app interaction needed!', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
                 ],
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             _ToggleCard(
               icon: Icons.flash_auto,
@@ -63,13 +63,13 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
                 setState(() => _autoChargeEnabled = value);
                 if (value) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: const Text('AutoCharge enabled! Link your vehicle to get started.'), backgroundColor: AppColors.primaryGreen),
+                    SnackBar(content: Text('AutoCharge enabled! Link your vehicle to get started.'), backgroundColor: AppColors.primaryGreen),
                   );
                 }
               },
             ),
             
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             
             _ToggleCard(
               icon: Icons.payment,
@@ -79,10 +79,10 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               onChanged: (value) => setState(() => _autoPayEnabled = value),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Text('CHARGE LIMITS', style: TextStyle(color: AppColors.primaryGreen.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1)),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             _SliderCard(
               title: 'Max Charge Level',
@@ -93,7 +93,7 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               onChanged: (value) => setState(() => _maxChargeLimit = value),
             ),
             
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             _SliderCard(
               title: 'Max Spend Limit',
@@ -104,7 +104,7 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               onChanged: (value) => setState(() => _maxSpendLimit = value),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               padding: const EdgeInsets.all(16),
@@ -116,18 +116,18 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('How It Works', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
+                  Text('How It Works', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 16),
                   _HowItWorksStep(number: '1', title: 'Link Your Vehicle', description: 'Add your EV in My Vehicles section'),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _HowItWorksStep(number: '2', title: 'Enable AutoCharge', description: 'Turn on the AutoCharge toggle above'),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _HowItWorksStep(number: '3', title: 'Just Plug In', description: 'Charging starts automatically at supported stations'),
                 ],
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Container(
               padding: const EdgeInsets.all(16),
@@ -139,7 +139,7 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               child: Row(
                 children: [
                   Icon(Icons.info_outline, color: Colors.blue.shade300),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'AutoCharge is available at stations marked with the ⚡ symbol. More stations coming soon!',
@@ -181,12 +181,12 @@ class _ToggleCard extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
             child: Icon(icon, color: AppColors.primaryGreen, size: 28),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(title, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 Text(subtitle, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
               ],
             ),
@@ -225,11 +225,11 @@ class _SliderCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
               Text('${prefix ?? ''}${value.toInt()}${suffix ?? ''}', style: TextStyle(color: AppColors.primaryGreen, fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Slider(value: value, min: min, max: max, divisions: divisions, onChanged: onChanged),
           Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
         ],
@@ -252,14 +252,14 @@ class _HowItWorksStep extends StatelessWidget {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(color: AppColors.primaryGreen, shape: BoxShape.circle),
-          child: Center(child: Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          child: Center(child: Text(number, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
+import '../providers/theme_provider.dart';
 import '../constants/app_colors.dart';
 import 'payment_screen.dart';
 import 'history_screen.dart';
@@ -95,29 +96,47 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                                   fit: BoxFit.cover,
                                   alignment: const Alignment(0.0, 0.3),
                                 ),
-                                // Dark overlay so text is readable
+                                // Dark overlay — aggressively fades at bottom to blend seamlessly
                                 Container(
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topCenter,
                                       end: Alignment.bottomCenter,
                                       colors: [
+                                        Colors.black.withOpacity(0.35),
                                         Colors.black.withOpacity(0.45),
-                                        Colors.black.withOpacity(0.65),
+                                        AppColors.background.withOpacity(0.85),
+                                        AppColors.background,
                                         AppColors.background,
                                       ],
-                                      stops: const [0.0, 0.7, 1.0],
+                                      stops: const [0.0, 0.45, 0.75, 0.90, 1.0],
                                     ),
                                   ),
                                 ),
-                                // Green tint overlay
+                                // Left & right side fade for clean edges
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                      colors: [
+                                        AppColors.background.withOpacity(0.4),
+                                        Colors.transparent,
+                                        Colors.transparent,
+                                        AppColors.background.withOpacity(0.4),
+                                      ],
+                                      stops: const [0.0, 0.15, 0.85, 1.0],
+                                    ),
+                                  ),
+                                ),
+                                // Subtle green tint
                                 Container(
                                   decoration: BoxDecoration(
                                     gradient: RadialGradient(
                                       center: Alignment.center,
-                                      radius: 1.0,
+                                      radius: 0.85,
                                       colors: [
-                                        AppColors.primaryGreen.withOpacity(0.08 + pulse * 0.05),
+                                        AppColors.primaryGreen.withOpacity(0.06 + pulse * 0.04),
                                         Colors.transparent,
                                       ],
                                     ),
@@ -184,7 +203,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                             shaderCallback: (bounds) => const LinearGradient(
                               colors: [AppColors.primaryGreen, Color(0xFF00D977), Color(0xFF88FFD0)],
                             ).createShader(bounds),
-                            child: const Text(
+                            child: Text(
                               'Welcome to PlagSini',
                               style: TextStyle(
                                 fontSize: 26,
@@ -194,7 +213,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                               ),
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          SizedBox(height: 10),
                           Text(
                             'Your smart companion for EV charging.\nManage your wallet, track sessions &\nearn rewards — all in one place.',
                             textAlign: TextAlign.center,
@@ -205,7 +224,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                             ),
                           ),
 
-                          const SizedBox(height: 10),
+                          SizedBox(height: 10),
 
                           // Feature pills row
                           Wrap(
@@ -220,7 +239,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                             ],
                           ),
 
-                          const SizedBox(height: 20),
+                          SizedBox(height: 20),
 
                           // Login button with glow
                           AnimatedBuilder(
@@ -253,7 +272,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                                   ),
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
-                                    children: const [
+                                    children: [
                                       Icon(Icons.login_rounded, size: 20),
                                       SizedBox(width: 10),
                                       Text(
@@ -267,7 +286,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                             },
                           ),
 
-                          const SizedBox(height: 10),
+                          SizedBox(height: 10),
 
                           // Guest button
                           TextButton(
@@ -284,7 +303,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.explore_outlined, color: AppColors.primaryGreen.withOpacity(0.7), size: 16),
-                                const SizedBox(width: 6),
+                                SizedBox(width: 6),
                                 Text(
                                   'Continue as Guest',
                                   style: TextStyle(
@@ -335,7 +354,7 @@ class _StatChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 12),
-            const SizedBox(width: 4),
+            SizedBox(width: 4),
             Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),
           ],
         ),
@@ -363,7 +382,7 @@ class _FeaturePill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: AppColors.primaryGreen, size: 14),
-          const SizedBox(width: 5),
+          SizedBox(width: 5),
           Text(label, style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
         ],
       ),
@@ -415,7 +434,7 @@ class ProfileScreen extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: Colors.red.withOpacity(0.3)),
         ),
-        title: const Text('Delete Account?', style: TextStyle(color: Colors.red)),
+        title: Text('Delete Account?', style: TextStyle(color: Colors.red)),
         content: Text(
           'This action cannot be undone. All your data, including wallet balance and charging history, will be permanently deleted.',
           style: TextStyle(color: AppColors.textLight),
@@ -437,7 +456,7 @@ class ProfileScreen extends StatelessWidget {
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: Text('Delete'),
           ),
         ],
       ),
@@ -460,13 +479,13 @@ class ProfileScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.25),
-                border: Border.all(color: Colors.white24),
+                border: Border.all(color: AppColors.borderLight),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Row(
                 children: [
                   Icon(Icons.flag, color: AppColors.primaryGreen, size: 16),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text('MY', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
                 ],
               ),
@@ -483,7 +502,7 @@ class ProfileScreen extends StatelessWidget {
           }
 
           if (authProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
+            return Center(child: CircularProgressIndicator(color: AppColors.primaryGreen));
           }
 
           return SingleChildScrollView(
@@ -514,12 +533,12 @@ class ProfileScreen extends StatelessWidget {
                           children: [
                             Text(
                               user?.name.isNotEmpty == true ? user!.name : 'User',
-                              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                             ),
-                            const SizedBox(height: 4),
+                            SizedBox(height: 4),
                             Text(
                               'Account ID: ${ProfileScreen._formatAccountId(user?.id)}',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                             ),
                           ],
                         ),
@@ -532,11 +551,11 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.eco, color: Colors.white, size: 16),
-                            const SizedBox(width: 4),
+                            Icon(Icons.eco, color: Colors.white, size: 16),
+                            SizedBox(width: 4),
                             Text(
                               '${user?.walletPoints ?? 0} pts',
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -553,7 +572,7 @@ class ProfileScreen extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [const Color(0xFF1A2B40), const Color(0xFF0F1B2D)],
+                      colors: [AppColors.surface, AppColors.surface],
                     ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppColors.primaryGreen.withOpacity(0.2)),
@@ -561,7 +580,7 @@ class ProfileScreen extends StatelessWidget {
                   child: Row(
                     children: [
                       Icon(Icons.account_balance_wallet, color: AppColors.primaryGreen, size: 32),
-                      const SizedBox(width: 16),
+                      SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -569,11 +588,11 @@ class ProfileScreen extends StatelessWidget {
                             Row(
                               children: [
                                 Text('PlagSini Credits', style: TextStyle(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
-                                const SizedBox(width: 4),
+                                SizedBox(width: 4),
                                 Icon(Icons.flag, color: AppColors.primaryGreen, size: 12),
                               ],
                             ),
-                            const SizedBox(height: 4),
+                            SizedBox(height: 4),
                             Text(
                               'RM${(user?.walletBalance ?? 0).toStringAsFixed(2)}',
                               style: TextStyle(color: AppColors.primaryGreen, fontSize: 24, fontWeight: FontWeight.bold),
@@ -594,7 +613,7 @@ class ProfileScreen extends StatelessWidget {
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               child: Row(
-                                children: const [
+                                children: [
                                   Icon(Icons.add, color: Colors.white, size: 20),
                                   SizedBox(width: 4),
                                   Text('TOP UP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
@@ -608,18 +627,18 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 _SectionHeader('My Account'),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 _MenuItem(icon: Icons.person_outline, title: 'Edit Profile', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()))),
                 _MenuItem(icon: Icons.lock_outline, title: 'Sign In Methods', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignInMethodsScreen()))),
                 _MenuItem(icon: Icons.receipt_long_outlined, title: 'Malaysia e-Invoice Profile', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EInvoiceProfileScreen()))),
                 _MenuItem(icon: Icons.person_add_outlined, title: 'Invite Your Friends', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InviteFriendsScreen()))),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
                 _SectionHeader('Charging Management'),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 _MenuItem(icon: Icons.directions_car_outlined, title: 'My Vehicles', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyVehiclesScreen()))),
                 _MenuItem(icon: Icons.subscriptions_outlined, title: 'My Subscriptions', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionsScreen()))),
                 _MenuItem(icon: Icons.history, title: 'Charging History', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()))),
@@ -635,15 +654,15 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 _MenuItem(icon: Icons.business_outlined, title: 'Business Accounts', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessAccountsScreen()))),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
                 _SectionHeader('Payments'),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 _MenuItem(icon: Icons.payment_outlined, title: 'Payment Methods', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentScreen()))),
                 _MenuItem(icon: Icons.history_outlined, title: 'PlagSini Credits History', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletHistoryScreen()))),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
                 _SectionHeader('Others'),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 // Language switcher tile
                 Consumer<LocaleProvider>(
                   builder: (context, localeProvider, _) {
@@ -659,11 +678,11 @@ class ProfileScreen extends StatelessWidget {
                         child: Row(
                           children: [
                             Icon(Icons.language, color: AppColors.primaryGreen, size: 20),
-                            const SizedBox(width: 16),
+                            SizedBox(width: 16),
                             Expanded(
                               child: Text(
                                 'Language / Bahasa',
-                                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w400),
+                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400),
                               ),
                             ),
                             GestureDetector(
@@ -734,7 +753,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 _MenuItem(icon: Icons.delete_outline, title: 'Delete Account', textColor: Colors.red, onTap: () => _showDeleteAccountDialog(context, authProvider)),
 
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 // Logout Button
                 Container(
@@ -752,9 +771,9 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.logout, color: AppColors.textPrimary, size: 20),
-                            const SizedBox(width: 12),
-                            Text('LOG OUT', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w500)),
+                            Icon(Icons.logout, color: Colors.white, size: 20),
+                            SizedBox(width: 12),
+                            Text('LOG OUT', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                           ],
                         ),
                       ),
@@ -762,11 +781,11 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 Center(
                   child: Text('ver 2.2.0 #1543 [Production]', style: TextStyle(color: AppColors.textLight, fontSize: 11)),
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
               ],
             ),
           );
@@ -829,7 +848,7 @@ class _MenuItem extends StatelessWidget {
             child: Row(
               children: [
                 Icon(icon, color: textColor ?? AppColors.primaryGreen, size: 20),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: Text(
                     title,

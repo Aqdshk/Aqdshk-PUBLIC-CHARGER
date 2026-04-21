@@ -61,7 +61,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -75,7 +75,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('LIVE CHARGING'),
+          title: Text('LIVE CHARGING'),
           backgroundColor: Colors.transparent,
         ),
         body: Consumer<SessionProvider>(
@@ -100,13 +100,13 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                           ),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.bolt_rounded,
                         size: 64,
                         color: AppColors.textTertiary,
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    SizedBox(height: 24),
                     Text(
                       'NO ACTIVE SESSION',
                       style: Theme.of(context).textTheme.displayMedium?.copyWith(
@@ -114,7 +114,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                         letterSpacing: 2,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
                     Text(
                       'Start charging to view live data',
                       style: Theme.of(context).textTheme.bodyMedium,
@@ -144,7 +144,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                     startTime: startTime ?? 'N/A',
                     duration: duration,
                   ),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
 
                   // Energy Display
                   Center(
@@ -153,7 +153,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       pulseController: _pulseController,
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
 
                   // Metering Data Grid
                   Text(
@@ -163,7 +163,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   GridView.count(
                     crossAxisCount: 2,
                     shrinkWrap: true,
@@ -202,7 +202,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       ),
                     ],
                   ),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
 
                   // Power kW Chart
                   Text(
@@ -212,9 +212,9 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   _PowerChart(spots: _powerHistory),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
 
                   // Stop Button
                   SizedBox(
@@ -245,7 +245,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                             borderRadius: BorderRadius.circular(20),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'STOP CHARGING',
                           style: TextStyle(
                             fontSize: 18,
@@ -278,7 +278,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
             width: 1,
           ),
         ),
-        title: const Text(
+        title: Text(
           'STOP CHARGING?',
           style: TextStyle(
             color: AppColors.textTertiary,
@@ -286,14 +286,14 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
             letterSpacing: 1.5,
           ),
         ),
-        content: const Text(
+        content: Text(
           'Are you sure you want to stop charging?',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
+            child: Text(
               'CANCEL',
               style: TextStyle(color: AppColors.primaryGreen),
             ),
@@ -317,7 +317,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
               ),
-              child: const Text(
+              child: Text(
                 'STOP',
                 style: TextStyle(
                   color: AppColors.textTertiary,
@@ -381,26 +381,26 @@ class _FuturisticInfoCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.bolt_rounded,
                         color: AppColors.textTertiary,
                         size: 24,
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             chargerId,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppColors.textTertiary,
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -416,7 +416,7 @@ class _FuturisticInfoCard extends StatelessWidget {
                             ),
                             child: Text(
                               status,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: AppColors.primaryGreen,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -429,9 +429,9 @@ class _FuturisticInfoCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: 20),
                 _InfoRow('Started', startTime),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 _InfoRow('Duration', duration),
               ],
             ),
@@ -455,14 +455,14 @@ class _InfoRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.textLight,
             fontSize: 14,
           ),
         ),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.textTertiary,
             fontSize: 14,
             fontWeight: FontWeight.bold,
@@ -536,13 +536,13 @@ class _EnergyDisplay extends StatelessWidget {
                 children: [
                   Text(
                     energy.toStringAsFixed(2),
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.primaryGreen,
                       fontSize: 48,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const Text(
+                  Text(
                     'kWh',
                     style: TextStyle(
                       color: AppColors.textLight,
@@ -550,10 +550,10 @@ class _EnergyDisplay extends StatelessWidget {
                       letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     '${(progress * 100).toStringAsFixed(0)}%',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.primaryGreen,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -705,7 +705,7 @@ class _FuturisticMeterCard extends StatelessWidget {
                   ),
                   child: Icon(icon, color: Colors.white, size: 24),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 Text(
                   label,
                   style: TextStyle(
@@ -714,7 +714,7 @@ class _FuturisticMeterCard extends StatelessWidget {
                     letterSpacing: 1.5,
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -728,7 +728,7 @@ class _FuturisticMeterCard extends StatelessWidget {
                       ),
                     ),
                     if (unit.isNotEmpty) ...[
-                      const SizedBox(width: 4),
+                      SizedBox(width: 4),
                       Text(
                         unit,
                         style: TextStyle(

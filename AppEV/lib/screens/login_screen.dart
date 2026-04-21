@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Welcome',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -135,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           indicatorColor: AppColors.primaryGreen,
           labelColor: AppColors.primaryGreen,
           unselectedLabelColor: AppColors.textLight,
-          tabs: const [
+          tabs: [
             Tab(text: 'LOGIN'),
             Tab(text: 'REGISTER'),
           ],
@@ -165,13 +165,13 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           children: [
             // Flat 2D Illustration - Person charging EV
             const EVChargingIllustration(height: 190),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Center(
               child: ShaderMask(
                 shaderCallback: (bounds) => LinearGradient(
                   colors: [AppColors.primaryGreen, AppColors.textPrimary],
                 ).createShader(bounds),
-                child: const Text(
+                child: Text(
                   'Welcome Back!',
                   style: TextStyle(
                     color: Colors.white,
@@ -181,7 +181,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Center(
               child: Text(
                 'Login to continue charging',
@@ -192,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 ),
               ),
             ),
-            const SizedBox(height: 28),
+            SizedBox(height: 28),
 
             // Email field
             Text(
@@ -203,11 +203,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _loginEmailController,
               keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Enter your email',
                 icon: Icons.email_outlined,
@@ -222,7 +222,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
 
             // Password field
             Text(
@@ -233,11 +233,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _loginPasswordController,
               obscureText: _obscureLoginPassword,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Enter your password',
                 icon: Icons.lock_outline,
@@ -258,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
 
             // Forgot password
             Align(
@@ -274,7 +274,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Login button
             SizedBox(
@@ -291,7 +291,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   elevation: 0,
                 ),
                 child: authProvider.isLoading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
@@ -299,7 +299,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
-                    : const Text(
+                    : Text(
                         'LOGIN',
                         style: TextStyle(
                           fontSize: 16,
@@ -324,13 +324,13 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           children: [
             // Flat 2D Illustration - Register
             const EVRegisterIllustration(height: 150),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Center(
               child: ShaderMask(
                 shaderCallback: (bounds) => LinearGradient(
                   colors: [AppColors.primaryGreen, AppColors.textPrimary],
                 ).createShader(bounds),
-                child: const Text(
+                child: Text(
                   'Create Account',
                   style: TextStyle(
                     color: Colors.white,
@@ -340,7 +340,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Center(
               child: Text(
                 'Start your EV charging journey',
@@ -351,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Name field
             Text(
@@ -362,10 +362,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _registerNameController,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Enter your full name',
                 icon: Icons.person_outline,
@@ -377,7 +377,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Email field
             Text(
@@ -388,11 +388,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _registerEmailController,
               keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Enter your email',
                 icon: Icons.email_outlined,
@@ -407,7 +407,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Phone field (optional)
             Text(
@@ -418,17 +418,17 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _registerPhoneController,
               keyboardType: TextInputType.phone,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: '+60123456789',
                 icon: Icons.phone_outlined,
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Password field
             Text(
@@ -439,11 +439,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _registerPasswordController,
               obscureText: _obscureRegisterPassword,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Create a password',
                 icon: Icons.lock_outline,
@@ -467,7 +467,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Confirm password field
             Text(
@@ -478,11 +478,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             TextFormField(
               controller: _registerConfirmPasswordController,
               obscureText: _obscureConfirmPassword,
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: _inputDecoration(
                 hint: 'Confirm your password',
                 icon: Icons.lock_outline,
@@ -503,7 +503,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 return null;
               },
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
 
             // Register button
             SizedBox(
@@ -520,7 +520,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   elevation: 0,
                 ),
                 child: authProvider.isLoading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
@@ -528,7 +528,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
-                    : const Text(
+                    : Text(
                         'SEND VERIFICATION CODE',
                         style: TextStyle(
                           fontSize: 16,
@@ -538,7 +538,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               ),
             ),
 
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
 
             // Terms
             Center(
@@ -608,7 +608,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           title: Row(
             children: [
               Icon(Icons.lock_reset, color: AppColors.primaryGreen, size: 24),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text(
                 otpSent ? 'Reset Password' : 'Forgot Password',
                 style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
@@ -628,14 +628,14 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
-                    child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                    child: Text(error!, style: TextStyle(color: Colors.red, fontSize: 13)),
                   ),
                 if (!otpSent) ...[
                   Text(
                     'Enter your email address and we\'ll send you a verification code to reset your password.',
                     style: TextStyle(color: AppColors.textLight, fontSize: 13),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   TextField(
                     controller: emailCtrl,
                     keyboardType: TextInputType.emailAddress,
@@ -654,7 +654,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     'Enter the 6-digit code sent to ${emailCtrl.text} and your new password.',
                     style: TextStyle(color: AppColors.textLight, fontSize: 13),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   TextField(
                     controller: otpCtrl,
                     keyboardType: TextInputType.number,
@@ -670,7 +670,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   TextField(
                     controller: newPwCtrl,
                     obscureText: true,
@@ -684,7 +684,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   TextField(
                     controller: confirmPwCtrl,
                     obscureText: true,
@@ -759,7 +759,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: const Text('Password reset successfully! Please login.'),
+                                content: Text('Password reset successfully! Please login.'),
                                 backgroundColor: AppColors.primaryGreen,
                               ),
                             );
@@ -775,8 +775,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               child: loading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                  : Text(otpSent ? 'Reset Password' : 'Send Code', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : Text(otpSent ? 'Reset Password' : 'Send Code', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),

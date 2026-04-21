@@ -16,7 +16,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Payment'),
+        title: Text('Payment'),
         backgroundColor: Colors.transparent,
       ),
       body: Consumer<PaymentProvider>(
@@ -30,7 +30,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   'PAYMENT METHODS',
                   style: TextStyle(color: AppColors.primaryGreen.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 if (paymentProvider.paymentMethods.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -56,12 +56,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           method['type'] == 'credit_card' ? Icons.credit_card : Icons.account_balance_wallet,
                           color: AppColors.primaryGreen,
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(method['name'] ?? 'Unknown', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+                              Text(method['name'] ?? 'Unknown', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                               Text(method['details'] ?? '', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                             ],
                           ),
@@ -73,19 +73,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
                               color: AppColors.primaryGreen.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text('Default', style: TextStyle(color: AppColors.primaryGreen, fontSize: 11, fontWeight: FontWeight.w600)),
+                            child: Text('Default', style: TextStyle(color: AppColors.primaryGreen, fontSize: 11, fontWeight: FontWeight.w600)),
                           ),
                       ],
                     ),
                   )),
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => _showAddPaymentDialog(context, paymentProvider),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Payment Method'),
+                    icon: Icon(Icons.add),
+                    label: Text('Add Payment Method'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
                       foregroundColor: AppColors.background,
@@ -94,13 +94,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: 24),
 
                 Text(
                   'RECENT TRANSACTIONS',
                   style: TextStyle(color: AppColors.primaryGreen.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 if (paymentProvider.transactions.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -124,14 +124,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       children: [
                         CircleAvatar(
                           backgroundColor: transaction['status'] == 'completed' ? AppColors.primaryGreen : Colors.orange,
-                          child: const Icon(Icons.receipt, color: Colors.white),
+                          child: Icon(Icons.receipt, color: Colors.white),
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('RM ${transaction['amount']?.toStringAsFixed(2) ?? '0.00'}', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+                              Text('RM ${transaction['amount']?.toStringAsFixed(2) ?? '0.00'}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                               Text(transaction['date'] ?? '', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                             ],
                           ),
@@ -180,7 +180,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('FPX e-Wallet will be available when the payment gateway is configured.'),
+                    content: Text('FPX e-Wallet will be available when the payment gateway is configured.'),
                     backgroundColor: Colors.orange,
                   ),
                 );
@@ -193,7 +193,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('DuitNow QR will be available when the payment gateway is configured.'),
+                    content: Text('DuitNow QR will be available when the payment gateway is configured.'),
                     backgroundColor: Colors.orange,
                   ),
                 );
@@ -221,7 +221,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           children: [
             TextField(
               controller: nameCtrl,
-              style: TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 labelText: 'Cardholder Name',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -230,11 +230,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppColors.primaryGreen)),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             TextField(
               controller: cardNumberCtrl,
               keyboardType: TextInputType.number,
-              style: TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 labelText: 'Card Number',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -244,10 +244,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppColors.primaryGreen)),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             TextField(
               controller: expiryCtrl,
-              style: TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 labelText: 'Expiry (MM/YY)',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -275,7 +275,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('Card will be saved when the payment gateway is configured.'),
+                  content: Text('Card will be saved when the payment gateway is configured.'),
                   backgroundColor: Colors.orange,
                 ),
               );
@@ -284,7 +284,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               backgroundColor: AppColors.primaryGreen,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Add Card'),
+            child: Text('Add Card'),
           ),
         ],
       ),
@@ -309,7 +309,7 @@ class _PaymentOption extends StatelessWidget {
       ),
       child: ListTile(
         leading: Icon(icon, color: AppColors.primaryGreen),
-        title: Text(title, style: TextStyle(color: AppColors.textPrimary)),
+        title: Text(title, style: TextStyle(color: Colors.white)),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

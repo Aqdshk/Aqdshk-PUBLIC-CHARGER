@@ -24,11 +24,11 @@ class HeaderWidget extends StatelessWidget {
                 width: 58,
                 fit: BoxFit.contain,
               ),
-              const SizedBox(width: 12),
-              const Text(
+              SizedBox(width: 12),
+              Text(
                         'PlagSini',
                         style: TextStyle(
-                  color: AppColors.textPrimary,
+                  color: Colors.white,
                   fontSize: 26,
                           fontWeight: FontWeight.bold,
                   letterSpacing: 0.5,

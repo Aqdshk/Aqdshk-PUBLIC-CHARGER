@@ -47,7 +47,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardBackground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Cancel Booking?', style: TextStyle(color: AppColors.textPrimary)),
+        title: Text('Cancel Booking?', style: TextStyle(color: Colors.white)),
         content: Text('Are you sure you want to cancel this booking?', style: TextStyle(color: AppColors.textLight)),
         actions: [
           TextButton(
@@ -57,7 +57,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Yes, Cancel'),
+            child: Text('Yes, Cancel'),
           ),
         ],
       ),
@@ -70,7 +70,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Booking cancelled.'),
+            content: Text('Booking cancelled.'),
             backgroundColor: AppColors.primaryGreen,
           ),
         );
@@ -111,17 +111,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('My Bookings'),
+        title: Text('My Bookings'),
         backgroundColor: AppColors.primaryGreen,
         iconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           color: Colors.white,
           fontSize: 18,
           fontWeight: FontWeight.bold,
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(Icons.refresh, color: Colors.white),
             onPressed: () {
               setState(() => _isLoading = true);
               _loadBookings();
@@ -137,16 +137,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.event_busy, size: 72, color: AppColors.textLight),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
                       Text(
                         'No Bookings Yet',
                         style: TextStyle(
-                          color: AppColors.textPrimary,
+                          color: Colors.white,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       Text(
                         'Reserve a charging slot from\nany charger detail page.',
                         textAlign: TextAlign.center,
@@ -182,12 +182,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                             Row(
                               children: [
                                 Icon(Icons.ev_station, color: AppColors.primaryGreen, size: 20),
-                                const SizedBox(width: 8),
+                                SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     chargerId,
                                     style: TextStyle(
-                                      color: AppColors.textPrimary,
+                                      color: Colors.white,
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -211,20 +211,20 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            SizedBox(height: 12),
                             _BookingInfoRow(
                               icon: Icons.access_time,
                               label: 'Start',
                               value: startTime,
                             ),
-                            const SizedBox(height: 6),
+                            SizedBox(height: 6),
                             _BookingInfoRow(
                               icon: Icons.timer_off_outlined,
                               label: 'End',
                               value: endTime,
                             ),
                             if (notes.isNotEmpty) ...[
-                              const SizedBox(height: 6),
+                              SizedBox(height: 6),
                               _BookingInfoRow(
                                 icon: Icons.notes,
                                 label: 'Notes',
@@ -232,13 +232,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                               ),
                             ],
                             if (status == 'confirmed') ...[
-                              const SizedBox(height: 12),
+                              SizedBox(height: 12),
                               SizedBox(
                                 width: double.infinity,
                                 child: OutlinedButton.icon(
                                   onPressed: () => _cancelBooking(bookingId),
-                                  icon: const Icon(Icons.cancel_outlined, color: Colors.red, size: 16),
-                                  label: const Text('Cancel Booking', style: TextStyle(color: Colors.red)),
+                                  icon: Icon(Icons.cancel_outlined, color: Colors.red, size: 16),
+                                  label: Text('Cancel Booking', style: TextStyle(color: Colors.red)),
                                   style: OutlinedButton.styleFrom(
                                     side: const BorderSide(color: Colors.red),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -269,7 +269,7 @@ class _BookingInfoRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, color: AppColors.textLight, size: 16),
-        const SizedBox(width: 8),
+        SizedBox(width: 8),
         Text(
           '$label: ',
           style: TextStyle(color: AppColors.textLight, fontSize: 13),
@@ -277,7 +277,7 @@ class _BookingInfoRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            style: TextStyle(color: Colors.white, fontSize: 13),
           ),
         ),
       ],

@@ -75,7 +75,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               Text(
                 'Add New Vehicle',
                 style: TextStyle(
@@ -84,15 +84,15 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
               _buildTextField(makeController, 'Make', 'e.g. Tesla, BYD, Hyundai'),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               _buildTextField(modelController, 'Model', 'e.g. Model 3, Atto 3'),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               _buildTextField(plateController, 'License Plate', 'e.g. ABC 1234'),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               _buildTextField(yearController, 'Year', 'e.g. 2024', isNumber: true),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               Text(
                 'Connector Type',
                 style: TextStyle(
@@ -101,7 +101,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               StatefulBuilder(
                 builder: (context, setModalState) => Wrap(
                   spacing: 8,
@@ -122,7 +122,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                   }).toList(),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -154,7 +154,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                       if (result['success'] == true) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: const Text('Vehicle added successfully!'),
+                            content: Text('Vehicle added successfully!'),
                             backgroundColor: AppColors.primaryGreen,
                           ),
                         );
@@ -168,13 +168,13 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'ADD VEHICLE',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
             ],
           ),
         ),
@@ -199,7 +199,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8),
         TextField(
           controller: controller,
           keyboardType: isNumber ? TextInputType.number : TextInputType.text,
@@ -232,7 +232,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'My Vehicles',
           style: TextStyle(
             color: AppColors.textPrimary,
@@ -258,7 +258,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
           ? FloatingActionButton(
               onPressed: _showAddVehicleDialog,
               backgroundColor: AppColors.primaryGreen,
-              child: const Icon(Icons.add, color: Colors.white),
+              child: Icon(Icons.add, color: Colors.white),
             )
           : null,
     );
@@ -283,7 +283,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                 color: AppColors.primaryGreen,
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Text(
               'No Vehicles Yet',
               style: TextStyle(
@@ -292,7 +292,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Text(
               'Add your EV to get personalized charging recommendations and track your sessions.',
               textAlign: TextAlign.center,
@@ -301,11 +301,11 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                 fontSize: 14,
               ),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _showAddVehicleDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('ADD VEHICLE'),
+              icon: Icon(Icons.add),
+              label: Text('ADD VEHICLE'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
                 foregroundColor: Colors.white,
@@ -350,7 +350,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
                   ElevatedButton(
                     onPressed: () => Navigator.pop(context, true),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    child: const Text('Delete'),
+                    child: Text('Delete'),
                   ),
                 ],
               ),
@@ -410,7 +410,7 @@ class _VehicleCard extends StatelessWidget {
                     size: 28,
                   ),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -426,14 +426,14 @@ class _VehicleCard extends StatelessWidget {
                             ),
                           ),
                           if (isDefault) ...[
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: AppColors.primaryGreen,
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'DEFAULT',
                                 style: TextStyle(
                                   color: Colors.white,
@@ -445,7 +445,7 @@ class _VehicleCard extends StatelessWidget {
                           ],
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         plate.isNotEmpty ? plate : 'No plate',
                         style: TextStyle(
@@ -470,7 +470,7 @@ class _VehicleCard extends StatelessWidget {
                       child: Row(
                         children: [
                           Icon(Icons.star_outline, color: AppColors.primaryGreen, size: 20),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8),
                           Text('Set as Default', style: TextStyle(color: AppColors.textPrimary)),
                         ],
                       ),
@@ -478,7 +478,7 @@ class _VehicleCard extends StatelessWidget {
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(
-                        children: const [
+                        children: [
                           Icon(Icons.delete_outline, color: Colors.red, size: 20),
                           SizedBox(width: 8),
                           Text('Delete', style: TextStyle(color: Colors.red)),
@@ -489,13 +489,13 @@ class _VehicleCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Divider(color: AppColors.borderLight),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             Row(
               children: [
                 _InfoChip(icon: Icons.power, label: connector),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 _InfoChip(
                   icon: Icons.calendar_today,
                   label: vehicle['year']?.toString() ?? '-',
@@ -527,7 +527,7 @@ class _InfoChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: AppColors.primaryGreen),
-          const SizedBox(width: 6),
+          SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(

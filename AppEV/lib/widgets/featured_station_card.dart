@@ -70,8 +70,8 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(color: AppColors.primaryGreen),
-              const SizedBox(height: 16),
-              Text('Starting charging...', style: TextStyle(color: AppColors.textPrimary)),
+              SizedBox(height: 16),
+              Text('Starting charging...', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
@@ -148,16 +148,16 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                       gradient: LinearGradient(colors: [statusColor, statusColor.withOpacity(0.7)]),
                       borderRadius: BorderRadius.circular(14),
                   ),
-                    child: const Icon(Icons.ev_station_rounded, color: Colors.white, size: 24),
+                    child: Icon(Icons.ev_station_rounded, color: Colors.white, size: 24),
                 ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   // Name & vendor
                 Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(name,
-                            style: const TextStyle(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         if (vendor.isNotEmpty || model.isNotEmpty)
@@ -189,13 +189,13 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                           height: 7,
                           decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
                         ),
-                        const SizedBox(width: 5),
+                        SizedBox(width: 5),
                         Text(statusLabel,
                             style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   // Bookmark
                   GestureDetector(
                     onTap: () {
@@ -216,7 +216,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                 ),
               ],
             ),
-              const SizedBox(height: 14),
+              SizedBox(height: 14),
 
               // Info chips row - real data
             Wrap(
@@ -228,7 +228,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                   _infoTag(Icons.access_time_rounded, availability),
                 ],
             ),
-              const SizedBox(height: 14),
+              SizedBox(height: 14),
 
               // Action button
             SizedBox(
@@ -252,7 +252,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                       : isCharging
                             ? 'In Use · View Details'
                             : 'View Details',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isAvailable ? AppColors.primaryGreen : AppColors.surface,
@@ -282,7 +282,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 13, color: AppColors.primaryGreen.withOpacity(0.7)),
-          const SizedBox(width: 4),
+          SizedBox(width: 4),
           Text(text, style: TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w500)),
         ],
       ),

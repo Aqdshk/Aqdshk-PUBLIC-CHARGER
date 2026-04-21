@@ -81,24 +81,24 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 Row(
                   children: [
                     Icon(Icons.report_problem, color: Colors.orange),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Text(
                       'Report Charger Issue',
                       style: TextStyle(
-                        color: AppColors.textPrimary,
+                        color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 Text('Issue Type', style: TextStyle(color: AppColors.textLight, fontSize: 13)),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: _selectedIssue,
                   dropdownColor: AppColors.surface,
-                  style: TextStyle(color: AppColors.textPrimary),
+                  style: TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
@@ -112,11 +112,11 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                   )).toList(),
                   onChanged: (v) => setModalState(() => _selectedIssue = v ?? _selectedIssue),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: _descController,
                   maxLines: 3,
-                  style: TextStyle(color: AppColors.textPrimary),
+                  style: TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: 'Describe the issue (optional)...',
                     hintStyle: TextStyle(color: AppColors.textLight),
@@ -127,7 +127,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     fillColor: AppColors.surface,
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -148,8 +148,8 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         );
                       }
                     },
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    label: Text(_submitting ? 'Submitting...' : 'SUBMIT REPORT', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    icon: Icon(Icons.send, color: Colors.white),
+                    label: Text(_submitting ? 'Submitting...' : 'SUBMIT REPORT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -226,7 +226,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.share, color: Colors.white),
+                icon: Icon(Icons.share, color: Colors.white),
                 onPressed: () {
                   final shareText = '⚡ Check out $name charger on PlagSini!\n'
                       'Status: ${isAvailable ? "Available" : "Offline"}\n'
@@ -235,7 +235,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                   Clipboard.setData(ClipboardData(text: shareText));
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Charger info copied to clipboard! Share it with friends.'),
+                      content: Text('Charger info copied to clipboard! Share it with friends.'),
                       backgroundColor: AppColors.primaryGreen,
                     ),
                   );
@@ -258,23 +258,23 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const SizedBox(height: 40),
+                      SizedBox(height: 40),
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.ev_station,
                           color: Colors.white,
                           size: 48,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       Text(
                         name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -341,7 +341,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   
                   // Location Card
                   Container(
@@ -357,18 +357,18 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Row(
                           children: [
                             Icon(Icons.location_on, color: AppColors.primaryGreen),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Location',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: 12),
                         Text(
                           location ?? 'Location not available',
                           style: TextStyle(
@@ -377,7 +377,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             height: 1.5,
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
@@ -420,7 +420,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   
                   // Charger Info Card
                   Container(
@@ -436,18 +436,18 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Row(
                           children: [
                             Icon(Icons.info_outline, color: AppColors.primaryGreen),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Charger Information',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         _DetailRow(label: 'Vendor', value: vendor),
                         _DetailRow(label: 'Model', value: model.isNotEmpty ? model : '—'),
                         _DetailRow(label: 'Connectors', value: numConnectors.toString()),
@@ -458,7 +458,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   
                   // Connectors Card
                   Container(
@@ -474,18 +474,18 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Row(
                           children: [
                             Icon(Icons.power, color: AppColors.primaryGreen),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Select Connector',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         // Build connector tiles from real data
                         ...List.generate(
                           numConnectors,
@@ -505,7 +505,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   
                   // Amenities
                   Container(
@@ -521,18 +521,18 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Row(
                           children: [
                             Icon(Icons.local_cafe, color: AppColors.primaryGreen),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Nearby Amenities',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
@@ -548,7 +548,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
 
                   // Rating & Reviews Card
                   Container(
@@ -564,11 +564,11 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Row(
                           children: [
                             Icon(Icons.star, color: Colors.amber),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Rating & Reviews',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -591,18 +591,18 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Row(
                           children: [
                             Text(
                               _avgRating > 0 ? _avgRating.toStringAsFixed(1) : '—',
                               style: TextStyle(
-                                color: AppColors.textPrimary,
+                                color: Colors.white,
                                 fontSize: 36,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            SizedBox(width: 12),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -613,7 +613,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                                     size: 20,
                                   )),
                                 ),
-                                const SizedBox(height: 4),
+                                SizedBox(height: 4),
                                 Text(
                                   '$_reviewCount review${_reviewCount != 1 ? 's' : ''}',
                                   style: TextStyle(color: AppColors.textLight, fontSize: 12),
@@ -631,8 +631,8 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                                   ),
                                 ),
                               ).then((_) => _loadRating()),
-                              icon: const Icon(Icons.rate_review, size: 16, color: Colors.black),
-                              label: const Text('Review', style: TextStyle(color: Colors.black, fontSize: 12)),
+                              icon: Icon(Icons.rate_review, size: 16, color: Colors.black),
+                              label: Text('Review', style: TextStyle(color: Colors.black, fontSize: 12)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primaryGreen,
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -645,7 +645,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 120),
+                  SizedBox(height: 120),
                 ],
               ),
             ),
@@ -688,12 +688,12 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () => _showReportIssueSheet(context, name),
-                      icon: const Icon(Icons.report_problem, color: Colors.orange, size: 16),
-                      label: const Text('Report Issue', style: TextStyle(color: Colors.orange, fontSize: 13)),
+                      icon: Icon(Icons.report_problem, color: Colors.orange, size: 16),
+                      label: Text('Report Issue', style: TextStyle(color: Colors.orange, fontSize: 13)),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Colors.orange),
                         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -703,7 +703,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               // Main price + start charging row
               Row(
                 children: [
@@ -722,7 +722,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Text(
                           priceStr,
                           style: TextStyle(
-                            color: AppColors.textPrimary,
+                            color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -742,7 +742,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                       ),
                       child: Text(
                         isAvailable ? 'START CHARGING' : 'NOT AVAILABLE',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -776,10 +776,10 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(color: AppColors.primaryGreen),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Text(
                 'Starting charging session...',
-                style: TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: Colors.white),
               ),
             ],
           ),
@@ -797,7 +797,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
       if (activeSession != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Charging started successfully!'),
+            content: Text('Charging started successfully!'),
             backgroundColor: AppColors.primaryGreen,
           ),
         );
@@ -808,7 +808,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Charging request sent. Please wait...'),
+            content: Text('Charging request sent. Please wait...'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -840,7 +840,7 @@ class _InfoItem extends StatelessWidget {
     return Column(
       children: [
         Icon(icon, color: iconColor, size: 16),
-        const SizedBox(height: 4),
+        SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(
@@ -848,11 +848,11 @@ class _InfoItem extends StatelessWidget {
             fontSize: 11,
           ),
         ),
-        const SizedBox(height: 2),
+        SizedBox(height: 2),
         Text(
           value,
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
@@ -885,7 +885,7 @@ class _DetailRow extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
@@ -940,14 +940,14 @@ class _ConnectorTile extends StatelessWidget {
                 ),
                 child: Text(
                   type,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -955,7 +955,7 @@ class _ConnectorTile extends StatelessWidget {
                     Text(
                       name,
                       style: TextStyle(
-                        color: AppColors.textPrimary,
+                        color: Colors.white,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -986,7 +986,7 @@ class _ConnectorTile extends StatelessWidget {
                 ),
               ),
               if (isSelected) ...[
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Icon(Icons.check_circle, color: AppColors.primaryGreen, size: 20),
               ],
             ],
@@ -1016,11 +1016,11 @@ class _AmenityChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: AppColors.primaryGreen),
-          const SizedBox(width: 6),
+          SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: Colors.white,
               fontSize: 12,
             ),
           ),

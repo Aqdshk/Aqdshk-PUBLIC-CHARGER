@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../constants/app_colors.dart';
 
 class CarbonFootprintScreen extends StatefulWidget {
   const CarbonFootprintScreen({super.key});
@@ -34,19 +35,19 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A1A),
+        backgroundColor: AppColors.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Jejak Karbon', // Carbon Footprint
             style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00D4AA)))
+          ? Center(child: CircularProgressIndicator(color: Color(0xFF00D4AA)))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -65,8 +66,8 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                     ),
                     child: Column(
                       children: [
-                        const Icon(Icons.eco, color: Colors.white, size: 48),
-                        const SizedBox(height: 12),
+                        Icon(Icons.eco, color: Colors.white, size: 48),
+                        SizedBox(height: 12),
                         Text(
                           '${_data['co2_saved_kg'] ?? 0} kg',
                           style: GoogleFonts.inter(
@@ -76,18 +77,18 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                         ),
                         Text(
                           'CO₂ Diselamatkan',
-                          style: GoogleFonts.inter(color: Colors.white70, fontSize: 16),
+                          style: GoogleFonts.inter(color: AppColors.textSecondary, fontSize: 16),
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: 4),
                         Text(
                           'berbanding kenderaan petrol',
-                          style: GoogleFonts.inter(color: Colors.white54, fontSize: 12),
+                          style: GoogleFonts.inter(color: AppColors.textTertiary, fontSize: 12),
                         ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
 
                   // Stats grid
                   GridView.count(
@@ -129,14 +130,14 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
 
                   // This month
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A2E),
+                      color: AppColors.cardBackground,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFF00D4AA).withOpacity(0.2)),
                     ),
@@ -145,8 +146,8 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                       children: [
                         Text('Bulan Ini',
                             style: GoogleFonts.inter(
-                                color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 12),
+                                color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+                        SizedBox(height: 12),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
@@ -166,7 +167,7 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
 
                   // Fun fact
                   Container(
@@ -178,8 +179,8 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Text('🌍', style: TextStyle(fontSize: 24)),
-                        const SizedBox(width: 12),
+                        Text('🌍', style: TextStyle(fontSize: 24)),
+                        SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Grid elektrik Malaysia menghasilkan 0.585 kg CO₂/kWh. '
@@ -217,7 +218,7 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
+        color: AppColors.cardBackground,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: iconColor.withOpacity(0.2)),
       ),
@@ -230,7 +231,7 @@ class _StatCard extends StatelessWidget {
               style: GoogleFonts.inter(
                   color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
           Text('$unit · $label',
-              style: GoogleFonts.inter(color: Colors.white54, fontSize: 10)),
+              style: GoogleFonts.inter(color: AppColors.textTertiary, fontSize: 10)),
         ],
       ),
     );
@@ -250,7 +251,7 @@ class _MiniStat extends StatelessWidget {
       children: [
         Text(value,
             style: GoogleFonts.inter(color: color, fontSize: 24, fontWeight: FontWeight.bold)),
-        Text(label, style: GoogleFonts.inter(color: Colors.white54, fontSize: 12)),
+        Text(label, style: GoogleFonts.inter(color: AppColors.textTertiary, fontSize: 12)),
       ],
     );
   }

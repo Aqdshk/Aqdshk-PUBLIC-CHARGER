@@ -42,10 +42,10 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Contact Us',
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -75,13 +75,13 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ),
               child: Column(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.support_agent,
                     color: Colors.white,
                     size: 48,
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
+                  SizedBox(height: 12),
+                  Text(
                     'We\'re Here to Help',
                     style: TextStyle(
                       color: Colors.white,
@@ -89,11 +89,11 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
+                  SizedBox(height: 4),
+                  Text(
                     'Our team typically responds within 24 hours',
                     style: TextStyle(
-                      color: Colors.white70,
+                      color: AppColors.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -101,7 +101,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // Contact Methods
             Row(
@@ -115,14 +115,14 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       Clipboard.setData(const ClipboardData(text: '+60388888888'));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: const Text('Phone number copied!'),
+                          content: Text('Phone number copied!'),
                           backgroundColor: AppColors.primaryGreen,
                         ),
                       );
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: _ContactMethodCard(
                     icon: Icons.email,
@@ -132,7 +132,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       Clipboard.setData(const ClipboardData(text: 'support@plagsini.com.my'));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: const Text('Email copied!'),
+                          content: Text('Email copied!'),
                           backgroundColor: AppColors.primaryGreen,
                         ),
                       );
@@ -142,7 +142,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ],
             ),
             
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             Row(
               children: [
@@ -156,7 +156,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: _ContactMethodCard(
                     icon: Icons.location_on,
@@ -165,7 +165,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     onTap: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: const Text('Opening maps...'),
+                          content: Text('Opening maps...'),
                           backgroundColor: AppColors.primaryGreen,
                         ),
                       );
@@ -175,7 +175,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ],
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // Contact Form
             Container(
@@ -194,12 +194,12 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     Text(
                       'Send Us a Message',
                       style: TextStyle(
-                        color: AppColors.textPrimary,
+                        color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     
                     // Category Dropdown
                     Text(
@@ -210,7 +210,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
                         color: AppColors.surface,
@@ -220,7 +220,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       child: DropdownButtonFormField<String>(
                         value: _selectedCategory,
                         dropdownColor: AppColors.cardBackground,
-                        style: TextStyle(color: AppColors.textPrimary),
+                        style: TextStyle(color: Colors.white),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.symmetric(horizontal: 16),
@@ -234,7 +234,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       ),
                     ),
                     
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     
                     // Subject
                     Text(
@@ -245,10 +245,10 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
                     TextFormField(
                       controller: _subjectController,
-                      style: TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Enter subject',
                         hintStyle: TextStyle(color: AppColors.textLight),
@@ -275,7 +275,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       },
                     ),
                     
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     
                     // Message
                     Text(
@@ -286,10 +286,10 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
                     TextFormField(
                       controller: _messageController,
-                      style: TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: Colors.white),
                       maxLines: 5,
                       decoration: InputDecoration(
                         hintText: 'Describe your issue or question...',
@@ -317,7 +317,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       },
                     ),
                     
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     
                     // Attach Screenshot (info only — no file upload API yet)
                     Container(
@@ -331,7 +331,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       child: Row(
                         children: [
                           Icon(Icons.info_outline, color: Colors.blue.shade300, size: 20),
-                          const SizedBox(width: 12),
+                          SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Need to share screenshots? You can reply to the ticket confirmation email with attachments.',
@@ -342,7 +342,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       ),
                     ),
                     
-                    const SizedBox(height: 24),
+                    SizedBox(height: 24),
                     
                     // Submit Button
                     SizedBox(
@@ -356,7 +356,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'SUBMIT',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
@@ -370,7 +370,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // Office Address
             Container(
@@ -387,26 +387,26 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   Row(
                     children: [
                       Icon(Icons.business, color: AppColors.primaryGreen),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       Text(
                         'Office Address',
                         style: TextStyle(
-                          color: AppColors.textPrimary,
+                          color: Colors.white,
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text(
                     'PLAG SINI SDN. BHD.',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
                     'No. 123, Jalan Teknologi,\n'
                     'Taman Perindustrian Cyber,\n'
@@ -416,15 +416,15 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       height: 1.5,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Divider(color: AppColors.borderLight),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Row(
                     children: [
                       _InfoRow(icon: Icons.access_time, text: 'Mon - Fri: 9:00 AM - 6:00 PM'),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Row(
                     children: [
                       _InfoRow(icon: Icons.weekend_outlined, text: 'Sat - Sun: Closed'),
@@ -434,7 +434,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             // Social Media
             Container(
@@ -450,21 +450,21 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   Text(
                     'Follow Us',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _SocialButton(icon: Icons.facebook, onTap: () {}),
-                      const SizedBox(width: 16),
+                      SizedBox(width: 16),
                       _SocialButton(icon: Icons.camera_alt_outlined, onTap: () {}),
-                      const SizedBox(width: 16),
+                      SizedBox(width: 16),
                       _SocialButton(icon: Icons.alternate_email, onTap: () {}),
-                      const SizedBox(width: 16),
+                      SizedBox(width: 16),
                       _SocialButton(icon: Icons.play_circle_outline, onTap: () {}),
                     ],
                   ),
@@ -496,7 +496,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen)),
+      builder: (_) => Center(child: CircularProgressIndicator(color: AppColors.primaryGreen)),
     );
 
     try {
@@ -528,14 +528,14 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   ),
                   child: Icon(Icons.check_circle, color: AppColors.primaryGreen, size: 48),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 Text('Ticket Created!',
-                    style: TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 8),
                 if (result['ticket_number'] != null)
                   Text('Ticket #${result['ticket_number']}',
                       style: TextStyle(color: AppColors.primaryGreen, fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text('We\'ll get back to you within 24 hours.',
                     textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight)),
               ],
@@ -590,15 +590,15 @@ class _ContactMethodCard extends StatelessWidget {
           child: Column(
             children: [
               Icon(icon, color: AppColors.primaryGreen, size: 28),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Text(
                 title,
                 style: TextStyle(
-                  color: AppColors.textPrimary,
+                  color: Colors.white,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
@@ -626,7 +626,7 @@ class _InfoRow extends StatelessWidget {
     return Row(
       children: [
         Icon(icon, color: AppColors.primaryGreen, size: 16),
-        const SizedBox(width: 8),
+        SizedBox(width: 8),
         Text(
           text,
           style: TextStyle(

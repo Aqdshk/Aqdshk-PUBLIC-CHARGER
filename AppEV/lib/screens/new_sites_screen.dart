@@ -36,16 +36,16 @@ class NewSitesScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.new_releases, color: Colors.white, size: 32),
+                  child: Icon(Icons.new_releases, color: Colors.white, size: 32),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text('New This Month', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
-                      Text('12 new charging stations added!', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text('12 new charging stations added!', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -70,7 +70,7 @@ class NewSitesScreen extends StatelessWidget {
             ),
           ),
           
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           
           Expanded(
             child: ListView.builder(
@@ -171,28 +171,28 @@ class _NewSiteCard extends StatelessWidget {
                       decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
                       child: Icon(Icons.ev_station, color: AppColors.primaryGreen, size: 28),
                     ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Expanded(child: Text(name, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold))),
+                              Expanded(child: Text(name, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(color: AppColors.primaryGreen, borderRadius: BorderRadius.circular(10)),
-                                child: const Text('NEW', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                child: Text('NEW', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Row(
                             children: [
                               Icon(Icons.location_on, size: 14, color: AppColors.textLight),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 4),
                               Text(location, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               Text('• Added $addedDate', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                             ],
                           ),
@@ -201,9 +201,9 @@ class _NewSiteCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Divider(color: AppColors.borderLight),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Row(
                   children: [
                     Container(
@@ -211,7 +211,7 @@ class _NewSiteCard extends StatelessWidget {
                       decoration: BoxDecoration(color: AppColors.primaryGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
                       child: Text(power, style: TextStyle(color: AppColors.primaryGreen, fontSize: 11, fontWeight: FontWeight.w600)),
                     ),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     ...connectors.map((c) => Container(
                       margin: const EdgeInsets.only(right: 8),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -221,7 +221,7 @@ class _NewSiteCard extends StatelessWidget {
                   ],
                 ),
                 if (promo != null) ...[
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -232,9 +232,9 @@ class _NewSiteCard extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.local_offer, size: 16, color: Colors.orange),
-                        const SizedBox(width: 8),
-                        Text(promo, style: const TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500)),
+                        Icon(Icons.local_offer, size: 16, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text(promo, style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ),

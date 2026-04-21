@@ -17,10 +17,10 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Sign In Methods',
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -49,12 +49,12 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.security, color: Colors.white, size: 40),
-                  const SizedBox(width: 16),
+                  Icon(Icons.security, color: Colors.white, size: 40),
+                  SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'Account Security',
                           style: TextStyle(
@@ -67,7 +67,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                         Text(
                           'Manage how you sign in to your account',
                           style: TextStyle(
-                            color: Colors.white70,
+                            color: AppColors.textSecondary,
                             fontSize: 12,
                           ),
                         ),
@@ -78,7 +78,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               ),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Text(
               'SIGN IN METHODS',
@@ -89,7 +89,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                 letterSpacing: 1,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             // Email/Password
             _SignInMethodTile(
@@ -127,7 +127,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               onTap: () => _showConnectDialog(context, 'Phone'),
             ),
             
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             
             Text(
               'TWO-FACTOR AUTHENTICATION',
@@ -138,7 +138,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                 letterSpacing: 1,
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             
             Container(
               padding: const EdgeInsets.all(16),
@@ -150,7 +150,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               child: Row(
                 children: [
                   Icon(Icons.shield_outlined, color: AppColors.primaryGreen),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,7 +158,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                         Text(
                           '2FA Authentication',
                           style: TextStyle(
-                            color: AppColors.textPrimary,
+                            color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
                           ),
@@ -187,8 +187,8 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                           title: Row(
                             children: [
                               Icon(Icons.shield, color: AppColors.primaryGreen),
-                              const SizedBox(width: 12),
-                              Text('2FA Setup', style: TextStyle(color: AppColors.textPrimary)),
+                              SizedBox(width: 12),
+                              Text('2FA Setup', style: TextStyle(color: Colors.white)),
                             ],
                           ),
                           content: Text(
@@ -229,7 +229,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           backgroundColor: AppColors.cardBackground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Change Password', style: TextStyle(color: AppColors.textPrimary)),
+          title: Text('Change Password', style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -243,12 +243,12 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.red.withOpacity(0.3)),
                   ),
-                  child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  child: Text(error!, style: TextStyle(color: Colors.red, fontSize: 13)),
                 ),
               TextField(
                 controller: currentPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'Current Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -263,11 +263,11 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                   prefixIcon: Icon(Icons.lock_outline, color: AppColors.primaryGreen),
                 ),
               ),
-              const SizedBox(height: 14),
+              SizedBox(height: 14),
               TextField(
                 controller: newPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'New Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -282,11 +282,11 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                   prefixIcon: Icon(Icons.lock_reset, color: AppColors.primaryGreen),
                 ),
               ),
-              const SizedBox(height: 14),
+              SizedBox(height: 14),
               TextField(
                 controller: confirmPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: AppColors.textPrimary),
+                style: TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'Confirm New Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -348,7 +348,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: const Text('Password updated successfully!'),
+                            content: Text('Password updated successfully!'),
                             backgroundColor: AppColors.primaryGreen,
                           ),
                         );
@@ -364,8 +364,8 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: loading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Update'),
+                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text('Update'),
             ),
           ],
         ),
@@ -385,8 +385,8 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
         title: Row(
           children: [
             Icon(Icons.link, color: AppColors.primaryGreen),
-            const SizedBox(width: 12),
-            Text('Connect $provider', style: TextStyle(color: AppColors.textPrimary)),
+            SizedBox(width: 12),
+            Text('Connect $provider', style: TextStyle(color: Colors.white)),
           ],
         ),
         content: Column(
@@ -397,7 +397,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               '$provider sign-in is currently being configured and will be available in a future update.',
               style: TextStyle(color: AppColors.textLight, fontSize: 14, height: 1.5),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -408,7 +408,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               child: Row(
                 children: [
                   Icon(Icons.info_outline, color: Colors.blue.shade300, size: 18),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'You can currently sign in using your email and password.',
@@ -467,7 +467,7 @@ class _SignInMethodTile extends StatelessWidget {
         title: Text(
           title,
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.w500,
           ),
         ),

@@ -73,10 +73,10 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'e-Invoice Profile',
           style: TextStyle(
-            color: AppColors.textPrimary,
+            color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -102,12 +102,12 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 child: Row(
                   children: [
                     Icon(Icons.info_outline, color: Colors.blue),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'This information will be used for e-Invoice generation as required by LHDN Malaysia.',
                         style: TextStyle(
-                          color: AppColors.textPrimary,
+                          color: Colors.white,
                           fontSize: 13,
                         ),
                       ),
@@ -116,7 +116,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 ),
               ),
               
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               
               // Status
               Container(
@@ -139,7 +139,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                         color: _isVerified ? AppColors.primaryGreen : Colors.orange,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,9 +166,9 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 ),
               ),
               
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               _buildSectionTitle('PERSONAL INFORMATION'),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               
               _buildTextField(
                 controller: _nameController,
@@ -177,7 +177,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 icon: Icons.person_outline,
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               Text(
                 'Identification Type',
@@ -187,7 +187,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.surface,
@@ -197,7 +197,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 child: DropdownButtonFormField<String>(
                   value: _selectedIdType,
                   dropdownColor: AppColors.cardBackground,
-                  style: TextStyle(color: AppColors.textPrimary),
+                  style: TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(horizontal: 16),
@@ -214,7 +214,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 ),
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               _buildTextField(
                 controller: _icController,
@@ -223,7 +223,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 icon: Icons.badge_outlined,
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               _buildTextField(
                 controller: _tinController,
@@ -233,9 +233,9 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 isRequired: false,
               ),
               
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               _buildSectionTitle('ADDRESS'),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               
               _buildTextField(
                 controller: _addressController,
@@ -245,7 +245,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 maxLines: 2,
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               Row(
                 children: [
@@ -258,7 +258,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                       icon: Icons.location_city_outlined,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: _buildTextField(
                       controller: _postcodeController,
@@ -271,7 +271,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 ],
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               _buildTextField(
                 controller: _stateController,
@@ -280,7 +280,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 icon: Icons.map_outlined,
               ),
               
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               
               SizedBox(
                 width: double.infinity,
@@ -294,12 +294,12 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                     ),
                   ),
                   child: _isSaving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
-                      : const Text(
+                      : Text(
                           'SAVE e-INVOICE PROFILE',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
@@ -309,7 +309,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 ),
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               
               Center(
                 child: TextButton.icon(
@@ -318,7 +318,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                       context: context,
                       builder: (context) => AlertDialog(
                         backgroundColor: AppColors.cardBackground,
-                        title: Text('What is e-Invoice?', style: TextStyle(color: AppColors.textPrimary)),
+                        title: Text('What is e-Invoice?', style: TextStyle(color: Colors.white)),
                         content: SingleChildScrollView(
                           child: Text(
                             'e-Invoice is Malaysia\'s electronic invoicing system by LHDN. '
@@ -392,12 +392,12 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
               ),
           ],
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8),
         TextFormField(
           controller: controller,
           keyboardType: isNumber ? TextInputType.number : TextInputType.text,
           maxLines: maxLines,
-          style: TextStyle(color: AppColors.textPrimary),
+          style: TextStyle(color: Colors.white),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: AppColors.textLight),
@@ -477,7 +477,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
       setState(() => _isVerified = true);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('e-Invoice profile saved successfully!'),
+          content: Text('e-Invoice profile saved successfully!'),
           backgroundColor: AppColors.primaryGreen,
         ),
       );
