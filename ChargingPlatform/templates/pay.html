@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+<meta name="theme-color" content="#0A0A1A" />
+<title>PlagSini — Pay & Charge</title>
+<style>
+  :root {
+    --bg: #0A0A1A;
+    --card: #15152B;
+    --card-2: #1E1E3C;
+    --accent: #5B8DEF;
+    --accent-2: #7C5BEF;
+    --text: #EAEAF5;
+    --muted: #8A8AB0;
+    --ok: #34D399;
+    --err: #F87171;
+    --warn: #FBBF24;
+    --border: #2A2A4A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  body {
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .wrap { width: 100%; max-width: 440px; padding-top: 24px; }
+  .brand {
+    text-align: center; margin-bottom: 20px;
+  }
+  .brand h1 {
+    font-size: 22px; font-weight: 700; margin: 0;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand p { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .charger-info { display: flex; gap: 12px; align-items: center; }
+  .charger-info .icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .charger-info .meta .id { font-weight: 600; font-size: 15px; }
+  .charger-info .meta .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  input {
+    width: 100%; padding: 14px;
+    background: var(--card-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 16px; outline: none;
+    -webkit-appearance: none;
+  }
+  input:focus { border-color: var(--accent); }
+
+  .amount-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .chip {
+    padding: 8px 14px; border-radius: 999px;
+    background: var(--card-2); border: 1px solid var(--border);
+    color: var(--text); font-size: 13px; cursor: pointer;
+    user-select: none;
+  }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  button.primary {
+    width: 100%; margin-top: 18px; padding: 16px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff; border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .qr-wrap { text-align: center; }
+  .qr-wrap img, .qr-wrap canvas {
+    width: 240px; height: 240px;
+    background: #fff; padding: 12px; border-radius: 12px;
+  }
+  .timer { font-variant-numeric: tabular-nums; color: var(--warn); margin-top: 8px; }
+
+  .status-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.pending { background: var(--warn); animation: pulse 1.4s infinite; }
+  .dot.ok { background: var(--ok); }
+  .dot.err { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--err); color: #fff; padding: 10px 16px;
+    border-radius: 8px; font-size: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .hidden { display: none !important; }
+
+  .success-icon {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--ok); display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 12px; font-size: 36px; color: #052E1B;
+  }
+  .footer-note { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
+</style>
+<!-- QR generator (lightweight, no deps) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <h1>⚡ PlagSini Charging</h1>
+    <p>Scan · Pay · Charge</p>
+  </div>
+
+  <!-- Charger info -->
+  <div class="card">
+    <div class="charger-info">
+      <div class="icon">⚡</div>
+      <div class="meta">
+        <div class="id" id="chargerLabel">—</div>
+        <div class="sub" id="chargerSub">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 1: Form -->
+  <div id="formStep" class="card">
+    <label for="amountInput">Amount (RM)</label>
+    <input id="amountInput" type="number" inputmode="decimal" min="1" max="500" step="0.10" placeholder="e.g. 20.00" value="10" />
+    <div class="amount-chips">
+      <div class="chip" data-amt="5">RM 5</div>
+      <div class="chip active" data-amt="10">RM 10</div>
+      <div class="chip" data-amt="20">RM 20</div>
+      <div class="chip" data-amt="50">RM 50</div>
+      <div class="chip" data-amt="100">RM 100</div>
+    </div>
+
+    <label for="emailInput">Email (for receipt)</label>
+    <input id="emailInput" type="email" placeholder="you@example.com" />
+
+    <button class="primary" id="payBtn" onclick="startPayment()">Pay with TNG eWallet</button>
+    <div class="footer-note">By paying you agree to PlagSini's terms. Payment is final once charging starts.</div>
+  </div>
+
+  <!-- STEP 2: QR / Wait -->
+  <div id="qrStep" class="card hidden">
+    <div class="qr-wrap">
+      <div id="qrBox"></div>
+      <div class="timer" id="timer">15:00</div>
+    </div>
+    <div class="status-row">
+      <div class="dot pending" id="statusDot"></div>
+      <div id="statusText">Waiting for payment…</div>
+    </div>
+    <div class="footer-note">Open Touch 'n Go eWallet → tap <b>Scan</b> → scan the QR above.</div>
+  </div>
+
+  <!-- STEP 3: Success -->
+  <div id="doneStep" class="card hidden" style="text-align:center">
+    <div class="success-icon">✓</div>
+    <h2 style="margin:6px 0">Payment received</h2>
+    <p style="color:var(--muted);font-size:14px;margin:6px 0 0">
+      Your charger is starting now. Please plug in your cable if you haven't already.
+    </p>
+    <p style="color:var(--muted);font-size:12px;margin-top:14px">
+      Receipt sent to <span id="doneEmail"></span>
+    </p>
+  </div>
+
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const chargerId = params.get('charger') || params.get('charger_id') || '';
+  const connectorId = parseInt(params.get('connector') || '1', 10);
+
+  document.getElementById('chargerLabel').textContent = chargerId || 'No charger ID';
+  document.getElementById('chargerSub').textContent = chargerId
+    ? `Connector ${connectorId}`
+    : 'Add ?charger=<id> to the URL';
+
+  // Amount chips
+  document.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      document.getElementById('amountInput').value = c.dataset.amt;
+    });
+  });
+
+  function toast(msg, ok=false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = ok ? 'var(--ok)' : 'var(--err)';
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 4000);
+  }
+
+  function show(stepId) {
+    ['formStep','qrStep','doneStep'].forEach(id => {
+      document.getElementById(id).classList.toggle('hidden', id !== stepId);
+    });
+  }
+
+  let pollHandle = null;
+  let countdownHandle = null;
+
+  async function startPayment() {
+    const amount = parseFloat(document.getElementById('amountInput').value);
+    const email = document.getElementById('emailInput').value.trim();
+    if (!chargerId) { toast('Missing charger ID in URL'); return; }
+    if (!amount || amount < 1 || amount > 500) { toast('Enter amount between RM 1 and RM 500'); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid email'); return; }
+
+    const btn = document.getElementById('payBtn');
+    btn.disabled = true; btn.textContent = 'Creating payment…';
+
+    try {
+      const r = await fetch('/api/charging/quick-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          charger_id: chargerId,
+          connector_id: connectorId,
+          amount: amount,
+          email: email,
+          gateway_name: 'tng'
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data.success) {
+        throw new Error(data.detail || data.message || 'Payment creation failed');
+      }
+      renderQr(data);
+      show('qrStep');
+      startCountdown(data.expires_in_seconds || 900);
+      startPolling(data.transaction_ref, email);
+    } catch (e) {
+      console.error(e);
+      toast(e.message || 'Failed to create payment');
+      btn.disabled = false; btn.textContent = 'Pay with TNG eWallet';
+    }
+  }
+
+  function renderQr(data) {
+    const box = document.getElementById('qrBox');
+    box.innerHTML = '';
+    // Backend may return a payment_url (TNG deeplink) or a raw qr_code string.
+    const qrPayload = data.qr_code || data.payment_url || '';
+    if (!qrPayload) {
+      box.innerHTML = '<p style="color:var(--err)">No QR returned from gateway</p>';
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    box.appendChild(canvas);
+    QRCode.toCanvas(canvas, qrPayload, { width: 240, margin: 1 }, err => {
+      if (err) { console.error(err); box.innerHTML = '<p style="color:var(--err)">QR render failed</p>'; }
+    });
+  }
+
+  function startCountdown(secs) {
+    clearInterval(countdownHandle);
+    let remaining = secs;
+    const el = document.getElementById('timer');
+    const tick = () => {
+      const m = String(Math.floor(remaining/60)).padStart(2,'0');
+      const s = String(remaining%60).padStart(2,'0');
+      el.textContent = `${m}:${s}`;
+      if (remaining-- <= 0) {
+        clearInterval(countdownHandle);
+        el.textContent = 'Expired';
+        setStatus('err', 'Payment window expired. Please try again.');
+        clearInterval(pollHandle);
+      }
+    };
+    tick();
+    countdownHandle = setInterval(tick, 1000);
+  }
+
+  function setStatus(state, text) {
+    const dot = document.getElementById('statusDot');
+    dot.classList.remove('pending','ok','err');
+    dot.classList.add(state);
+    document.getElementById('statusText').textContent = text;
+  }
+
+  function startPolling(txnRef, email) {
+    clearInterval(pollHandle);
+    pollHandle = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/charging/quick-pay/status/${encodeURIComponent(txnRef)}`);
+        if (!r.ok) return;
+        const s = await r.json();
+        if (s.status === 'success') {
+          clearInterval(pollHandle); clearInterval(countdownHandle);
+          document.getElementById('doneEmail').textContent = email;
+          show('doneStep');
+        } else if (s.status === 'failed') {
+          clearInterval(pollHandle);
+          setStatus('err', 'Payment failed. Please try again.');
+        } else if (s.gateway_status && s.gateway_status.startsWith('paid_but_remote_start_failed')) {
+          clearInterval(pollHandle);
+          setStatus('err', 'Paid, but charger could not start. Contact support — refund will be issued.');
+        }
+      } catch (e) { /* keep polling */ }
+    }, 3000);
+  }
+</script>
+</body>
+</html>

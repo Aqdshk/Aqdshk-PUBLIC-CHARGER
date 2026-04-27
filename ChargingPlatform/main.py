@@ -32,7 +32,7 @@ except ImportError:
 
 from api import app
 from database import init_db, SessionLocal, User, Wallet, SupportStaff
-from ocpp_server import on_connect, orphan_session_watchdog
+from ocpp_server import on_connect, orphan_session_watchdog, scheduled_charging_worker
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ async def ocpp_server() -> None:
         compression=None,
     ):
         asyncio.create_task(orphan_session_watchdog(interval_seconds=600))
+        asyncio.create_task(scheduled_charging_worker(interval_seconds=60))
         await asyncio.Future()  # run forever
 
 

@@ -350,6 +350,34 @@ class Fault(Base):
     charger = relationship("Charger", back_populates="faults")
 
 
+class ChargingSchedule(Base):
+    """Scheduled charging sessions set by users via AppEV.
+    Background worker checks every minute and triggers RemoteStart / RemoteStop
+    at the configured times on matching days."""
+    __tablename__ = "charging_schedules"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    user_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    charger_id     = Column(Integer, ForeignKey("chargers.id"), nullable=False, index=True)
+    charge_point_id = Column(String(255), nullable=False, index=True)  # denormalized for fast worker lookup
+    connector_id   = Column(Integer, default=1)
+    id_tag         = Column(String(255), default="APP_USER")
+
+    # Time stored as HH:MM (24h, Asia/Kuala_Lumpur local time)
+    start_time     = Column(String(5), nullable=False)    # e.g. "23:00"
+    stop_time      = Column(String(5), nullable=False)    # e.g. "06:00"
+
+    # Days of week — comma-separated 0=Sunday..6=Saturday, or "daily"
+    days_of_week   = Column(String(50), default="daily")
+
+    enabled        = Column(Boolean, default=True)
+    last_triggered_start = Column(DateTime, nullable=True)  # prevent double-trigger within same minute
+    last_triggered_stop  = Column(DateTime, nullable=True)
+
+    created_at     = Column(DateTime, default=_utcnow)
+    updated_at     = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class ChargerReview(Base):
     """User ratings and reviews for chargers"""
     __tablename__ = "charger_reviews"
@@ -658,6 +686,11 @@ class PaymentTransaction(Base):
     
     # Purpose: topup, charge_payment, subscription
     purpose = Column(String(50), default="topup")
+
+    # Charger linkage (only set when purpose == "charge_payment" — quick-pay flow)
+    charger_id = Column(String(100), nullable=True, index=True)
+    connector_id = Column(Integer, nullable=True)
+    customer_email = Column(String(255), nullable=True)  # for guest QR-pay (no login)
     
     # Idempotency key — prevent duplicate payment creation
     idempotency_key = Column(String(100), unique=True, nullable=True, index=True)

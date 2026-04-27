@@ -278,3 +278,40 @@ async def send_ticket_update(to_email: str, ticket_number: str, subject: str, ne
     <p>{"A support agent has replied to your ticket. Please check your conversation for details." if new_status == "admin_reply" else "Our team is working to resolve your issue as quickly as possible."}</p>
     """
     return await asyncio.to_thread(_send_generic_email, to_email, f"[{ticket_number}] {label} – {subject}", body)
+
+
+# ============================================================
+#  PAYMENT / CHARGING RECEIPT
+# ============================================================
+
+async def send_charging_receipt(
+    to_email: str,
+    transaction_ref: str,
+    amount: float,
+    charger_id: str,
+    connector_id: int,
+    paid_at_str: str,
+    gateway: str = "TNG eWallet",
+) -> bool:
+    """Send a payment receipt + 'charger starting' confirmation to a quick-pay user."""
+    body = f"""
+    <h2 style="color:#00FF88;margin:0 0 15px;">⚡ Payment Received</h2>
+    <p>Thank you! Your payment has been received and your charger is starting now.</p>
+    <div style="background:#0A0A1A;border:1px solid #00FF88;border-radius:10px;padding:16px;margin:16px 0;">
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Receipt #:</strong> {transaction_ref}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Amount Paid:</strong> RM {amount:.2f}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Payment Method:</strong> {gateway}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Charger:</strong> {charger_id} (Connector {connector_id})</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Paid At:</strong> {paid_at_str}</p>
+    </div>
+    <p>Please plug in your cable if you haven't already. Charging will stop automatically once your prepaid balance is consumed.</p>
+    <p style="color:#888;font-size:12px;margin-top:20px;">
+      Need help? Reply to this email or contact PlagSini support.
+    </p>
+    """
+    return await asyncio.to_thread(
+        _send_generic_email,
+        to_email,
+        f"[Receipt {transaction_ref}] PlagSini Charging — RM {amount:.2f}",
+        body,
+    )

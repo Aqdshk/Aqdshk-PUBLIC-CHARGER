@@ -29,7 +29,7 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp, call, call_result
 from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
-from database import SessionLocal, Charger, ChargingSession, MeterValue, Fault, User
+from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,15 @@ def _utcnow():
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 # Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
 active_charge_points: Dict[str, 'ChargePoint'] = {}
+
+# Reference to the FastAPI (main) event loop.
+# Set by api.py startup handler. Used by the scheduled charging worker
+# — which runs inside the OCPP background-thread loop — to dispatch
+# ChargePoint.call() requests onto the same loop that API handlers use
+# (ChargePoint's internal Queue/Lock get bound to whichever loop first
+# touches them; the API binds them to its loop, so cross-loop calls
+# from the worker would otherwise raise "bound to a different event loop").
+API_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
 # Recent firmware events (last 50) — shared with API layer
 firmware_events: List[Dict] = []
@@ -1328,6 +1337,126 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
             db.close()
         except Exception as e:
             logger.error(f"Orphan session watchdog error: {e}", exc_info=True)
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+async def scheduled_charging_worker(interval_seconds: int = 60):
+    """
+    Background task — runs every minute.
+    Checks all enabled ChargingSchedule rows. If the current time (Asia/Kuala_Lumpur)
+    matches a schedule's start_time or stop_time AND today is in days_of_week,
+    send RemoteStartTransaction / RemoteStopTransaction via OCPP.
+    """
+    # Malaysia timezone: UTC+8 (no DST)
+    MYT = timezone(timedelta(hours=8))
+    logger.info("Scheduled charging worker started (interval=%ds)", interval_seconds)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            now = datetime.now(MYT)
+            current_hhmm = now.strftime("%H:%M")
+            # Python weekday(): Monday=0..Sunday=6 — we use Sunday=0..Saturday=6 to match JS Date.getDay()
+            current_dow = (now.weekday() + 1) % 7  # Mon=0->1, Sun=6->0
+
+            db = SessionLocal()
+            schedules = db.query(ChargingSchedule).filter(
+                ChargingSchedule.enabled == True
+            ).all()
+
+            for sch in schedules:
+                # Check if today is an active day
+                days = (sch.days_of_week or "daily").strip().lower()
+                if days != "daily":
+                    active_days = [int(x) for x in days.split(",") if x.strip().isdigit()]
+                    if current_dow not in active_days:
+                        continue
+
+                is_start = current_hhmm == sch.start_time
+                is_stop  = current_hhmm == sch.stop_time
+
+                if not (is_start or is_stop):
+                    continue
+
+                # Fetch live OCPP connection
+                cp_conn = active_charge_points.get(sch.charge_point_id)
+                if cp_conn is None:
+                    logger.warning(
+                        f"[Scheduler] Charger {sch.charge_point_id} offline — "
+                        f"skip {'start' if is_start else 'stop'} trigger"
+                    )
+                    continue
+
+                # Helper: dispatch an OCPP call onto the API event loop.
+                # Prevents "Queue bound to a different event loop" — see API_LOOP docstring.
+                async def _dispatch(coro):
+                    if API_LOOP is not None and API_LOOP.is_running():
+                        fut = asyncio.run_coroutine_threadsafe(coro, API_LOOP)
+                        return await asyncio.wrap_future(fut)
+                    # Fallback: run in current loop (works if API never touched this CP yet)
+                    return await coro
+
+                try:
+                    if is_start:
+                        # Debounce: don't re-trigger within same 2-min window
+                        if sch.last_triggered_start and \
+                                (_utcnow() - sch.last_triggered_start).total_seconds() < 120:
+                            continue
+                        logger.info(
+                            f"[Scheduler] Triggering RemoteStart for {sch.charge_point_id} "
+                            f"(schedule #{sch.id}, user={sch.user_id}, connector={sch.connector_id})"
+                        )
+                        await _dispatch(cp_conn.remote_start_transaction(
+                            connector_id=sch.connector_id,
+                            id_tag=sch.id_tag or "APP_USER",
+                        ))
+                        sch.last_triggered_start = _utcnow()
+                        db.commit()
+
+                    elif is_stop:
+                        if sch.last_triggered_stop and \
+                                (_utcnow() - sch.last_triggered_stop).total_seconds() < 120:
+                            continue
+                        # Find active session on this charger to get transaction_id
+                        charger = db.query(Charger).filter(
+                            Charger.charge_point_id == sch.charge_point_id
+                        ).first()
+                        if not charger:
+                            continue
+                        # Match any unfinished session (status may be "active",
+                        # "interrupted" after a reconnect, etc). stop_time is the
+                        # authoritative signal — NULL means session not yet closed.
+                        active = db.query(ChargingSession).filter(
+                            ChargingSession.charger_id == charger.id,
+                            ChargingSession.stop_time.is_(None),
+                        ).order_by(desc(ChargingSession.start_time)).first()
+                        if not active:
+                            logger.info(
+                                f"[Scheduler] No active session on {sch.charge_point_id} — "
+                                f"skip stop trigger"
+                            )
+                            continue
+                        logger.info(
+                            f"[Scheduler] Triggering RemoteStop for {sch.charge_point_id} "
+                            f"(tx={active.transaction_id}, schedule #{sch.id})"
+                        )
+                        await _dispatch(cp_conn.remote_stop_transaction(
+                            transaction_id=active.transaction_id
+                        ))
+                        sch.last_triggered_stop = _utcnow()
+                        db.commit()
+                except Exception as e:
+                    logger.error(
+                        f"[Scheduler] Error executing schedule #{sch.id}: {e}",
+                        exc_info=True,
+                    )
+
+            db.close()
+        except Exception as e:
+            logger.error(f"Scheduled charging worker error: {e}", exc_info=True)
             try:
                 db.close()
             except Exception:

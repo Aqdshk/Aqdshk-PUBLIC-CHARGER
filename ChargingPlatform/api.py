@@ -33,13 +33,13 @@ from sqlalchemy.orm import Session
 from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
-    Charger, ChargerReview, ChargerBooking, ChargingSession, Fault, MaintenanceRecord, MeterValue,
+    Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     OTPVerification, PaymentGatewayConfig, PaymentTransaction,
     Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db,
 )
-from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder
+from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_charging_receipt
 from ocpp_server import get_active_charge_point, active_charge_points, firmware_events
 from payment_gateway import (
     get_gateway,
@@ -1490,6 +1490,23 @@ async def topup_page():
         raise HTTPException(status_code=500, detail=f"Error loading top-up page: {str(e)}")
 
 
+@app.get("/pay")
+async def quick_pay_page():
+    """Guest-facing quick-pay page — opened from the QR sticker on a charger.
+    Reads ?charger=<id>&connector=<n> from the URL, asks for amount + email,
+    creates a payment via /api/charging/quick-pay, then polls for completion
+    while showing the TNG QR. On success the backend triggers RemoteStart."""
+    try:
+        file_path = _BASE_DIR / "templates" / "pay.html"
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Pay page not found")
+        return FileResponse(file_path, media_type="text/html")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading pay page: {str(e)}")
+
+
 @app.post("/api/ocpp/{charge_point_id}/change-availability", response_model=OcppOperationResponse)
 async def ocpp_change_availability(charge_point_id: str, request: ChangeAvailabilityRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """OCPP 1.6 ChangeAvailability"""
@@ -2208,6 +2225,144 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             success=False,
             message="An unexpected error occurred"
         )
+
+
+# ==================== CHARGING SCHEDULES ====================
+
+class ChargingScheduleRequest(BaseModel):
+    connector_id: int = 1
+    id_tag: str = "APP_USER"
+    start_time: str          # "HH:MM" 24h
+    stop_time: str           # "HH:MM" 24h
+    days_of_week: str = "daily"  # "daily" or "0,1,2,..." where 0=Sun
+    enabled: bool = True
+
+
+class ChargingScheduleResponse(BaseModel):
+    id: int
+    charge_point_id: str
+    connector_id: int
+    id_tag: str
+    start_time: str
+    stop_time: str
+    days_of_week: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+def _validate_hhmm(s: str) -> bool:
+    try:
+        h, m = s.split(":")
+        return 0 <= int(h) <= 23 and 0 <= int(m) <= 59
+    except Exception:
+        return False
+
+
+@app.get("/api/chargers/{charge_point_id}/schedules", response_model=List[ChargingScheduleResponse])
+async def list_charging_schedules(
+    charge_point_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all charging schedules for a charger belonging to the current user."""
+    rows = db.query(ChargingSchedule).filter(
+        ChargingSchedule.charge_point_id == charge_point_id,
+        ChargingSchedule.user_id == current_user.id,
+    ).order_by(ChargingSchedule.created_at.desc()).all()
+    return rows
+
+
+@app.post("/api/chargers/{charge_point_id}/schedules", response_model=ChargingScheduleResponse)
+async def create_charging_schedule(
+    charge_point_id: str,
+    payload: ChargingScheduleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create (or replace) a charging schedule for this charger.
+    Simplest UX: one schedule per user per charger — if exists, update it."""
+    if not _validate_hhmm(payload.start_time) or not _validate_hhmm(payload.stop_time):
+        raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM (24h).")
+
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+
+    # Upsert: one schedule per user per charger
+    existing = db.query(ChargingSchedule).filter(
+        ChargingSchedule.charge_point_id == charge_point_id,
+        ChargingSchedule.user_id == current_user.id,
+    ).first()
+
+    if existing:
+        existing.connector_id  = payload.connector_id
+        existing.id_tag        = payload.id_tag
+        existing.start_time    = payload.start_time
+        existing.stop_time     = payload.stop_time
+        existing.days_of_week  = payload.days_of_week
+        existing.enabled       = payload.enabled
+        db.commit()
+        db.refresh(existing)
+        logger.info(f"Updated schedule #{existing.id} for user {current_user.id} / {charge_point_id}")
+        return existing
+
+    row = ChargingSchedule(
+        user_id         = current_user.id,
+        charger_id      = charger.id,
+        charge_point_id = charge_point_id,
+        connector_id    = payload.connector_id,
+        id_tag          = payload.id_tag,
+        start_time      = payload.start_time,
+        stop_time       = payload.stop_time,
+        days_of_week    = payload.days_of_week,
+        enabled         = payload.enabled,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    logger.info(f"Created schedule #{row.id} for user {current_user.id} / {charge_point_id}")
+    return row
+
+
+@app.patch("/api/chargers/{charge_point_id}/schedules/{schedule_id}/toggle", response_model=ChargingScheduleResponse)
+async def toggle_charging_schedule(
+    charge_point_id: str,
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = db.query(ChargingSchedule).filter(
+        ChargingSchedule.id == schedule_id,
+        ChargingSchedule.user_id == current_user.id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    row.enabled = not row.enabled
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@app.delete("/api/chargers/{charge_point_id}/schedules/{schedule_id}")
+async def delete_charging_schedule(
+    charge_point_id: str,
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = db.query(ChargingSchedule).filter(
+        ChargingSchedule.id == schedule_id,
+        ChargingSchedule.user_id == current_user.id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    db.delete(row)
+    db.commit()
+    return {"success": True, "message": "Schedule deleted"}
 
 
 # ==================== USER API MODELS ====================
@@ -5535,6 +5690,154 @@ async def create_topup(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# QUICK-PAY (guest QR-scan flow — no login required)
+# ─────────────────────────────────────────────────────────────────────────────
+class QuickPayRequest(BaseModel):
+    charger_id: str
+    connector_id: int = 1
+    amount: float  # MYR
+    email: str
+    gateway_name: Optional[str] = "tng"
+
+
+@app.post("/api/charging/quick-pay")
+async def quick_pay(
+    req: QuickPayRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Guest pay-and-start endpoint (no auth).
+
+    Flow:
+      1. User scans QR at physical charger → /pay?charger=X&connector=Y page
+      2. Page collects amount + email, POSTs here
+      3. We validate charger is online & available
+      4. Create PaymentTransaction (purpose="charge_payment", charger_id set)
+      5. Call gateway create_payment → return TNG QR / payment URL to page
+      6. Page displays QR; user pays in TNG eWallet
+      7. TNG → /api/payment/callback/tng → we trigger OCPP RemoteStartTransaction
+      8. Email invoice on charging completion
+    """
+    client_ip = get_client_ip(request)
+
+    # Basic validation
+    if req.amount < 1.0 or req.amount > 500.0:
+        raise HTTPException(status_code=400, detail="Amount must be between RM 1 and RM 500")
+    if "@" not in req.email or len(req.email) > 255:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    # Validate charger
+    charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
+    if charger.status != "online":
+        raise HTTPException(status_code=409, detail=f"Charger is offline (status: {charger.status})")
+    if charger.availability not in ("available", "preparing"):
+        raise HTTPException(status_code=409, detail=f"Charger not available (state: {charger.availability})")
+
+    # Get gateway config
+    gw_config = db.query(PaymentGatewayConfig).filter(
+        PaymentGatewayConfig.gateway_name == req.gateway_name,
+        PaymentGatewayConfig.is_active == True,
+    ).first()
+    if not gw_config:
+        raise HTTPException(status_code=503, detail=f"Gateway {req.gateway_name} not configured/active")
+
+    runtime_cfg = _resolve_gateway_runtime_config(gw_config)
+    gw_config_dict = {
+        "gateway_name": gw_config.gateway_name,
+        "merchant_id": runtime_cfg.get("merchant_id"),
+        "api_key": runtime_cfg.get("api_key"),
+        "api_secret": runtime_cfg.get("api_secret"),
+        "extra_config": gw_config.extra_config,
+        "is_sandbox": runtime_cfg.get("is_sandbox", True),
+    }
+
+    # Create txn record
+    txn_ref = generate_transaction_ref()
+    txn = PaymentTransaction(
+        transaction_ref=txn_ref,
+        user_id=0,  # guest — no user account
+        user_email=req.email,
+        amount=req.amount,
+        currency="MYR",
+        payment_method=req.gateway_name,
+        gateway_name=req.gateway_name,
+        status="pending",
+        purpose="charge_payment",
+        charger_id=req.charger_id,
+        connector_id=req.connector_id,
+        customer_email=req.email,
+        ip_address=client_ip,
+        expired_at=_utcnow() + timedelta(minutes=15),
+    )
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    # Call gateway
+    gateway = get_gateway(gw_config_dict)
+    result = await gateway.create_payment(
+        transaction_ref=txn_ref,
+        amount=req.amount,
+        currency="MYR",
+        description=f"PlagSini EV Charging — {req.charger_id} (RM {req.amount:.2f})",
+        customer_email=req.email,
+        customer_name=req.email.split("@")[0],
+        payment_method=req.gateway_name,
+    )
+
+    txn.gateway_transaction_id = result.get("gateway_transaction_id")
+    txn.gateway_reference = result.get("gateway_reference")
+    txn.payment_url = result.get("payment_url")
+    txn.gateway_response = json.dumps(result.get("raw_response", {}))
+    if result.get("success"):
+        txn.status = "processing"
+    else:
+        txn.status = "failed"
+        txn.gateway_status = "creation_failed"
+    db.commit()
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gateway create_payment failed: {result.get('message', 'unknown')}",
+        )
+
+    return {
+        "success": True,
+        "transaction_ref": txn_ref,
+        "payment_url": result.get("payment_url"),
+        "qr_code": result.get("qr_code"),
+        "amount": req.amount,
+        "currency": "MYR",
+        "gateway": req.gateway_name,
+        "expires_in_seconds": 900,
+        "status_check_url": f"/api/charging/quick-pay/status/{txn_ref}",
+    }
+
+
+@app.get("/api/charging/quick-pay/status/{transaction_ref}")
+async def quick_pay_status(transaction_ref: str, db: Session = Depends(get_db)):
+    """Polled by mini-pay webpage to check if payment confirmed & charging started."""
+    txn = db.query(PaymentTransaction).filter(
+        PaymentTransaction.transaction_ref == transaction_ref
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {
+        "transaction_ref": txn.transaction_ref,
+        "status": txn.status,
+        "gateway_status": txn.gateway_status,
+        "amount": float(txn.amount),
+        "charger_id": txn.charger_id,
+        "connector_id": txn.connector_id,
+        "paid_at": txn.paid_at.isoformat() if txn.paid_at else None,
+    }
+
+
 @app.post("/api/payment/callback/{gateway_name}")
 async def payment_callback(gateway_name: str, request: Request, db: Session = Depends(get_db)):
     """
@@ -5623,8 +5926,39 @@ async def payment_callback(gateway_name: str, request: Request, db: Session = De
         txn.status = "success"
         txn.paid_at = _utcnow()
 
-        # Credit user's wallet
-        _credit_wallet(db, txn)
+        # Branch on purpose: top-up credits wallet, charge_payment triggers OCPP RemoteStart
+        if txn.purpose == "charge_payment" and txn.charger_id:
+            logger.info(
+                f"✅ Charge payment success {txn.transaction_ref} — triggering "
+                f"RemoteStart on {txn.charger_id}/connector {txn.connector_id}"
+            )
+            try:
+                await _trigger_remote_start_after_payment(db, txn)
+            except Exception as e:  # never block callback ack on OCPP failure
+                logger.error(
+                    f"RemoteStart trigger failed for {txn.transaction_ref}: {e}",
+                    exc_info=True,
+                )
+                txn.gateway_status = f"paid_but_remote_start_failed: {e}"
+
+            # Send receipt + "charger starting" email (non-blocking on failure)
+            recipient = txn.customer_email or txn.user_email
+            if recipient:
+                try:
+                    await send_charging_receipt(
+                        to_email=recipient,
+                        transaction_ref=txn.transaction_ref,
+                        amount=float(txn.amount or 0),
+                        charger_id=txn.charger_id or "—",
+                        connector_id=int(txn.connector_id or 1),
+                        paid_at_str=(txn.paid_at.strftime("%Y-%m-%d %H:%M:%S UTC") if txn.paid_at else "—"),
+                        gateway=(txn.gateway_name or "TNG").upper(),
+                    )
+                except Exception as e:
+                    logger.error(f"Receipt email failed for {txn.transaction_ref}: {e}")
+        else:
+            # Credit user's wallet (legacy top-up flow)
+            _credit_wallet(db, txn)
         logger.info(f"✅ Payment success: {txn.transaction_ref} RM{txn.amount}")
     else:
         txn.status = "failed"
@@ -5703,6 +6037,106 @@ def _credit_wallet(db: Session, txn: PaymentTransaction):
 
     txn.wallet_transaction_id = wt.id
     audit_log("payment_credited", txn.user_id, f"Credited RM{txn_amount} via {txn.gateway_name}", amount=float(txn_amount))
+
+
+async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransaction):
+    """
+    Quick-pay flow: after payment success, fire OCPP RemoteStartTransaction
+    on the linked charger and create a pending ChargingSession that on_start_transaction
+    will later upgrade with the real transaction_id.
+
+    Raises on hard failures so the caller can record `paid_but_remote_start_failed`
+    on the payment row (and we'll have to refund / retry manually). Soft cases
+    (timeout, charger-will-start-locally) are logged but treated as success.
+    """
+    if not txn.charger_id:
+        raise RuntimeError("payment has no charger_id linkage")
+
+    connector_id = int(txn.connector_id or 1)
+
+    # 1) Look up the charger row
+    charger = (
+        db.query(Charger)
+        .filter(Charger.charge_point_id == txn.charger_id)
+        .first()
+    )
+    if not charger:
+        raise RuntimeError(f"charger {txn.charger_id} not found in DB")
+
+    # 2) Get the live OCPP websocket connection
+    cp = get_active_charge_point(txn.charger_id)
+    if not cp:
+        raise RuntimeError(
+            f"charger {txn.charger_id} not connected to OCPP server"
+        )
+
+    # 3) id_tag — RFID-like identifier OCPP uses to attribute the transaction.
+    #    Use a short deterministic tag derived from the payment so we can
+    #    correlate the StartTransaction callback back to this txn later.
+    #    Max length 20 chars per OCPP 1.6 spec.
+    id_tag = f"PAY{txn.id}"[:20]
+
+    logger.info(
+        f"[quick-pay] RemoteStartTransaction → {txn.charger_id} "
+        f"connector {connector_id} id_tag={id_tag} (txn {txn.transaction_ref})"
+    )
+
+    response = await cp.remote_start_transaction(
+        connector_id=connector_id,
+        id_tag=id_tag,
+    )
+
+    status = getattr(response, "status", None) if response else None
+
+    if status == "Rejected":
+        raise RuntimeError("charger rejected RemoteStartTransaction")
+    if status == "NotSupported":
+        raise RuntimeError("charger does not support RemoteStartTransaction")
+
+    # Either Accepted, or no response (charger may still start locally).
+    # Create a pending ChargingSession so the live screen / banner can pick it up.
+    try:
+        existing_pending = (
+            db.query(ChargingSession)
+            .filter(
+                ChargingSession.charger_id == charger.id,
+                ChargingSession.status == "pending",
+            )
+            .first()
+        )
+        if not existing_pending:
+            session = ChargingSession(
+                charger_id=charger.id,
+                transaction_id=0,  # placeholder, replaced below
+                start_time=datetime.now(MYT).replace(tzinfo=None),
+                status="pending",
+                user_id=0,  # guest pay — not tied to an account
+            )
+            db.add(session)
+            db.flush()
+            session.transaction_id = -session.id  # unique negative placeholder
+
+        charger.availability = "charging"
+        # Stash id_tag on the payment row's gateway_status for traceability
+        txn.gateway_status = f"paid_remote_start_{(status or 'sent').lower()}"
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            f"[quick-pay] failed to create pending session for {txn.transaction_ref}: {e}",
+            exc_info=True,
+        )
+        # Don't re-raise — RemoteStart already accepted; session row is best-effort.
+
+    if status == "Accepted":
+        logger.info(
+            f"[quick-pay] ✅ RemoteStart Accepted for {txn.charger_id} (txn {txn.transaction_ref})"
+        )
+    else:
+        logger.warning(
+            f"[quick-pay] ⚠️ no RemoteStart response from {txn.charger_id} — "
+            f"charger may start locally (txn {txn.transaction_ref})"
+        )
 
 
 @app.post("/api/payment/approve/{transaction_ref}")
@@ -6482,6 +6916,23 @@ async def _check_and_send_reminders():
 async def _start_reminder_scheduler():
     """Start the background SLA reminder task on app startup."""
     asyncio.create_task(_ticket_reminder_loop())
+
+
+@app.on_event("startup")
+async def _capture_api_loop_for_ocpp_dispatch():
+    """
+    Publish the FastAPI event loop to ocpp_server so the scheduled
+    charging worker (running inside the OCPP thread's loop) can
+    dispatch ChargePoint calls here.
+
+    Why: python-ocpp's ChargePoint binds its internal Queue/Lock to
+    whichever loop first touches it. API handlers are that first
+    toucher, so all subsequent calls must come from this loop too,
+    otherwise we get 'Queue bound to a different event loop'.
+    """
+    import ocpp_server  # local import avoids circular
+    ocpp_server.API_LOOP = asyncio.get_running_loop()
+    logger.info("API_LOOP captured for OCPP scheduler dispatch")
 
 
 @app.on_event("startup")
