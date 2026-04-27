@@ -114,8 +114,6 @@
   }
   .footer-note { font-size: 11px; color: var(--muted); text-align: center; margin-top: 18px; }
 </style>
-<!-- QR generator (lightweight, no deps) -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -266,11 +264,13 @@
       box.innerHTML = '<p style="color:var(--err)">No QR returned from gateway</p>';
       return;
     }
-    const canvas = document.createElement('canvas');
-    box.appendChild(canvas);
-    QRCode.toCanvas(canvas, qrPayload, { width: 240, margin: 1 }, err => {
-      if (err) { console.error(err); box.innerHTML = '<p style="color:var(--err)">QR render failed</p>'; }
-    });
+    // Render via qrserver.com — direct PNG, no JS lib (more reliable than CDN script)
+    const img = document.createElement('img');
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=4&ecc=M&data=${encodeURIComponent(qrPayload)}`;
+    img.alt = 'Payment QR';
+    img.style.width = '240px'; img.style.height = '240px';
+    img.onerror = () => { box.innerHTML = '<p style="color:var(--err)">QR render failed</p>'; };
+    box.appendChild(img);
   }
 
   function startCountdown(secs) {

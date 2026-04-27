@@ -71,9 +71,10 @@
     font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 2px;
     margin-bottom: 12px;
   }
-  .sticker canvas {
-    width: 220px !important; height: 220px !important;
-    margin: 0 auto;
+  .sticker img.qr {
+    width: 220px; height: 220px;
+    margin: 0 auto; display: block;
+    image-rendering: pixelated;
   }
   .sticker .charger-id {
     font-family: monospace; font-size: 13px; font-weight: 700;
@@ -95,7 +96,6 @@
     .sticker { box-shadow: none; border: 1px dashed #ccc; }
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body>
   <h1>⚡ PlagSini Charger QR Generator</h1>
@@ -141,23 +141,21 @@ DC3001,2
       const conn = parseInt(connOverride, 10) || defaultConn;
       const url = `${base}?charger=${encodeURIComponent(id)}&connector=${conn}`;
 
+      // Use qrserver.com — returns PNG directly, no JS library / CDN needed
+      const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&ecc=M&data=${encodeURIComponent(url)}`;
+
       const card = document.createElement('div');
       card.className = 'sticker';
       card.innerHTML = `
         <div class="brand">⚡ PlagSini</div>
         <div class="tagline">Scan · Pay · Charge</div>
-        <canvas></canvas>
+        <img class="qr" src="${qrSrc}" alt="QR for ${id}" />
         <div class="charger-id">${id}</div>
         <div class="conn">Connector ${conn}</div>
         <div class="scan-msg">Scan to start charging</div>
         <div class="url">${url}</div>
       `;
       grid.appendChild(card);
-
-      const canvas = card.querySelector('canvas');
-      QRCode.toCanvas(canvas, url, { width: 220, margin: 1, errorCorrectionLevel: 'M' }, err => {
-        if (err) console.error(err);
-      });
     });
   }
 
