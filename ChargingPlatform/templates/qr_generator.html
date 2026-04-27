@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>PlagSini — Charger QR Generator</title>
+<style>
+  :root {
+    --bg: #0A0A1A;
+    --card: #15152B;
+    --accent: #5B8DEF;
+    --accent-2: #7C5BEF;
+    --text: #EAEAF5;
+    --muted: #8A8AB0;
+    --border: #2A2A4A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin: 0 0 4px;
+  }
+  p.sub { color: var(--muted); margin: 0 0 24px; }
+
+  .controls {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+    max-width: 800px;
+  }
+  textarea, input {
+    width: 100%; padding: 12px; background: #1E1E3C; color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: inherit; font-size: 14px; resize: vertical;
+  }
+  textarea { min-height: 100px; font-family: monospace; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 200px; }
+
+  button {
+    margin-top: 16px; padding: 12px 24px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #fff; border: none; border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button.secondary {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+  }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .sticker {
+    background: #fff; color: #000; border-radius: 12px;
+    padding: 20px; text-align: center;
+    page-break-inside: avoid; break-inside: avoid;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .sticker .brand {
+    font-size: 18px; font-weight: 800; color: #5B8DEF;
+    margin-bottom: 4px;
+  }
+  .sticker .tagline {
+    font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .sticker canvas {
+    width: 220px !important; height: 220px !important;
+    margin: 0 auto;
+  }
+  .sticker .charger-id {
+    font-family: monospace; font-size: 13px; font-weight: 700;
+    margin-top: 12px; color: #1a1a1a;
+  }
+  .sticker .conn { font-size: 11px; color: #555; margin-top: 2px; }
+  .sticker .scan-msg {
+    font-size: 13px; color: #1a1a1a; font-weight: 600; margin-top: 8px;
+  }
+  .sticker .url {
+    font-size: 9px; color: #888; word-break: break-all;
+    margin-top: 6px; font-family: monospace;
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; color: #000; }
+    .controls, h1, p.sub, .no-print { display: none !important; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8mm; }
+    .sticker { box-shadow: none; border: 1px dashed #ccc; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+  <h1>⚡ PlagSini Charger QR Generator</h1>
+  <p class="sub">Generate scannable QR stickers for each charger. Each QR opens the pay-and-charge page pre-filled with charger ID.</p>
+
+  <div class="controls no-print">
+    <label for="baseUrl">Base URL</label>
+    <input id="baseUrl" type="text" value="https://charger.czeros.tech/pay" />
+
+    <div class="row">
+      <div>
+        <label for="connector">Default Connector ID</label>
+        <input id="connector" type="number" value="1" min="1" />
+      </div>
+    </div>
+
+    <label for="chargerList">Charger IDs (one per line) — optional <code>id,connector</code> override per row</label>
+    <textarea id="chargerList" placeholder="0748911403000065
+0748911403000484
+DC3001,2
+0748911403000426"></textarea>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <button onclick="render()">Generate QRs</button>
+      <button class="secondary" onclick="window.print()">Print</button>
+    </div>
+  </div>
+
+  <div id="grid" class="grid"></div>
+
+<script>
+  function render() {
+    const base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+    const defaultConn = parseInt(document.getElementById('connector').value, 10) || 1;
+    const lines = document.getElementById('chargerList').value
+      .split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+
+    lines.forEach(line => {
+      const [id, connOverride] = line.split(',').map(x => x.trim());
+      const conn = parseInt(connOverride, 10) || defaultConn;
+      const url = `${base}?charger=${encodeURIComponent(id)}&connector=${conn}`;
+
+      const card = document.createElement('div');
+      card.className = 'sticker';
+      card.innerHTML = `
+        <div class="brand">⚡ PlagSini</div>
+        <div class="tagline">Scan · Pay · Charge</div>
+        <canvas></canvas>
+        <div class="charger-id">${id}</div>
+        <div class="conn">Connector ${conn}</div>
+        <div class="scan-msg">Scan to start charging</div>
+        <div class="url">${url}</div>
+      `;
+      grid.appendChild(card);
+
+      const canvas = card.querySelector('canvas');
+      QRCode.toCanvas(canvas, url, { width: 220, margin: 1, errorCorrectionLevel: 'M' }, err => {
+        if (err) console.error(err);
+      });
+    });
+  }
+
+  // Render demo on load
+  document.getElementById('chargerList').value =
+    '0748911403000065\n0748911403000484\nDC3001\n0748911403000426';
+  render();
+</script>
+</body>
+</html>

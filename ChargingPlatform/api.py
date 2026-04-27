@@ -1490,6 +1490,22 @@ async def topup_page():
         raise HTTPException(status_code=500, detail=f"Error loading top-up page: {str(e)}")
 
 
+@app.get("/admin/qr-generator")
+async def qr_generator_page():
+    """Admin tool — generate printable QR stickers for chargers.
+    Each QR encodes /pay?charger=<id>&connector=<n>. Open in browser, type
+    charger IDs (one per line), then File → Print."""
+    try:
+        file_path = _BASE_DIR / "templates" / "qr_generator.html"
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="QR generator page not found")
+        return FileResponse(file_path, media_type="text/html")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading QR generator: {str(e)}")
+
+
 @app.get("/pay")
 async def quick_pay_page():
     """Guest-facing quick-pay page — opened from the QR sticker on a charger.
