@@ -162,6 +162,24 @@ class ApiService {
     return response;
   }
 
+  /// Make an authenticated PATCH request. Automatically retries with token refresh on 401.
+  static Future<http.Response> _authPatch(String url, {Object? body}) async {
+    var headers = await _getHeaders();
+    var response = await http.patch(Uri.parse(url), headers: headers, body: body);
+
+    if (response.statusCode == 401) {
+      final refreshed = await _refreshToken();
+      if (refreshed) {
+        headers = await _getHeaders();
+        response = await http.patch(Uri.parse(url), headers: headers, body: body);
+      }
+    }
+    if (response.statusCode == 401) {
+      throw AuthSessionExpiredException();
+    }
+    return response;
+  }
+
   /// Make an authenticated DELETE request. Automatically retries with token refresh on 401.
   static Future<http.Response> _authDelete(String url) async {
     var headers = await _getHeaders();
@@ -1114,6 +1132,91 @@ class ApiService {
       rethrow;
     } catch (e) {
       debugPrint('Error changeChargerAvailability: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // ==================== CHARGING SCHEDULES ====================
+
+  static Future<List<Map<String, dynamic>>> getChargingSchedules(String chargerId) async {
+    try {
+      final response = await _authGet('$baseUrl/chargers/$chargerId/schedules');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is List) return data.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Error getChargingSchedules: $e');
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> saveChargingSchedule(
+    String chargerId, {
+    required String startTime,
+    required String stopTime,
+    String daysOfWeek = 'daily',
+    int connectorId = 1,
+    String idTag = 'APP_USER',
+    bool enabled = true,
+  }) async {
+    try {
+      final response = await _authPost(
+        '$baseUrl/chargers/$chargerId/schedules',
+        body: json.encode({
+          'connector_id': connectorId,
+          'id_tag': idTag,
+          'start_time': startTime,
+          'stop_time': stopTime,
+          'days_of_week': daysOfWeek,
+          'enabled': enabled,
+        }),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true, ...json.decode(response.body)};
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}: ${response.body}'};
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      debugPrint('Error saveChargingSchedule: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> toggleChargingSchedule(
+      String chargerId, int scheduleId) async {
+    try {
+      final response = await _authPatch(
+        '$baseUrl/chargers/$chargerId/schedules/$scheduleId/toggle',
+      );
+      if (response.statusCode == 200) {
+        return {'success': true, ...json.decode(response.body)};
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteChargingSchedule(
+      String chargerId, int scheduleId) async {
+    try {
+      final response = await _authDelete(
+        '$baseUrl/chargers/$chargerId/schedules/$scheduleId',
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'success': false, 'message': 'HTTP ${response.statusCode}'};
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
       return {'success': false, 'message': e.toString()};
     }
   }

@@ -19,10 +19,17 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
+  <!-- viewport-fit=cover is REQUIRED for iOS PWA to extend content under the notch/status bar -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- Chrome / Android — colour the browser chrome & address-bar strip -->
+  <meta name="theme-color" content="#0A0A1A">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <!-- black-translucent lets our scaffold paint under the status bar (dark) -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PlagSini EV">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -31,8 +38,22 @@
 
   <title>PlagSini EV</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #0A0A1A;
+      /* Extend safe-area insets so status bar / notch area paints dark */
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    /* But actually we want Flutter to paint under safe area — remove padding, keep bg */
+    html, body { padding: 0 !important; }
+  </style>
 </head>
-<body>
+<body style="background-color: #0A0A1A;">
   <script>
     // Register PWA Service Worker for Web Push Notifications
     // SW is served from /app/push-sw.js (same path as the app base-href)

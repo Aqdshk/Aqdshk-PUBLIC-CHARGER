@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/api_service.dart';
+import 'charging_schedule_screen.dart';
 
 class ChargerSettingsScreen extends StatefulWidget {
   final String chargerId;
@@ -20,6 +21,8 @@ class ChargerSettingsScreen extends StatefulWidget {
 class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
   bool _loading = true;
   bool _saving = false;
+  bool _refreshing = false;
+  DateTime? _lastSync;
   String? _error;
   Timer? _refreshTimer;
 
@@ -56,9 +59,9 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
   void initState() {
     super.initState();
     _loadConfig();
-    // Auto-refresh every 30s (matches charger heartbeat interval)
-    // so any changes made on the device itself are reflected in the app
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Auto-refresh every 5s so any changes made on the device itself
+    // are reflected in the app near-real-time (live sync)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!_saving && mounted) _silentRefresh();
     });
   }
@@ -77,6 +80,9 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
     try {
       final config = await ApiService.getChargerConfiguration(widget.chargerId);
       if (!mounted) return;
+      // Skip update if API returned empty (rate-limited, offline, etc)
+      // — otherwise toggles would flicker to default values
+      if (config.isEmpty) return;
       final Map<String, String> map = {
         for (final c in config) c['key'] as String: c['value'] as String
       };
@@ -89,6 +95,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
         _backgroundLight  = map['BackgroundLight'] == 'true';
         _authSet          = map['AuthSet']         == 'true';
         _backSelection    = map['BackSelection']   ?? _backSelection;
+        _lastSync = DateTime.now();
 
         // Only update text controllers if not currently being edited
         if (!_homeNumberCtrl.value.composing.isValid) {
@@ -130,7 +137,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = 'Gagal muatkan tetapan: $e'; _loading = false; });
+      setState(() { _error = 'Failed to load settings: $e'; _loading = false; });
     }
   }
 
@@ -142,7 +149,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
 
     final ok = res['success'] == true;
     _showSnack(
-      ok ? '✅ ${displayName ?? key} berjaya dikemas kini' : '❌ Gagal: ${res['message']}',
+      ok ? '✅ ${displayName ?? key} updated successfully' : '❌ Failed: ${res['message']}',
       ok ? AppColors.success : AppColors.error,
     );
   }
@@ -157,8 +164,8 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
     final ok = res['success'] == true;
     _showSnack(
       ok
-          ? (turnOn ? '✅ Charger diaktifkan' : '✅ Charger dimatikan')
-          : '❌ Gagal: ${res['message']}',
+          ? (turnOn ? '✅ Charger activated' : '✅ Charger deactivated')
+          : '❌ Failed: ${res['message']}',
       ok ? AppColors.success : AppColors.error,
     );
   }
@@ -218,7 +225,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: Text('Batal', style: TextStyle(color: AppColors.textSecondary)),
+                child: Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen),
@@ -226,7 +233,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                   Navigator.pop(ctx);
                   _saveKey(configKey, controller.text, displayName: title);
                 },
-                child: const Text('Simpan', style: TextStyle(color: Colors.black)),
+                child: const Text('Save', style: TextStyle(color: Colors.black)),
               ),
             ],
           );
@@ -248,7 +255,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Pilih Latar Belakang Charger',
+            Text('Select Charger Background',
                 style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 16,
@@ -266,7 +273,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                     Navigator.pop(ctx);
                     setState(() => _backSelection = bg['name'] as String);
                     _saveKey('BackSelection', bg['name'] as String,
-                        displayName: 'Latar Belakang');
+                        displayName: 'Background');
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -316,21 +323,58 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Tetapan Charger',
+            const Text('Charger Settings',
                 style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             Text(widget.chargerName,
                 style: TextStyle(color: AppColors.primaryGreen, fontSize: 12)),
           ],
         ),
         actions: [
-          if (_saving)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+          // Live sync indicator — green pulse dot + "LIVE" label
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: AppColors.success,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: AppColors.success.withOpacity(0.6), blurRadius: 6, spreadRadius: 1),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text('LIVE',
+                    style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1)),
+              ],
             ),
+          ),
+          // Manual refresh (no page reload)
+          IconButton(
+            icon: _refreshing || _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.refresh, color: Colors.white, size: 22),
+            tooltip: 'Refresh settings',
+            onPressed: (_refreshing || _saving)
+                ? null
+                : () async {
+                    setState(() => _refreshing = true);
+                    await _silentRefresh();
+                    if (!mounted) return;
+                    setState(() => _refreshing = false);
+                    _showSnack('✅ Settings refreshed', AppColors.success);
+                  },
+          ),
         ],
       ),
       body: _loading
@@ -345,24 +389,41 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                     children: [
                       _buildSection(
                         icon: Icons.power_settings_new,
-                        title: 'Status Charger',
+                        title: 'Charger Status',
                         color: _chargerOnline ? AppColors.success : AppColors.error,
                         children: [
                           _buildSwitchTile(
                             icon: _chargerOnline ? Icons.bolt : Icons.bolt_outlined,
                             iconColor: _chargerOnline ? AppColors.success : AppColors.error,
-                            title: 'Pengecasan',
+                            title: 'Charging',
                             subtitle: _chargerOnline
-                                ? 'Charger aktif & boleh mengecas'
-                                : 'Charger dimatikan sementara',
+                                ? 'Charger is active & ready to charge'
+                                : 'Charger is temporarily disabled',
                             value: _chargerOnline,
                             onChanged: (val) {
                               _showConfirmDialog(
-                                title: val ? 'Aktifkan Charger?' : 'Matikan Charger?',
+                                title: val ? 'Activate Charger?' : 'Deactivate Charger?',
                                 content: val
-                                    ? 'Charger akan diaktifkan semula dan boleh digunakan.'
-                                    : 'Charger akan dimatikan. Tiada sesi pengecasan boleh bermula.',
+                                    ? 'Charger will be reactivated and available for use.'
+                                    : 'Charger will be disabled. No charging sessions can start.',
                                 onConfirm: () => _toggleAvailability(val),
+                              );
+                            },
+                          ),
+                          _buildDivider(),
+                          _buildNavTile(
+                            icon: Icons.schedule,
+                            title: 'Schedule Charging',
+                            subtitle: 'Set auto start/stop times',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ChargingScheduleScreen(
+                                    chargerId: widget.chargerId,
+                                    chargerName: widget.chargerName,
+                                  ),
+                                ),
                               );
                             },
                           ),
@@ -371,29 +432,29 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                       const SizedBox(height: 16),
                       _buildSection(
                         icon: Icons.lock_outline,
-                        title: 'Keselamatan',
+                        title: 'Security',
                         color: AppColors.warning,
                         children: [
                           _buildSwitchTile(
                             icon: _authSet ? Icons.lock : Icons.lock_open,
                             iconColor: _authSet ? AppColors.warning : AppColors.textSecondary,
-                            title: 'Kunci Charger',
+                            title: 'Lock Charger',
                             subtitle: _authSet
-                                ? 'Hanya pengguna yang diberi kebenaran boleh mengecas'
-                                : 'Sesiapa boleh mulakan sesi pengecasan',
+                                ? 'Only authorized users can charge'
+                                : 'Anyone can start a charging session',
                             value: _authSet,
                             onChanged: (val) {
                               setState(() => _authSet = val);
-                              _saveKey('AuthSet', val.toString(), displayName: 'Kunci Charger');
+                              _saveKey('AuthSet', val.toString(), displayName: 'Lock Charger');
                             },
                           ),
                           _buildDivider(),
                           _buildNavTile(
                             icon: Icons.home_outlined,
-                            title: 'Nombor Rumah',
-                            subtitle: _homeNumber.isNotEmpty ? _homeNumber : 'Belum ditetapkan',
+                            title: 'Home Number',
+                            subtitle: _homeNumber.isNotEmpty ? _homeNumber : 'Not set',
                             onTap: () => _showEditDialog(
-                              title: 'Nombor Rumah',
+                              title: 'Home Number',
                               controller: _homeNumberCtrl,
                               configKey: 'HomeNumber',
                             ),
@@ -401,10 +462,10 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                           _buildDivider(),
                           _buildNavTile(
                             icon: Icons.person_outline,
-                            title: 'Nama Pengguna (Admin)',
+                            title: 'Username (Admin)',
                             subtitle: _userName.isNotEmpty ? _userName : '-',
                             onTap: () => _showEditDialog(
-                              title: 'Nama Pengguna',
+                              title: 'Username',
                               controller: _userNameCtrl,
                               configKey: 'UserName',
                             ),
@@ -412,10 +473,10 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                           _buildDivider(),
                           _buildNavTile(
                             icon: Icons.key_outlined,
-                            title: 'Kata Laluan (Admin)',
+                            title: 'Password (Admin)',
                             subtitle: '••••••••',
                             onTap: () => _showEditDialog(
-                              title: 'Kata Laluan',
+                              title: 'Password',
                               controller: _userPassCtrl,
                               configKey: 'UserPass',
                               obscure: true,
@@ -426,49 +487,49 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                       const SizedBox(height: 16),
                       _buildSection(
                         icon: Icons.lightbulb_outline,
-                        title: 'Lampu & Paparan',
+                        title: 'Lights & Display',
                         color: AppColors.primaryGreen,
                         children: [
                           _buildSwitchTile(
                             icon: Icons.sensors,
                             iconColor: _statusLight ? AppColors.primaryGreen : AppColors.textSecondary,
-                            title: 'Lampu Status',
-                            subtitle: 'Lampu penunjuk status charger',
+                            title: 'Status Light',
+                            subtitle: 'Charger status indicator light',
                             value: _statusLight,
                             onChanged: (val) {
                               setState(() => _statusLight = val);
-                              _saveKey('StatusLight', val.toString(), displayName: 'Lampu Status');
+                              _saveKey('StatusLight', val.toString(), displayName: 'Status Light');
                             },
                           ),
                           _buildDivider(),
                           _buildSwitchTile(
                             icon: Icons.brightness_5_outlined,
                             iconColor: _logoLight ? AppColors.primaryGreen : AppColors.textSecondary,
-                            title: 'Lampu Logo',
-                            subtitle: 'Cahaya logo pada charger',
+                            title: 'Logo Light',
+                            subtitle: 'Logo lighting on charger',
                             value: _logoLight,
                             onChanged: (val) {
                               setState(() => _logoLight = val);
-                              _saveKey('LogoLight', val.toString(), displayName: 'Lampu Logo');
+                              _saveKey('LogoLight', val.toString(), displayName: 'Logo Light');
                             },
                           ),
                           _buildDivider(),
                           _buildSwitchTile(
                             icon: Icons.wb_sunny_outlined,
                             iconColor: _backgroundLight ? AppColors.primaryGreen : AppColors.textSecondary,
-                            title: 'Cahaya Latar',
-                            subtitle: 'Cahaya latar belakang skrin charger',
+                            title: 'Background Light',
+                            subtitle: 'Charger screen backlight',
                             value: _backgroundLight,
                             onChanged: (val) {
                               setState(() => _backgroundLight = val);
                               _saveKey('BackgroundLight', val.toString(),
-                                  displayName: 'Cahaya Latar');
+                                  displayName: 'Background Light');
                             },
                           ),
                           _buildDivider(),
                           _buildNavTile(
                             icon: Icons.wallpaper,
-                            title: 'Gambar Latar Belakang',
+                            title: 'Background Image',
                             subtitle: _backSelection,
                             trailing: _buildBgPreview(_backSelection),
                             onTap: _showBackgroundPicker,
@@ -489,7 +550,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Setiap perubahan dihantar terus ke charger melalui OCPP. Charger mesti dalam keadaan online.',
+                                'Every change is sent directly to the charger via OCPP. Charger must be online.',
                                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                               ),
                             ),
@@ -516,7 +577,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen),
             onPressed: _loadConfig,
             icon: const Icon(Icons.refresh, color: Colors.black),
-            label: const Text('Cuba Lagi', style: TextStyle(color: Colors.black)),
+            label: const Text('Try Again', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -670,7 +731,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Batal', style: TextStyle(color: AppColors.textSecondary)),
+            child: Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen),
@@ -678,7 +739,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
               Navigator.pop(ctx);
               onConfirm();
             },
-            child: const Text('Ya, Teruskan', style: TextStyle(color: Colors.black)),
+            child: const Text('Yes, Continue', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),

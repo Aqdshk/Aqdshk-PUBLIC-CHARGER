@@ -86,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final bool useConstrainedLayout = screenW > kMaxContentWidth;
 
     final scaffold = Scaffold(
+      backgroundColor: AppColors.background,
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         switchInCurve: Curves.easeInOut,
@@ -545,7 +546,12 @@ class _ActiveSessionBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final chargerId = session['charger_id']?.toString() ?? 'Unknown';
-    final energy = (session['energy'] ?? 0.0).toDouble();
+    double _num(dynamic v) {
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v) ?? 0.0;
+      return 0.0;
+    }
+    final energy = _num(session['energy']);
 
     return GestureDetector(
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LiveChargingScreen())),

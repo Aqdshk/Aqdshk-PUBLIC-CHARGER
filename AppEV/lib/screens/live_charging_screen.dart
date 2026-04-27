@@ -36,17 +36,30 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
     });
   }
 
+  double _parseNum(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
+
   void _onSessionUpdate() {
-    final session = _sessionProvider?.activeSession;
-    if (session == null) return;
-    final power = ((session['power'] as num?)?.toDouble() ?? 0) / 1000; // W → kW
-    if (mounted) {
+    try {
+      final session = _sessionProvider?.activeSession;
+      if (session == null) return;
+      final raw = _parseNum(session['power']);
+      final power = (raw / 1000); // W → kW
+      if (!power.isFinite) return;
+      if (!mounted) return;
       setState(() {
         _chartTime += 10; // each poll ≈ 10s
         _powerHistory.add(FlSpot(_chartTime, power));
         // Keep only last 30 data points
         if (_powerHistory.length > 30) _powerHistory.removeAt(0);
       });
+    } catch (e, st) {
+      // Never let listener exceptions propagate — they'd flood the console.
+      debugPrint('_onSessionUpdate error: $e\n$st');
     }
   }
 
@@ -125,12 +138,23 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
             }
 
             final session = sessionProvider.activeSession!;
-            final energy = (session['energy'] ?? 0.0).toDouble();
-            final power = (session['power'] ?? 0.0).toDouble();
-            final voltage = (session['voltage'] ?? 0.0).toDouble();
-            final current = (session['current'] ?? 0.0).toDouble();
-            final startTime = session['start_time'];
-            final duration = session['duration'] ?? '00:00';
+            // Defensive parsing — API may return numbers as num OR String
+            double _num(dynamic v) {
+              double r = 0.0;
+              if (v == null) return 0.0;
+              if (v is num) {
+                r = v.toDouble();
+              } else if (v is String) {
+                r = double.tryParse(v) ?? 0.0;
+              }
+              return r.isFinite ? r : 0.0;
+            }
+            final energy = _num(session['energy']);
+            final power = _num(session['power']);
+            final voltage = _num(session['voltage']);
+            final current = _num(session['current']);
+            final startTime = session['start_time']?.toString();
+            final duration = (session['duration'] ?? '00:00').toString();
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -139,7 +163,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                 children: [
                   // Charger Info Card
                   _FuturisticInfoCard(
-                    chargerId: session['charger_id'] ?? 'Unknown Charger',
+                    chargerId: session['charger_id']?.toString() ?? 'Unknown Charger',
                     status: 'CHARGING',
                     startTime: startTime ?? 'N/A',
                     duration: duration,
@@ -484,7 +508,8 @@ class _EnergyDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = (energy / 50.0).clamp(0.0, 1.0); // Assuming 50 kWh max
+    final safeEnergy = energy.isFinite ? energy : 0.0;
+    final progress = (safeEnergy / 50.0).clamp(0.0, 1.0); // Assuming 50 kWh max
 
     return AnimatedBuilder(
       animation: pulseController,
@@ -535,7 +560,7 @@ class _EnergyDisplay extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    energy.toStringAsFixed(2),
+                    safeEnergy.toStringAsFixed(2),
                     style: TextStyle(
                       color: AppColors.primaryGreen,
                       fontSize: 48,
@@ -576,10 +601,16 @@ class _PowerChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displaySpots = spots.isEmpty ? [const FlSpot(0, 0)] : spots;
-    final maxY = spots.isEmpty
+    // fl_chart needs ≥2 spots when isCurved=true; single-point curve crashes in release.
+    // Also guard against NaN/Infinity in y values that would break maxY calculation.
+    final safeSpots = spots.where((s) => s.y.isFinite).toList();
+    final displaySpots = safeSpots.length < 2
+        ? const [FlSpot(0, 0), FlSpot(1, 0)]
+        : safeSpots;
+    final maxY = safeSpots.isEmpty
         ? 10.0
-        : (spots.map((s) => s.y).reduce((a, b) => a > b ? a : b) * 1.2).clamp(1.0, double.infinity);
+        : (safeSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b) * 1.2)
+            .clamp(1.0, 1000000.0);
 
     return Container(
       height: 180,

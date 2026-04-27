@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,13 +13,47 @@ import 'providers/locale_provider.dart';
 import 'providers/theme_provider.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Immersive status & navigation bars (native only) ──────────────────
+  // On web, status bar colour is controlled via meta tags in web/index.html
+  // (theme-color + apple-mobile-web-app-status-bar-style). Calling
+  // SystemChrome on web can throw in release builds on some platforms.
+  if (!kIsWeb) {
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,   // Android: white icons
+      statusBarBrightness: Brightness.dark,        // iOS: white icons
+      systemNavigationBarColor: Color(0xFF0A0A1A), // match scaffold bg
+      systemNavigationBarIconBrightness: Brightness.light,
+    ));
+  }
+
   ErrorWidget.builder = (FlutterErrorDetails details) {
+    // Log full error to console for debugging
+    // ignore: avoid_print
+    print('!!! FLUTTER ERROR: ${details.exception}');
+    // ignore: avoid_print
+    print('!!! STACK: ${details.stack}');
     return Container(
+      color: const Color(0xFF0A0A1A),
+      padding: const EdgeInsets.all(24),
       alignment: Alignment.center,
-      child: const Text(
-        'Something went wrong',
-        style: TextStyle(color: Colors.white54, fontSize: 14),
-        textAlign: TextAlign.center,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.orange, size: 48),
+            const SizedBox(height: 12),
+            const Text('Something went wrong',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            Text('${details.exception}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   };

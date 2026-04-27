@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
+import '../providers/charger_provider.dart';
 import '../constants/app_colors.dart';
 import '../services/api_service.dart';
 import 'live_charging_screen.dart';
@@ -24,11 +26,35 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
   int _selectedConnector = 0;
   double _avgRating = 0;
   int _reviewCount = 0;
+  late Map<String, dynamic> _charger;
+  Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
+    _charger = Map<String, dynamic>.from(widget.charger);
     _loadRating();
+    // Poll charger status every 5s for live availability updates
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshStatus());
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshStatus() async {
+    if (!mounted) return;
+    final provider = Provider.of<ChargerProvider>(context, listen: false);
+    await provider.silentRefresh();
+    final chargerId = widget.charger['charge_point_id']?.toString() ?? '';
+    final updated = provider.findChargerById(chargerId);
+    if (updated != null && mounted) {
+      setState(() {
+        _charger = {..._charger, ...updated};
+      });
+    }
   }
 
   Future<void> _loadRating() async {
@@ -168,11 +194,11 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final name = widget.charger['charge_point_id'] ?? 'Unknown Charger';
-    final status = widget.charger['availability'] ?? 'unknown';
+    final name = _charger['charge_point_id'] ?? 'Unknown Charger';
+    final status = _charger['availability'] ?? 'unknown';
     final isAvailable = status == 'available' || status == 'preparing';
-    final vendor = widget.charger['vendor'] ?? 'Unknown';
-    final model = widget.charger['model'] ?? '';
+    final vendor = _charger['vendor'] ?? 'Unknown';
+    final model = _charger['model'] ?? '';
 
     // Real data from DB
     final location = widget.charger['location']?.toString();
@@ -228,7 +254,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                tooltip: 'Tetapan Charger',
+                tooltip: 'Charger Settings',
                 onPressed: () {
                   final chargerId = widget.charger['charge_point_id']?.toString() ?? '';
                   final chargerName = widget.charger['name']?.toString() ?? chargerId;

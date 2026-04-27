@@ -8,6 +8,9 @@ class SessionProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   Timer? _pollingTimer;
+  // When true, keep polling even if _activeSession is null (waiting for OCPP StartTransaction).
+  bool _expectingSession = false;
+  DateTime? _expectingUntil;
 
   Map<String, dynamic>? get activeSession => _activeSession;
   List<Map<String, dynamic>> get history => _history;
@@ -25,7 +28,18 @@ class SessionProvider with ChangeNotifier {
 
     try {
       final session = await ApiService.getActiveSession();
-      _activeSession = session;
+      if (session != null) {
+        // Real session arrived — replace placeholder & clear expecting flag.
+        _activeSession = session;
+        _expectingSession = false;
+        _expectingUntil = null;
+      } else if (_expectingSession &&
+          _expectingUntil != null &&
+          DateTime.now().isBefore(_expectingUntil!)) {
+        // Still waiting for OCPP StartTransaction — keep placeholder visible.
+      } else {
+        _activeSession = null;
+      }
     } catch (e) {
       if (e is AuthSessionExpiredException) {
         _error = 'Session expired. Please login again.';
@@ -60,8 +74,21 @@ class SessionProvider with ChangeNotifier {
   void startPolling() {
     _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      // Poll if we have a real session OR we're waiting for one (within window).
       if (_activeSession != null) {
         loadActiveSession();
+      } else if (_expectingSession &&
+          _expectingUntil != null &&
+          DateTime.now().isBefore(_expectingUntil!)) {
+        loadActiveSession();
+      } else if (_expectingSession &&
+          _expectingUntil != null &&
+          DateTime.now().isAfter(_expectingUntil!)) {
+        // Give up waiting — clear placeholder & stop.
+        _expectingSession = false;
+        _activeSession = null;
+        notifyListeners();
+        stopPolling();
       }
     });
   }
@@ -88,6 +115,8 @@ class SessionProvider with ChangeNotifier {
       
       if (result['success'] ?? false) {
         _activeSession = null;
+        _expectingSession = false;
+        _expectingUntil = null;
         stopPolling();
         await loadHistory();
         notifyListeners();
@@ -111,9 +140,24 @@ class SessionProvider with ChangeNotifier {
       
       if (result['success'] ?? false) {
         debugPrint('✅ Charging request accepted. Waiting for transaction to start...');
-        // Start polling for session updates
+        // Optimistic placeholder — banner / live screen shows immediately while we wait
+        // for the OCPP StartTransaction callback to land in the DB.
+        _activeSession = {
+          'charger_id': chargerId,
+          'connector_id': connectorId,
+          'transaction_id': 0,
+          'energy': 0,
+          'power': 0,
+          'voltage': 0,
+          'current': 0,
+          'duration': '00:00',
+          'pending': true,
+        };
+        _expectingSession = true;
+        _expectingUntil = DateTime.now().add(const Duration(minutes: 2));
+        notifyListeners();
         startPolling();
-        // Load active session after a short delay to allow transaction to start
+        // First real check after 2s
         await Future.delayed(const Duration(seconds: 2));
         await loadActiveSession();
       } else {

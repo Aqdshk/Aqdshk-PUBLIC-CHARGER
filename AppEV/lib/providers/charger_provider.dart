@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
@@ -7,6 +8,7 @@ class ChargerProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   Position? _currentPosition;
+  Timer? _pollTimer;
 
   List<Map<String, dynamic>> get nearbyChargers => _nearbyChargers;
   bool get isLoading => _isLoading;
@@ -16,6 +18,65 @@ class ChargerProvider with ChangeNotifier {
   ChargerProvider() {
     // Auto-load chargers on init
     loadNearbyChargers();
+    // Start polling for live status updates (every 5s)
+    startAutoRefresh();
+  }
+
+  void startAutoRefresh() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      silentRefresh();
+    });
+  }
+
+  void stopAutoRefresh() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  /// Refresh charger list without showing loading spinner
+  Future<void> silentRefresh() async {
+    try {
+      final chargers = await ApiService.getNearbyChargers(
+        _currentPosition?.latitude ?? 0,
+        _currentPosition?.longitude ?? 0,
+      );
+      final onlineChargers = chargers.where((c) {
+        return (c['status']?.toString() ?? 'unknown') == 'online';
+      }).toList();
+      final withDistance = onlineChargers.map((c) {
+        double distance = 0;
+        if (_currentPosition != null) {
+          final id = c['id'] ?? 0;
+          distance = 1.0 + (id % 10) * 0.5;
+        }
+        return {
+          ...c,
+          'distance': distance,
+          'charge_point_id': c['charge_point_id']?.toString() ?? '',
+          'availability': c['availability']?.toString() ?? 'unknown',
+          'status': c['status']?.toString() ?? 'unknown',
+        };
+      }).toList();
+      _nearbyChargers = withDistance;
+      notifyListeners();
+    } catch (_) {
+      // Silent fail
+    }
+  }
+
+  /// Fetch a single charger's latest data by charge_point_id
+  Map<String, dynamic>? findChargerById(String chargePointId) {
+    for (final c in _nearbyChargers) {
+      if (c['charge_point_id']?.toString() == chargePointId) return c;
+    }
+    return null;
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> loadNearbyChargers() async {
