@@ -29,7 +29,7 @@ from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp, call, call_result
 from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
-from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User
+from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User, PaymentTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -578,6 +578,48 @@ class ChargePoint(cp):
                 if charger:
                     charger.availability = "available"
                     self.db.commit()
+
+                # Quick-pay post-charge invoice email.
+                # _trigger_remote_start_after_payment sets id_tag = f"PAY{txn.id}" so
+                # we can correlate the StopTransaction back to the originating payment.
+                try:
+                    if id_tag and id_tag.startswith("PAY"):
+                        pay_id = int(id_tag[3:])
+                        txn = self.db.query(PaymentTransaction).filter(
+                            PaymentTransaction.id == pay_id
+                        ).first()
+                        recipient = (txn.customer_email or txn.user_email) if txn else None
+                        if txn and recipient and charger:
+                            # Compute duration string
+                            if session.start_time and session.stop_time:
+                                delta = session.stop_time - session.start_time
+                                total = int(delta.total_seconds())
+                                hh, rem = divmod(total, 3600)
+                                mm, ss = divmod(rem, 60)
+                                dur_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
+                            else:
+                                dur_str = "—"
+
+                            # Local import so module load order doesn't matter
+                            from email_service import send_charging_invoice
+                            asyncio.create_task(send_charging_invoice(
+                                to_email=recipient,
+                                transaction_ref=txn.transaction_ref,
+                                charger_id=charger.charge_point_id,
+                                connector_id=int(session.connector_id or txn.connector_id or 1),
+                                started_at_str=session.start_time.strftime("%Y-%m-%d %H:%M:%S") if session.start_time else "—",
+                                stopped_at_str=session.stop_time.strftime("%Y-%m-%d %H:%M:%S") if session.stop_time else "—",
+                                duration_str=dur_str,
+                                energy_kwh=float(session.energy_consumed or 0),
+                                amount_paid=float(txn.amount or 0),
+                                stop_reason=kwargs.get("reason") or "Local",
+                            ))
+                            logger.info(
+                                f"[invoice] queued post-charge email → {recipient} "
+                                f"(txn {txn.transaction_ref}, {session.energy_consumed:.3f} kWh)"
+                            )
+                except Exception as e:
+                    logger.error(f"[invoice] failed to send post-charge email: {e}", exc_info=True)
 
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}

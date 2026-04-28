@@ -109,7 +109,51 @@ def _effective_charger_specs(
 _BASE_DIR = Path(__file__).resolve().parent
 
 # ─── App & Configuration ──────────────────────────────────────────────────
-app = FastAPI(title="Charging Platform Management System")
+# /docs and /redoc are gated behind HTTP Basic auth in production.
+# Set DOCS_USER + DOCS_PASS in .env to enable; if both empty, docs are disabled entirely.
+# This prevents arbitrary parties (e.g. payment-gateway integrators) from enumerating
+# the full admin surface area of the API.
+_DOCS_USER = os.getenv("DOCS_USER", "")
+_DOCS_PASS = os.getenv("DOCS_PASS", "")
+_DOCS_ENABLED = bool(_DOCS_USER and _DOCS_PASS)
+
+app = FastAPI(
+    title="Charging Platform Management System",
+    docs_url=None,           # disable default /docs
+    redoc_url=None,          # disable default /redoc
+    openapi_url=None if not _DOCS_ENABLED else "/openapi.json",
+)
+
+
+# ─── Gated API docs (HTTP Basic) ───────────────────────────────────────────────
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+
+_docs_basic = HTTPBasic()
+
+
+def _check_docs_auth(creds: HTTPBasicCredentials = Depends(_docs_basic)):
+    if not _DOCS_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    user_ok = secrets.compare_digest(creds.username, _DOCS_USER)
+    pass_ok = secrets.compare_digest(creds.password, _DOCS_PASS)
+    if not (user_ok and pass_ok):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return creds.username
+
+
+@app.get("/docs", include_in_schema=False)
+async def gated_swagger(_: str = Depends(_check_docs_auth)):
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="PlagSini API — Swagger")
+
+
+@app.get("/redoc", include_in_schema=False)
+async def gated_redoc(_: str = Depends(_check_docs_auth)):
+    return get_redoc_html(openapi_url="/openapi.json", title="PlagSini API — ReDoc")
 
 # Charger status: consider offline if no heartbeat within this many minutes
 OFFLINE_THRESHOLD_MINUTES = int(os.getenv("OFFLINE_THRESHOLD_MINUTES", "5"))

@@ -315,3 +315,55 @@ async def send_charging_receipt(
         f"[Receipt {transaction_ref}] PlagSini Charging — RM {amount:.2f}",
         body,
     )
+
+
+async def send_charging_invoice(
+    to_email: str,
+    transaction_ref: str,
+    charger_id: str,
+    connector_id: int,
+    started_at_str: str,
+    stopped_at_str: str,
+    duration_str: str,
+    energy_kwh: float,
+    amount_paid: float,
+    stop_reason: str = "Local",
+) -> bool:
+    """Send post-charge invoice (session summary) to the user.
+    Fired from on_stop_transaction once the OCPP session closes — gives the
+    user a final breakdown of energy delivered, duration, and cost."""
+    body = f"""
+    <h2 style="color:#00FF88;margin:0 0 15px;">⚡ Charging Complete</h2>
+    <p>Your charging session has ended. Thank you for using PlagSini!</p>
+
+    <div style="background:#0A0A1A;border:1px solid #00FF88;border-radius:10px;padding:18px;margin:16px 0;">
+      <table style="width:100%;border-collapse:collapse;color:#ddd;font-size:13px;">
+        <tr><td style="padding:6px 0;color:#888;">Invoice #</td><td style="text-align:right;font-weight:600;">{transaction_ref}</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Charger</td><td style="text-align:right;font-weight:600;">{charger_id}</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Connector</td><td style="text-align:right;">{connector_id}</td></tr>
+        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:8px;"></td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Started</td><td style="text-align:right;">{started_at_str}</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Stopped</td><td style="text-align:right;">{stopped_at_str}</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Duration</td><td style="text-align:right;font-weight:600;">{duration_str}</td></tr>
+        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:8px;"></td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Energy delivered</td><td style="text-align:right;font-weight:600;color:#00FF88;">{energy_kwh:.3f} kWh</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Stop reason</td><td style="text-align:right;font-size:11px;color:#888;">{stop_reason or "—"}</td></tr>
+        <tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>
+        <tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Amount paid</td><td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {amount_paid:.2f}</td></tr>
+      </table>
+    </div>
+
+    <p style="color:#888;font-size:12px;margin-top:18px;">
+      This invoice serves as your official receipt for this charging session.<br>
+      Keep it for your records. Need help? Reply to this email.
+    </p>
+    <p style="color:#555;font-size:11px;text-align:center;margin-top:20px;">
+      © 2026 PlagSini EV Charging Platform · charger.czeros.tech
+    </p>
+    """
+    return await asyncio.to_thread(
+        _send_generic_email,
+        to_email,
+        f"[Invoice {transaction_ref}] PlagSini Charging Complete — {energy_kwh:.2f} kWh",
+        body,
+    )

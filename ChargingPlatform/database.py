@@ -261,6 +261,10 @@ class Charger(Base):
     connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
     max_power_kw = Column(Float, nullable=True)          # e.g. 7.4, 22, 50
 
+    # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
+    name = Column(String(255), nullable=True)            # e.g. "Bangsar Mall L2 Bay 3"
+    supported_vehicle = Column(String(255), nullable=True)  # e.g. "Tesla, BYD, Ora — Type 2"
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")
