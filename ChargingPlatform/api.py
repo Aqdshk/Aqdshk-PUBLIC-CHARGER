@@ -119,9 +119,9 @@ _DOCS_ENABLED = bool(_DOCS_USER and _DOCS_PASS)
 
 app = FastAPI(
     title="Charging Platform Management System",
-    docs_url=None,           # disable default /docs
+    docs_url=None,           # disable default /docs (re-mounted below with auth)
     redoc_url=None,          # disable default /redoc
-    openapi_url=None if not _DOCS_ENABLED else "/openapi.json",
+    openapi_url=None,        # disable default — re-mounted below with auth
 )
 
 
@@ -154,6 +154,13 @@ async def gated_swagger(_: str = Depends(_check_docs_auth)):
 @app.get("/redoc", include_in_schema=False)
 async def gated_redoc(_: str = Depends(_check_docs_auth)):
     return get_redoc_html(openapi_url="/openapi.json", title="PlagSini API — ReDoc")
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def gated_openapi(_: str = Depends(_check_docs_auth)):
+    """Gated openapi schema. Without DOCS_USER+DOCS_PASS the entire endpoint
+    catalogue is hidden — payment integrators / outsiders can't enumerate."""
+    return app.openapi()
 
 # Charger status: consider offline if no heartbeat within this many minutes
 OFFLINE_THRESHOLD_MINUTES = int(os.getenv("OFFLINE_THRESHOLD_MINUTES", "5"))
