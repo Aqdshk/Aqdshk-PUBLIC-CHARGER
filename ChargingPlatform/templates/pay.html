@@ -59,6 +59,28 @@
   .charger-info .meta .id { font-weight: 600; font-size: 15px; }
   .charger-info .meta .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
+  .tariff-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .tariff-pill {
+    flex: 1; min-width: 120px;
+    background: var(--card-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .tariff-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tariff-value { font-weight: 600; font-size: 14px; color: var(--text); }
+  .tariff-value .unit { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+  .estimate-line {
+    margin-top: 8px; padding: 10px 12px;
+    background: rgba(91, 141, 239, 0.08);
+    border: 1px solid rgba(91, 141, 239, 0.25);
+    border-radius: 10px;
+    font-size: 13px; color: var(--text);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .estimate-line .est-label { color: var(--muted); }
+  .estimate-line .est-value { font-weight: 600; color: var(--accent); }
+
   label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
   input {
     width: 100%; padding: 14px;
@@ -132,6 +154,16 @@
         <div class="sub" id="chargerSub">Loading…</div>
       </div>
     </div>
+    <div id="tariffRow" class="tariff-row hidden">
+      <div class="tariff-pill">
+        <span class="tariff-label">Tariff</span>
+        <span class="tariff-value" id="tariffValue">—</span>
+      </div>
+      <div class="tariff-pill" id="powerPill" style="display:none">
+        <span class="tariff-label">Max power</span>
+        <span class="tariff-value" id="powerValue">—</span>
+      </div>
+    </div>
   </div>
 
   <!-- STEP 1: Form -->
@@ -144,6 +176,11 @@
       <div class="chip" data-amt="20">RM 20</div>
       <div class="chip" data-amt="50">RM 50</div>
       <div class="chip" data-amt="100">RM 100</div>
+    </div>
+
+    <div id="estimateRow" class="estimate-line hidden">
+      <span class="est-label">You'll get approximately</span>
+      <span class="est-value" id="estimateValue">— kWh</span>
     </div>
 
     <label for="emailInput">Email (for receipt)</label>
@@ -192,14 +229,83 @@
     ? `Connector ${connectorId}`
     : 'Add ?charger=<id> to the URL';
 
+  let tariffPerKwh = null;   // RM/kWh — populated after /api/charger/{id}/info
+  let maxPowerKw = null;     // optional, used to estimate charge time
+
+  async function loadChargerInfo() {
+    if (!chargerId) return;
+    try {
+      const r = await fetch(`/api/charger/${encodeURIComponent(chargerId)}/info`);
+      if (!r.ok) return;
+      const info = await r.json();
+      // Friendly name (falls back to charger ID)
+      if (info.name) document.getElementById('chargerLabel').textContent = info.name;
+      // Operator maintenance — block payment with friendly message
+      if (info.maintenance_mode) {
+        const reason = info.maintenance_reason || 'Under maintenance';
+        document.getElementById('chargerSub').textContent = `⚠️ ${reason}`;
+        document.getElementById('payBtn').disabled = true;
+        document.getElementById('payBtn').textContent = 'Charger temporarily unavailable';
+        toast(`Charger unavailable: ${reason}`);
+        return;
+      }
+      // Sub-line: "Connector N · Type 2 · 22 kW"
+      const parts = [`Connector ${connectorId}`];
+      if (info.connector_type) parts.push(info.connector_type);
+      if (info.max_power_kw) parts.push(`${info.max_power_kw} kW`);
+      document.getElementById('chargerSub').textContent = parts.join(' · ');
+      // Tariff pill
+      tariffPerKwh = parseFloat(info.tariff_per_kwh);
+      maxPowerKw = info.max_power_kw ? parseFloat(info.max_power_kw) : null;
+      if (tariffPerKwh && tariffPerKwh > 0) {
+        document.getElementById('tariffValue').innerHTML =
+          `RM ${tariffPerKwh.toFixed(2)} <span class="unit">/ kWh</span>`;
+        document.getElementById('tariffRow').classList.remove('hidden');
+        document.getElementById('estimateRow').classList.remove('hidden');
+        if (maxPowerKw) {
+          document.getElementById('powerValue').innerHTML =
+            `${maxPowerKw} <span class="unit">kW</span>`;
+          document.getElementById('powerPill').style.display = 'flex';
+        }
+        updateEstimate();
+      }
+    } catch (e) {
+      console.warn('Could not load charger info:', e);
+    }
+  }
+
+  function updateEstimate() {
+    if (!tariffPerKwh) return;
+    const amt = parseFloat(document.getElementById('amountInput').value) || 0;
+    const kwh = amt / tariffPerKwh;
+    const el = document.getElementById('estimateValue');
+    if (kwh <= 0) { el.textContent = '— kWh'; return; }
+    let text = `~ ${kwh.toFixed(2)} kWh`;
+    if (maxPowerKw && maxPowerKw > 0) {
+      const minutes = Math.round((kwh / maxPowerKw) * 60);
+      if (minutes >= 60) {
+        const h = Math.floor(minutes / 60), m = minutes % 60;
+        text += `  ·  ~${h}h ${m}m`;
+      } else if (minutes > 0) {
+        text += `  ·  ~${minutes} min`;
+      }
+    }
+    el.textContent = text;
+  }
+
   // Amount chips
   document.querySelectorAll('.chip').forEach(c => {
     c.addEventListener('click', () => {
       document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
       c.classList.add('active');
       document.getElementById('amountInput').value = c.dataset.amt;
+      updateEstimate();
     });
   });
+
+  document.getElementById('amountInput').addEventListener('input', updateEstimate);
+
+  loadChargerInfo();
 
   function toast(msg, ok=false) {
     const t = document.getElementById('toast');

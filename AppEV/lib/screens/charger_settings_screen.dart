@@ -59,9 +59,12 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
   void initState() {
     super.initState();
     _loadConfig();
-    // Auto-refresh every 5s so any changes made on the device itself
-    // are reflected in the app near-real-time (live sync)
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    // Auto-refresh every 60s. We used to poll every 5s for "live sync" but
+    // each tick fires a GetConfiguration over OCPP which blocks the single
+    // uvicorn asyncio loop — that was queueing firmware download chunks
+    // hard enough to time out the charger's bootloader. 60s is fine because
+    // there's also a manual refresh button (toolbar icon) for instant pull.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (!_saving && mounted) _silentRefresh();
     });
   }

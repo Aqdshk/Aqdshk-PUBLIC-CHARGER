@@ -687,7 +687,54 @@ class ChargePoint(cp):
                 if session and total_kwh:
                     session.energy_consumed = total_kwh
                     self.db.commit()
-        
+
+                    # Auto-stop on quota: quick-pay sessions have a kWh quota
+                    # (= amount_paid / tariff). Once delivered ≥ quota, fire
+                    # RemoteStopTransaction so the user never consumes more than
+                    # what they paid for. Idempotent via session.auto_stopped.
+                    try:
+                        kwh_limit = session.energy_kwh_limit
+                        if (
+                            kwh_limit is not None
+                            and not session.auto_stopped
+                            and session.status == "active"
+                        ):
+                            # Energy delivered = current register reading − reading at start.
+                            # meter_start is in Wh, total_kwh is in kWh.
+                            start_kwh = (session.meter_start or 0) / 1000.0
+                            delivered_kwh = max(0.0, total_kwh - start_kwh)
+                            if delivered_kwh >= float(kwh_limit):
+                                session.auto_stopped = True
+                                session.stop_reason = "QuotaReached"
+                                self.db.commit()
+                                logger.info(
+                                    f"[auto-stop] {self.id} txn={transaction_id} "
+                                    f"delivered={delivered_kwh:.3f} kWh ≥ quota={kwh_limit} kWh "
+                                    f"→ firing RemoteStopTransaction"
+                                )
+                                # Fire RemoteStop async — don't block MeterValues response.
+                                # python-ocpp call() resolves on charger ack; if it raises
+                                # we keep auto_stopped=True (charger will catch up at next
+                                # local stop or we'll retry via admin).
+                                try:
+                                    await self.call(
+                                        call.RemoteStopTransaction(
+                                            transaction_id=transaction_id
+                                        )
+                                    )
+                                except Exception as stop_err:
+                                    logger.error(
+                                        f"[auto-stop] RemoteStop failed for {self.id} "
+                                        f"txn={transaction_id}: {stop_err}",
+                                        exc_info=True,
+                                    )
+                    except Exception as quota_err:
+                        logger.error(
+                            f"[auto-stop] quota check failed for {self.id} "
+                            f"txn={transaction_id}: {quota_err}",
+                            exc_info=True,
+                        )
+
         self.db.commit()
 
         # Edge sync → push latest meter sample to VPS (only last sample per MeterValues message)
@@ -1293,6 +1340,14 @@ async def on_connect(websocket):
                 db = SessionLocal()
                 charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
                 if charger:
+                    # NOTE: Reverted to leave status unchanged on disconnect.
+                    # Marking offline here was correlated with firmware update
+                    # failures (chargers download but never report Installed).
+                    # During firmware reboot the websocket drops briefly — we
+                    # don't want any DB commit that could race with the in-flight
+                    # static file download for the firmware bin.
+                    # Heartbeat-based offline detection (separate background job)
+                    # handles truly-offline chargers.
                     logger.info(
                         f"Charger {charge_point_id} disconnected; leaving status/availability unchanged "
                         f"(status={charger.status}, availability={charger.availability}, last_heartbeat={charger.last_heartbeat})"

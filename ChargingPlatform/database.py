@@ -265,6 +265,28 @@ class Charger(Base):
     name = Column(String(255), nullable=True)            # e.g. "Bangsar Mall L2 Bay 3"
     supported_vehicle = Column(String(255), nullable=True)  # e.g. "Tesla, BYD, Ora — Type 2"
 
+    # Pricing — RM per kWh charged. Default RM 0.10/kWh for testing/staging.
+    # Production tariffs typically RM 0.80–1.50/kWh. Editable per-charger via admin UI.
+    #
+    # PHASE 2 MIGRATION PATH (when fleet ≥ 5 chargers):
+    #   1. Create `tariff_plans` table (id, name, rate_per_kwh, description)
+    #      Seed with: "DC Standard 30-50kW" (1.20), "DC Fast 60-150kW" (1.50), etc.
+    #   2. Add `tariff_plan_id` FK column on chargers (nullable).
+    #   3. Resolution order in billing code: plan rate (if set) → tariff_per_kwh override → 0.10 fallback.
+    #   4. Per-charger tariff_per_kwh stays as PREMIUM-LOCATION OVERRIDE.
+    # Dual-gun chargers don't need schema changes — each connector_id is a separate
+    # OCPP transaction with its own energy_kwh_limit, auto-stop fires independently.
+    tariff_per_kwh = Column(Numeric(8, 4), nullable=False, default=Decimal("0.10"))
+
+    # Operator-initiated maintenance flag — independent of OCPP availability.
+    # Set via /api/admin/charger/{id}/disable. While true, /pay page rejects new
+    # transactions with 503 + reason regardless of OCPP state. Survives charger
+    # disconnect (DB-level), so we can disable a crashed/offline unit too.
+    maintenance_mode = Column(Boolean, default=False, nullable=False)
+    maintenance_reason = Column(String(255), nullable=True)
+    maintenance_started_at = Column(DateTime, nullable=True)
+    maintenance_started_by = Column(String(100), nullable=True)  # admin username/email
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")
@@ -289,6 +311,11 @@ class ChargingSession(Base):
     meter_stop = Column(Integer, nullable=True)    # Wh at session end (preferred over last MeterValues)
     stop_reason = Column(String(50), nullable=True)  # Local, Remote, EmergencyStop, PowerLoss, etc.
     status = Column(String(50), default="active")  # active, completed, stopped
+    # Pre-paid quota (quick-pay flow): kWh purchased = paid_amount / tariff.
+    # When energy delivered hits this, OCPP server auto-fires RemoteStopTransaction
+    # so user never overshoots their paid amount → no balance/refund handling needed.
+    energy_kwh_limit = Column(Float, nullable=True)
+    auto_stopped = Column(Boolean, default=False)  # True once RemoteStop sent on quota hit
     user_id = Column(String(255), nullable=True)  # User identifier (phone, email, etc)
     payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)
     

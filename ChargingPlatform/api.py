@@ -26,7 +26,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, desc, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -1572,6 +1572,665 @@ async def quick_pay_page():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading pay page: {str(e)}")
+
+
+@app.get("/api/charger/{charger_id}/info")
+async def public_charger_info(charger_id: str, db: Session = Depends(get_db)):
+    """Public charger metadata used by the /pay landing page.
+
+    Exposes only safe, user-facing fields (no internal IDs, status flags,
+    OCPP details). Used by pay.html to show tariff (RM/kWh) and friendly
+    name so the customer knows what they're paying for *before* committing.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
+    tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
+    return {
+        "charger_id": charger.charge_point_id,
+        "name": charger.name or charger.charge_point_id,
+        "location": charger.location,
+        "connector_type": charger.connector_type,
+        "max_power_kw": charger.max_power_kw,
+        "supported_vehicle": charger.supported_vehicle,
+        "tariff_per_kwh": tariff,
+        "currency": "MYR",
+        "availability": charger.availability,
+        "status": charger.status,
+        "maintenance_mode": bool(charger.maintenance_mode),
+        "maintenance_reason": charger.maintenance_reason if charger.maintenance_mode else None,
+    }
+
+
+# ─── Operator maintenance toggle (admin-gated) ────────────────────────────────
+# Wraps OCPP ChangeAvailability with a DB-level maintenance flag so we can
+# disable a charger even if it's offline / lost websocket. The /pay flow
+# checks `maintenance_mode` before accepting payment regardless of OCPP state.
+
+class MaintenanceDisableRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=255,
+                        description="Why the charger is being taken out of service")
+    notify_charger: bool = Field(
+        default=True,
+        description="Also send OCPP ChangeAvailability=Inoperative if charger is online"
+    )
+
+
+@app.post("/api/admin/charger/{charger_id}/disable")
+async def admin_disable_charger(
+    charger_id: str,
+    req: MaintenanceDisableRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_admin_or_staff_admin),
+):
+    """Operator-initiated soft disable. Charger refuses new payments
+    immediately (DB-level), and if `notify_charger=true` and charger is
+    online we also send OCPP ChangeAvailability=Inoperative for a clean
+    lockout at the hardware level.
+
+    Idempotent — calling on an already-disabled charger refreshes the
+    reason/audit fields rather than erroring.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
+
+    actor = auth.get("username") or auth.get("email") or "admin"
+    now = datetime.now(MYT).replace(tzinfo=None)
+
+    charger.maintenance_mode = True
+    charger.maintenance_reason = req.reason.strip()
+    charger.maintenance_started_at = now
+    charger.maintenance_started_by = str(actor)[:100]
+    # Reflect in availability so admin dashboards/UI render correctly
+    charger.availability = "unavailable"
+    db.commit()
+
+    ocpp_result = {"sent": False, "status": None}
+    if req.notify_charger:
+        cp = get_active_charge_point(charger_id)
+        if cp:
+            try:
+                resp = await cp.change_availability(0, "Inoperative")  # connector 0 = whole charger
+                status = getattr(resp, "status", None) if resp else None
+                ocpp_result = {"sent": True, "status": status}
+            except Exception as e:
+                logger.warning(f"[admin disable] OCPP ChangeAvailability failed for {charger_id}: {e}")
+                ocpp_result = {"sent": True, "status": "error", "error": str(e)}
+
+    logger.info(
+        f"[admin] {actor} DISABLED charger {charger_id} — reason: {req.reason!r} "
+        f"(ocpp_notified={ocpp_result['sent']})"
+    )
+    return {
+        "success": True,
+        "charger_id": charger_id,
+        "maintenance_mode": True,
+        "reason": charger.maintenance_reason,
+        "started_at": charger.maintenance_started_at.isoformat(),
+        "started_by": charger.maintenance_started_by,
+        "ocpp": ocpp_result,
+    }
+
+
+@app.post("/api/admin/charger/{charger_id}/enable")
+async def admin_enable_charger(
+    charger_id: str,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_admin_or_staff_admin),
+):
+    """Re-enable a charger that was operator-disabled. Clears the maintenance
+    flag and sends OCPP ChangeAvailability=Operative if charger is online.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
+
+    actor = auth.get("username") or auth.get("email") or "admin"
+
+    was_in_maintenance = bool(charger.maintenance_mode)
+    charger.maintenance_mode = False
+    charger.maintenance_reason = None
+    charger.maintenance_started_at = None
+    charger.maintenance_started_by = None
+    # Don't blindly set "available" — let OCPP StatusNotification report the truth.
+    # We just clear "unavailable" if that was the maintenance-imposed state.
+    if charger.availability == "unavailable":
+        charger.availability = "available" if charger.status == "online" else "unknown"
+    db.commit()
+
+    ocpp_result = {"sent": False, "status": None}
+    cp = get_active_charge_point(charger_id)
+    if cp:
+        try:
+            resp = await cp.change_availability(0, "Operative")
+            status = getattr(resp, "status", None) if resp else None
+            ocpp_result = {"sent": True, "status": status}
+        except Exception as e:
+            logger.warning(f"[admin enable] OCPP ChangeAvailability failed for {charger_id}: {e}")
+            ocpp_result = {"sent": True, "status": "error", "error": str(e)}
+
+    logger.info(
+        f"[admin] {actor} ENABLED charger {charger_id} "
+        f"(was_in_maintenance={was_in_maintenance}, ocpp_notified={ocpp_result['sent']})"
+    )
+    return {
+        "success": True,
+        "charger_id": charger_id,
+        "maintenance_mode": False,
+        "was_in_maintenance": was_in_maintenance,
+        "ocpp": ocpp_result,
+    }
+
+
+def _get_or_create_guest_user(db: Session) -> int:
+    """Return the ID of the sentinel guest user used for unauthenticated
+    charging payments (quick-pay / partner-initiated). Created once on
+    first call. Avoids FK violations on payment_transactions.user_id.
+    """
+    GUEST_EMAIL = "guest@plagsini.local"
+    guest = db.query(User).filter(User.email == GUEST_EMAIL).first()
+    if guest:
+        return guest.id
+    # Random unusable password — never used to log in (is_active=False also blocks login)
+    import hashlib as _hashlib
+    guest = User(
+        email=GUEST_EMAIL,
+        password_hash=_hashlib.sha256(secrets.token_bytes(32)).hexdigest(),
+        name="Guest (QR-pay / Partner)",
+        is_active=False,  # cannot log in
+        is_verified=False,
+        is_admin=False,
+    )
+    db.add(guest)
+    db.commit()
+    db.refresh(guest)
+    logger.info(f"Created sentinel guest user id={guest.id} for guest payments")
+    return guest.id
+
+
+# ─── Partner B2B API (server-to-server, API-key gated) ───────────────────────
+# Per Jeffrey msg 12:25: "need another set of api to send to charging point
+# to start/end charging session". Use case: BNB Ventures' app handles its own
+# payment / user identity, and tells our platform "start charging on DC3001
+# connector 1 for customer X for RM Y". We trigger OCPP RemoteStart and reply
+# with a transaction reference they can later use to stop or query status.
+#
+# Auth: shared secret in `X-Partner-API-Key` header (env: PARTNER_API_KEY).
+# Generate via `openssl rand -hex 32` and share securely with the partner.
+
+def _require_partner_api_key(request: Request) -> str:
+    """Validate the partner shared-secret header. Returns a short partner label
+    used for audit logging. Raises 401 / 503 on failure."""
+    expected = os.getenv("PARTNER_API_KEY", "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Partner API is not configured on the server (set PARTNER_API_KEY)",
+        )
+    provided = request.headers.get("X-Partner-API-Key", "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        logger.warning("Rejected partner API call from %s — invalid API key", get_client_ip(request))
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Partner-API-Key header")
+    # Optional friendly label for logs
+    return os.getenv("PARTNER_NAME", "partner")
+
+
+class PartnerStartChargingRequest(BaseModel):
+    charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001'")
+    connector_id: int = Field(default=1, ge=1, le=10)
+    amount: float = Field(..., gt=0, le=500,
+                          description="Amount partner has already collected from customer (RM)")
+    customer_email: str = Field(..., min_length=3, max_length=255,
+                                description="Where to email the receipt")
+    external_ref: Optional[str] = Field(
+        default=None, max_length=100,
+        description="Partner's own reference (e.g. their payment txn ID) for cross-mapping"
+    )
+
+
+@app.post("/api/partner/charging/start")
+async def partner_start_charging(
+    req: PartnerStartChargingRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-to-server: partner backend triggers a charging session.
+    Partner is responsible for collecting payment on their side; we just
+    enforce charger availability + maintenance state and fire OCPP RemoteStart.
+
+    Returns a `transaction_ref` the partner stores for later stop/status calls.
+    Same auto-stop quota logic as guest /pay flow applies (kWh = amount/tariff).
+    """
+    partner = _require_partner_api_key(request)
+    client_ip = get_client_ip(request)
+
+    # Validate charger
+    charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
+    if charger.maintenance_mode:
+        reason = (charger.maintenance_reason or "Under maintenance").strip()
+        raise HTTPException(status_code=503, detail=f"Charger temporarily unavailable: {reason}")
+    if charger.status != "online":
+        raise HTTPException(status_code=409, detail=f"Charger is offline (status: {charger.status})")
+    # Live websocket check — DB status may lag behind actual connection state.
+    # This is the authoritative "can we actually send OCPP commands?" check.
+    if get_active_charge_point(req.charger_id) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Charger {req.charger_id} has no active OCPP connection — cannot start charging",
+        )
+    if charger.availability not in ("available", "preparing"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Charger not available (state: {charger.availability})",
+        )
+
+    # Create a payment txn record marked as already-paid externally — gateway is
+    # the partner, not TNG/Billplz. paid_at = now since partner has settled it.
+    txn_ref = generate_transaction_ref()
+    now = _utcnow()
+    guest_user_id = _get_or_create_guest_user(db)
+    txn = PaymentTransaction(
+        transaction_ref=txn_ref,
+        user_id=guest_user_id,  # external customer, no PlagSini account
+        user_email=req.customer_email,
+        amount=req.amount,
+        currency="MYR",
+        payment_method="external",
+        gateway_name=f"partner:{partner}",
+        gateway_transaction_id=req.external_ref,
+        gateway_reference=req.external_ref,
+        gateway_status="external_paid",
+        status="success",
+        purpose="charge_payment",
+        charger_id=req.charger_id,
+        connector_id=req.connector_id,
+        customer_email=req.customer_email,
+        ip_address=client_ip,
+        paid_at=now,
+        created_at=now,
+    )
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    # Fire OCPP RemoteStart (reuses the same helper as quick-pay)
+    try:
+        await _trigger_remote_start_after_payment(db, txn)
+        ocpp_status = "accepted_or_pending"
+    except Exception as e:
+        logger.error(f"[partner start] RemoteStart failed for {txn_ref}: {e}", exc_info=True)
+        txn.gateway_status = "external_paid_remote_start_failed"
+        db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail=f"RemoteStart failed: {e}. Partner should refund customer.",
+        )
+
+    # Compute kWh quota for response transparency
+    tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
+    kwh_quota = round(req.amount / tariff, 4) if tariff > 0 else None
+
+    logger.info(
+        f"[partner:{partner}] start charging on {req.charger_id} c{req.connector_id} "
+        f"RM{req.amount} → txn {txn_ref} (external_ref={req.external_ref})"
+    )
+    return {
+        "success": True,
+        "transaction_ref": txn_ref,
+        "charger_id": req.charger_id,
+        "connector_id": req.connector_id,
+        "amount": req.amount,
+        "currency": "MYR",
+        "tariff_per_kwh": tariff,
+        "kwh_quota": kwh_quota,
+        "ocpp_status": ocpp_status,
+        "external_ref": req.external_ref,
+        "started_at": now.isoformat(),
+    }
+
+
+class PartnerStopChargingRequest(BaseModel):
+    transaction_ref: str = Field(..., min_length=3, max_length=50)
+
+
+@app.post("/api/partner/charging/stop")
+async def partner_stop_charging(
+    req: PartnerStopChargingRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-to-server: partner asks us to stop a charging session early
+    (e.g. customer requested stop in the partner's app). We send OCPP
+    RemoteStopTransaction. Idempotent — if session already stopped, returns
+    200 with current status."""
+    partner = _require_partner_api_key(request)
+
+    txn = (
+        db.query(PaymentTransaction)
+        .filter(PaymentTransaction.transaction_ref == req.transaction_ref)
+        .first()
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if not txn.charger_id:
+        raise HTTPException(status_code=400, detail="Transaction has no charger linkage")
+
+    charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
+
+    # Find the active session linked to this txn
+    if txn.paid_at:
+        window_start = txn.paid_at - timedelta(minutes=2)
+        session = (
+            db.query(ChargingSession)
+            .filter(
+                ChargingSession.charger_id == charger.id,
+                ChargingSession.start_time >= window_start,
+            )
+            .order_by(ChargingSession.start_time.desc())
+            .first()
+        )
+    else:
+        session = None
+
+    if not session:
+        return {
+            "success": False,
+            "transaction_ref": txn.transaction_ref,
+            "message": "No active session found for this transaction",
+        }
+
+    if session.status == "completed":
+        return {
+            "success": True,
+            "transaction_ref": txn.transaction_ref,
+            "session_status": "completed",
+            "message": "Session already completed",
+            "energy_consumed_kwh": float(session.energy_consumed or 0),
+        }
+
+    # Send OCPP RemoteStopTransaction
+    cp = get_active_charge_point(charger.charge_point_id)
+    if not cp:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Charger {charger.charge_point_id} is not connected — cannot send RemoteStop",
+        )
+    try:
+        ocpp_resp = await cp.remote_stop_transaction(transaction_id=session.transaction_id)
+        ocpp_status = getattr(ocpp_resp, "status", None) if ocpp_resp else None
+    except Exception as e:
+        logger.error(f"[partner:{partner}] RemoteStop failed for {req.transaction_ref}: {e}",
+                     exc_info=True)
+        raise HTTPException(status_code=502, detail=f"RemoteStop failed: {e}")
+
+    logger.info(
+        f"[partner:{partner}] stop charging on {charger.charge_point_id} "
+        f"txn={req.transaction_ref} ocpp_status={ocpp_status}"
+    )
+    return {
+        "success": ocpp_status == "Accepted",
+        "transaction_ref": txn.transaction_ref,
+        "ocpp_status": ocpp_status,
+        "session_transaction_id": session.transaction_id,
+        "message": "RemoteStop sent — final session details available via /api/partner/charging/sessions/{ref}",
+    }
+
+
+@app.get("/api/partner/charging/sessions/{transaction_ref}")
+async def partner_get_session(
+    transaction_ref: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-to-server: query current state of a partner-initiated session.
+    Returns the same rich payload shape as /api/sync/transactions/{ref}.
+    Use this to poll progress (kWh delivered, auto-stop reached, etc.)."""
+    _require_partner_api_key(request)
+
+    txn = (
+        db.query(PaymentTransaction)
+        .filter(PaymentTransaction.transaction_ref == transaction_ref)
+        .first()
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {"success": True, "transaction": _serialize_sync_transaction(txn, db)}
+
+
+# ─── Sync API for partner backends (Jeffrey's app) ───────────────────────────
+# Step 5 of Jeffrey's payment flow spec: "sync transaction (incl. payment
+# gateway txn details) to server". His app pulls completed transactions from
+# us and mirrors them on his side. Designed for incremental polling — pass
+# `since=<last_sync_ts>` and we return everything that paid_at after that.
+
+def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
+    """Build the rich payload for one PaymentTransaction — includes the
+    matched ChargingSession + Charger + parsed gateway response."""
+    # Match charging session: same charger, start_time near paid_at (±30 min)
+    session_payload = None
+    charger_payload = None
+    if t.charger_id:
+        charger = db.query(Charger).filter(Charger.charge_point_id == t.charger_id).first()
+        if charger:
+            charger_payload = {
+                "id": charger.charge_point_id,
+                "name": charger.name,
+                "connector_id": t.connector_id,
+                "connector_type": charger.connector_type,
+                "max_power_kw": charger.max_power_kw,
+                "tariff_per_kwh": float(charger.tariff_per_kwh or Decimal("0.10")),
+                "location": charger.location,
+            }
+            if t.paid_at:
+                window_start = t.paid_at - timedelta(minutes=2)
+                window_end = t.paid_at + timedelta(hours=12)
+                session = (
+                    db.query(ChargingSession)
+                    .filter(
+                        ChargingSession.charger_id == charger.id,
+                        ChargingSession.start_time >= window_start,
+                        ChargingSession.start_time <= window_end,
+                    )
+                    .order_by(ChargingSession.start_time.asc())
+                    .first()
+                )
+                if session:
+                    duration = None
+                    if session.start_time and session.stop_time:
+                        duration = int((session.stop_time - session.start_time).total_seconds())
+                    session_payload = {
+                        "transaction_id": session.transaction_id,
+                        "status": session.status,
+                        "start_time": session.start_time.isoformat() if session.start_time else None,
+                        "stop_time": session.stop_time.isoformat() if session.stop_time else None,
+                        "duration_seconds": duration,
+                        "energy_consumed_kwh": float(session.energy_consumed or 0),
+                        "energy_kwh_limit": float(session.energy_kwh_limit) if session.energy_kwh_limit else None,
+                        "auto_stopped": bool(session.auto_stopped),
+                        "stop_reason": session.stop_reason,
+                        "meter_start_wh": session.meter_start,
+                        "meter_stop_wh": session.meter_stop,
+                    }
+
+    # Parse gateway_response JSON safely
+    raw_response = None
+    if t.gateway_response:
+        try:
+            raw_response = json.loads(t.gateway_response)
+        except (json.JSONDecodeError, TypeError):
+            raw_response = {"_raw": t.gateway_response}
+
+    return {
+        "transaction_ref": t.transaction_ref,
+        "purpose": t.purpose,
+        "status": t.status,
+        "amount": float(t.amount) if t.amount else 0.0,
+        "currency": t.currency,
+        "payment_method": t.payment_method,
+        "user_id": t.user_id if t.user_id else None,
+        "user_email": t.user_email,
+        "customer_email": t.customer_email,
+        "ip_address": t.ip_address,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "paid_at": t.paid_at.isoformat() if t.paid_at else None,
+        "expired_at": t.expired_at.isoformat() if t.expired_at else None,
+        "gateway": {
+            "name": t.gateway_name,
+            "transaction_id": t.gateway_transaction_id,
+            "reference": t.gateway_reference,
+            "status": t.gateway_status,
+            "raw_response": raw_response,
+        },
+        "charger": charger_payload,
+        "charging_session": session_payload,
+    }
+
+
+@app.get("/api/sync/transactions")
+async def sync_list_transactions(
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    charger_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Partner-backend sync endpoint — incremental pull of payment + charging
+    transactions.
+
+    Typical usage from Jeffrey's app:
+        GET /api/sync/transactions?since=2026-04-29T00:00:00Z&limit=200
+
+    Returns every PaymentTransaction whose `paid_at` (fallback `created_at`)
+    falls in [since, until], joined with the matched ChargingSession + Charger
+    metadata + parsed gateway_response, so the partner mirrors a single rich
+    record per charge.
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be ≥ 0")
+
+    def _parse_iso(s: str, field: str):
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail=f"Invalid ISO timestamp for {field}")
+
+    q = db.query(PaymentTransaction)
+    if since:
+        since_dt = _parse_iso(since, "since")
+        q = q.filter(
+            or_(
+                PaymentTransaction.paid_at >= since_dt,
+                and_(PaymentTransaction.paid_at.is_(None), PaymentTransaction.created_at >= since_dt),
+            )
+        )
+    if until:
+        until_dt = _parse_iso(until, "until")
+        q = q.filter(
+            or_(
+                PaymentTransaction.paid_at <= until_dt,
+                and_(PaymentTransaction.paid_at.is_(None), PaymentTransaction.created_at <= until_dt),
+            )
+        )
+    if charger_id:
+        q = q.filter(PaymentTransaction.charger_id == charger_id)
+    if status:
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        q = q.filter(PaymentTransaction.status.in_(statuses))
+
+    total = q.count()
+    txns = (
+        q.order_by(PaymentTransaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "success": True,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + len(txns) if (offset + len(txns)) < total else None,
+        "transactions": [_serialize_sync_transaction(t, db) for t in txns],
+    }
+
+
+@app.get("/api/sync/transactions/{transaction_ref}")
+async def sync_get_transaction(
+    transaction_ref: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Partner-backend sync endpoint — fetch ONE transaction with full detail.
+    Use this after `/api/sync/transactions` returns a ref, to refresh the
+    record (e.g. session may have completed since last poll)."""
+    txn = (
+        db.query(PaymentTransaction)
+        .filter(PaymentTransaction.transaction_ref == transaction_ref)
+        .first()
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {"success": True, "transaction": _serialize_sync_transaction(txn, db)}
+
+
+@app.get("/api/admin/charger/{charger_id}/status")
+async def admin_charger_status(
+    charger_id: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Rich operator-facing status snapshot — combines OCPP availability,
+    operator maintenance flag, last heartbeat, and last fault for a single view.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
+
+    last_fault = (
+        db.query(Fault)
+        .filter(Fault.charger_id == charger.id)
+        .order_by(desc(Fault.timestamp))
+        .first()
+    )
+    cp_live = get_active_charge_point(charger_id) is not None
+
+    return {
+        "charger_id": charger.charge_point_id,
+        "name": charger.name,
+        "ocpp": {
+            "connected": cp_live,
+            "status": charger.status,
+            "availability": charger.availability,
+            "last_heartbeat": charger.last_heartbeat.isoformat() if charger.last_heartbeat else None,
+        },
+        "maintenance": {
+            "mode": bool(charger.maintenance_mode),
+            "reason": charger.maintenance_reason,
+            "started_at": charger.maintenance_started_at.isoformat() if charger.maintenance_started_at else None,
+            "started_by": charger.maintenance_started_by,
+        },
+        "last_fault": (
+            {
+                "fault_type": last_fault.fault_type,
+                "message": last_fault.message,
+                "timestamp": last_fault.timestamp.isoformat() if last_fault.timestamp else None,
+                "cleared": bool(last_fault.cleared),
+            }
+            if last_fault else None
+        ),
+        "tariff_per_kwh": float(charger.tariff_per_kwh or Decimal("0.10")),
+    }
 
 
 @app.post("/api/ocpp/{charge_point_id}/change-availability", response_model=OcppOperationResponse)
@@ -5799,8 +6458,23 @@ async def quick_pay(
     charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
+    # Operator-initiated maintenance overrides everything else (DB-level, survives offline)
+    if charger.maintenance_mode:
+        reason = (charger.maintenance_reason or "Under maintenance").strip()
+        raise HTTPException(
+            status_code=503,
+            detail=f"Charger temporarily unavailable: {reason}",
+        )
     if charger.status != "online":
         raise HTTPException(status_code=409, detail=f"Charger is offline (status: {charger.status})")
+    # Live websocket check — DB status may lag behind actual connection state.
+    # Critical for TNG flow: don't accept a real payment if we can't actually
+    # talk to the charger to fire RemoteStart afterwards.
+    if get_active_charge_point(req.charger_id) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Charger {req.charger_id} has no active OCPP connection — payment refused to avoid stuck transaction",
+        )
     if charger.availability not in ("available", "preparing"):
         raise HTTPException(status_code=409, detail=f"Charger not available (state: {charger.availability})")
 
@@ -5824,9 +6498,10 @@ async def quick_pay(
 
     # Create txn record
     txn_ref = generate_transaction_ref()
+    guest_user_id = _get_or_create_guest_user(db)
     txn = PaymentTransaction(
         transaction_ref=txn_ref,
-        user_id=0,  # guest — no user account
+        user_id=guest_user_id,  # guest — no user account
         user_email=req.email,
         amount=req.amount,
         currency="MYR",
@@ -6171,6 +6846,15 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
             )
             .first()
         )
+        # Compute kWh quota: amount_paid / tariff_per_kwh.
+        # OCPP server uses this in on_meter_values to auto-stop at the quota.
+        try:
+            tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
+            paid_amount = float(txn.amount or 0)
+            kwh_limit = round(paid_amount / tariff, 4) if tariff > 0 else None
+        except Exception:
+            kwh_limit = None
+
         if not existing_pending:
             session = ChargingSession(
                 charger_id=charger.id,
@@ -6178,10 +6862,16 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
                 start_time=datetime.now(MYT).replace(tzinfo=None),
                 status="pending",
                 user_id=0,  # guest pay — not tied to an account
+                energy_kwh_limit=kwh_limit,
+                auto_stopped=False,
             )
             db.add(session)
             db.flush()
             session.transaction_id = -session.id  # unique negative placeholder
+        else:
+            # Refresh quota in case user re-paid
+            existing_pending.energy_kwh_limit = kwh_limit
+            existing_pending.auto_stopped = False
 
         charger.availability = "charging"
         # Stash id_tag on the payment row's gateway_status for traceability
