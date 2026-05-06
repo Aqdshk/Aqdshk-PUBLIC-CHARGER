@@ -1,10 +1,14 @@
 /**
  * PlagSini EV — PWA Push Notification Service Worker
  * Handles background Web Push events from the server.
+ *
+ * NOTE: We deliberately DON'T call skipWaiting() / clients.claim() here.
+ * On iOS Safari, the controllerchange event from claim() races with
+ * Flutter's own auto-generated flutter_service_worker.js (registered by
+ * flutter_bootstrap.js at the same scope), and Safari ends up in an
+ * infinite reload loop. Letting this SW activate naturally on the next
+ * page load avoids the conflict.
  */
-
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 // Handle incoming push event
 self.addEventListener('push', function(event) {

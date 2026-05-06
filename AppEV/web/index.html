@@ -55,15 +55,23 @@
 </head>
 <body style="background-color: #0A0A1A;">
   <script>
-    // Register PWA Service Worker for Web Push Notifications
-    // SW is served from /app/push-sw.js (same path as the app base-href)
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('push-sw.js', {scope: './'}).then(function(reg) {
-        console.log('Push SW registered:', reg.scope);
-      }).catch(function(err) {
-        console.warn('Push SW registration failed:', err);
-      });
-    }
+    // Register PWA Service Worker for Web Push Notifications.
+    // Skip on iOS Safari in browser tab — iOS only supports web push when the
+    // app is installed as a PWA (added to home screen) on iOS 16.4+, and
+    // registering the SW in a normal tab there triggers a controllerchange
+    // reload loop because it races with Flutter's auto flutter_service_worker.js.
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                      || window.navigator.standalone === true;
+      // On iOS, only register inside an installed PWA. On other platforms always register.
+      if (isIOS && !isStandalone) return;
+      navigator.serviceWorker.register('push-sw.js', { scope: './' })
+        .then(function (reg) { console.log('Push SW registered:', reg.scope); })
+        .catch(function (err) { console.warn('Push SW registration failed:', err); });
+    })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
