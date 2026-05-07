@@ -474,20 +474,114 @@
                 setTimeout(() => { toast.style.animation='fadeOut .4s ease forwards'; setTimeout(()=>toast.remove(),400); }, duration);
             }
 
+            // ─────────────────────────────────────────────────────────────
+            // Smart firmware-event polling.
+            //
+            // Idle operations page = zero traffic. We only poll while a
+            // pending set of charger IDs is non-empty.
+            //
+            // Each Execute (single or bulk) adds the targeted charger IDs
+            // to the pending set. As soon as a terminal OCPP event arrives
+            // for a charger (`Installed` ✅ or `InstallationFailed` ❌) we
+            // remove it from the set. When the set goes empty, polling
+            // stops the next tick — no waiting for any artificial timer.
+            //
+            // Hard safety cap: 30 minutes from first Execute. Catches the
+            // case where vendor firmware silently rejects an update without
+            // sending `InstallationFailed` (the 9 stuck AION units behave
+            // this way — boot back to old firmware with no terminal event).
+            // When the cap fires with chargers still pending, we surface
+            // a warning toast so the user knows polling stopped.
+            //
+            // Other stop conditions: tab hidden, page unload.
+            // ─────────────────────────────────────────────────────────────
             let _lastCheck = new Date().toISOString();
+            let _pollTimer = null;
+            let _watchStartTime = 0;
+            const _pendingChargers = new Set();
+            const POLL_INTERVAL_MS = 30000;
+            const HARD_CAP_MS = 30 * 60 * 1000;  // 30 min absolute safety
+
             async function checkFirmwareEvents() {
                 try {
                     const res = await fetch(`/api/events/firmware?since=${encodeURIComponent(_lastCheck)}`);
                     const data = await res.json();
                     _lastCheck = new Date().toISOString();
                     (data.events || []).forEach(ev => {
-                        if (ev.status === 'Installed') showToast('✅ Firmware Update Complete', `<b>${ev.charger_id}</b> firmware installed!${ev.firmware_version?`<br>Version: <code style="color:#00e676">${ev.firmware_version}</code>`:''}`, 'online', 15000);
-                        else if (ev.status === 'Downloading') showToast('⬇️ Downloading Firmware', `<b>${ev.charger_id}</b> is downloading...`, 'online', 5000);
-                        else if (ev.status === 'InstallationFailed') showToast('❌ Firmware Update Failed', `<b>${ev.charger_id}</b> installation failed`, 'offline', 15000);
+                        const cid = ev.charger_id;
+                        if (ev.status === 'Installed') {
+                            showToast('✅ Firmware Update Complete', `<b>${cid}</b> firmware installed!${ev.firmware_version?`<br>Version: <code style="color:#00e676">${ev.firmware_version}</code>`:''}`, 'online', 15000);
+                            _pendingChargers.delete(cid);
+                        } else if (ev.status === 'InstallationFailed') {
+                            showToast('❌ Firmware Update Failed', `<b>${cid}</b> installation failed`, 'offline', 15000);
+                            _pendingChargers.delete(cid);
+                        } else if (ev.status === 'Downloading') {
+                            showToast('⬇️ Downloading Firmware', `<b>${cid}</b> is downloading...`, 'online', 5000);
+                            // not terminal — keep in pending set
+                        }
                     });
                 } catch(e) {}
+
+                // Stop conditions checked AFTER processing events.
+                if (_pendingChargers.size === 0) {
+                    stopFirmwareWatch();
+                    return;
+                }
+                if (Date.now() - _watchStartTime > HARD_CAP_MS) {
+                    const stuck = Array.from(_pendingChargers).join(', ');
+                    showToast('⚠️ Watch Timed Out', `Stopped polling after 30 min. Did not receive completion status for: <b>${stuck}</b>`, 'offline', 20000);
+                    stopFirmwareWatch();
+                }
             }
-            setInterval(checkFirmwareEvents, 30000);
+
+            function addPendingCharger(chargerId) {
+                if (!chargerId) return;
+                _pendingChargers.add(chargerId);
+                if (!_watchStartTime) _watchStartTime = Date.now();
+                if (!_pollTimer) {
+                    _pollTimer = setInterval(checkFirmwareEvents, POLL_INTERVAL_MS);
+                    console.log('[firmware-watch] started');
+                }
+                console.log('[firmware-watch] pending:', Array.from(_pendingChargers));
+            }
+
+            function stopFirmwareWatch() {
+                if (_pollTimer) {
+                    clearInterval(_pollTimer);
+                    _pollTimer = null;
+                    console.log('[firmware-watch] stopped');
+                }
+                _pendingChargers.clear();
+                _watchStartTime = 0;
+            }
+
+            // Detect UpdateFirmware POSTs by hooking fetch — same-origin only.
+            // Single endpoint:  /api/ocpp/{charger_id}/update-firmware
+            // Bulk endpoint:    /api/ocpp/bulk/update-firmware  (body has charge_point_ids[])
+            const _origFetch = window.fetch.bind(window);
+            window.fetch = function(input, init) {
+                const url = (typeof input === 'string') ? input : (input && input.url) || '';
+                const method = (init && init.method) || (typeof input !== 'string' && input && input.method) || 'GET';
+                if (method.toUpperCase() === 'POST') {
+                    const singleMatch = url.match(/\/api\/ocpp\/([^/?]+)\/update-firmware(?:\?|$)/);
+                    if (singleMatch && singleMatch[1] !== 'bulk') {
+                        addPendingCharger(singleMatch[1]);
+                    } else if (/\/api\/ocpp\/bulk\/update-firmware(\?|$)/.test(url)) {
+                        try {
+                            const body = init && init.body;
+                            const parsed = (typeof body === 'string') ? JSON.parse(body) : (body || {});
+                            (parsed.charge_point_ids || []).forEach(addPendingCharger);
+                        } catch (e) { /* if body parse fails, just don't track — toast still fires for events */ }
+                    }
+                }
+                return _origFetch(input, init);
+            };
+
+            // Stop polling when tab hidden — no point checking when user can't see toasts.
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) stopFirmwareWatch();
+            });
+            window.addEventListener('beforeunload', stopFirmwareWatch);
         })();
     </script>
 </body>
