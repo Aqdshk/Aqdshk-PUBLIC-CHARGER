@@ -43,14 +43,27 @@
       margin: 0;
       padding: 0;
       background-color: #0A0A1A;
-      /* Extend safe-area insets so status bar / notch area paints dark */
-      padding-top: env(safe-area-inset-top);
-      padding-bottom: env(safe-area-inset-bottom);
-      padding-left: env(safe-area-inset-left);
-      padding-right: env(safe-area-inset-right);
     }
-    /* But actually we want Flutter to paint under safe area — remove padding, keep bg */
-    html, body { padding: 0 !important; }
+    /*
+     * iOS PWA fix: in standalone (home-screen) mode, iOS reserves the bottom
+     * ~34px for the home-indicator swipe gesture. Without padding-bottom,
+     * Flutter's canvas paints the BottomNavBar all the way to the screen
+     * edge — taps on Me/Rewards/Scan/Maps then go to iOS gesture system
+     * instead of the app, so the buttons feel "dead". Reserving
+     * env(safe-area-inset-bottom) at the HTML layer pushes Flutter up out
+     * of the gesture zone.
+     *
+     * For the TOP, we keep Flutter rendering edge-to-edge (the dark
+     * `apple-mobile-web-app-status-bar-style: black-translucent` already
+     * paints the status bar dark, so no padding-top needed).
+     */
+    @media all and (display-mode: standalone) {
+      body {
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+      }
+    }
   </style>
 </head>
 <body style="background-color: #0A0A1A;">
