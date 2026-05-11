@@ -72,6 +72,12 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./test_ci.db
           JWT_SECRET_KEY: ci-test-key-not-for-prod
+          ADMIN_EMAIL: ci@test.local
+          ADMIN_PASSWORD: ci-test-password
+          STAFF_EMAIL: ci-staff@test.local
+          STAFF_PASSWORD: ci-staff-password
+          APP_BASE_URL: http://localhost:8000
+          PYTHONPATH: ${{ github.workspace }}/ChargingPlatform
         run: |
           # -q for quieter output; --maxfail=5 so we don't drown on a regression
           pytest -q --maxfail=5 tests/ || (echo "::warning::pytest failed" && exit 1)
@@ -93,8 +99,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate docker-compose.prod.yml
+        env:
+          # docker compose interpolates ${VAR} references in the compose file
+          # at config-time. CI doesn't have a .env, so without these stubs
+          # `config` warns on every missing var and (depending on compose
+          # version) exits non-zero. The values don't matter — we're only
+          # validating YAML structure here, not running the stack.
+          APP_BASE_URL: http://ci.invalid
+          ADMIN_EMAIL: ci@test.local
+          ADMIN_PASSWORD: ci-test
+          STAFF_EMAIL: ci-staff@test.local
+          STAFF_PASSWORD: ci-test
+          MYSQL_ROOT_PASSWORD: ci-test
+          MYSQL_DATABASE: ci_test
+          JWT_SECRET_KEY: ci-test
+          API_BASE_URL: http://ci.invalid/api
+          BOT_BASE_URL: http://ci.invalid/bot
         run: |
-          docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml config > /dev/null
           echo "✅ docker-compose.prod.yml valid"
 
       - name: Validate workflow YAML files
