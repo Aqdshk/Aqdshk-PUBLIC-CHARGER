@@ -1,0 +1,190 @@
+# PlagSini production deployment.
+#
+# Trigger: MANUAL only (workflow_dispatch).
+# Click "Run workflow" on GitHub Actions tab → select branch → Deploy.
+#
+# Why manual (not auto-on-push)?
+#   - Production has 314+ live chargers + paying customers.
+#   - No test gate yet — accidental bad commit would brick prod.
+#   - Manual click = explicit "I'm ready to ship" intent.
+#
+# Pipeline (~30-60 sec):
+#   1. SSH to VPS
+#   2. git fetch + checkout selected branch + pull
+#   3. docker compose build (only changed services)
+#   4. docker compose up -d (rolling restart)
+#   5. Wait for /health = 200
+#   6. Telegram notify success/fail with commit SHA
+#
+# Rollback: re-run workflow with previous commit SHA.
+
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or commit SHA to deploy (default: main)'
+        required: false
+        default: 'main'
+      rebuild_appev:
+        description: 'Rebuild AppEV (Flutter web) — slower, only if web/lib changed'
+        type: boolean
+        required: false
+        default: false
+      rebuild_api:
+        description: 'Rebuild charging-platform image (only if Dockerfile/requirements.txt changed)'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  # Only one deploy at a time — prevents two pushes from racing.
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.ref }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code (for SHA tracking only)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+
+      - name: Resolve commit SHA
+        id: sha
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          echo "short=$SHA" >> $GITHUB_OUTPUT
+          echo "full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+
+      - name: Notify Telegram — deploy started
+        if: ${{ vars.SKIP_TELEGRAM != 'true' }}
+        env:
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SHA: ${{ steps.sha.outputs.short }}
+          MSG: ${{ steps.sha.outputs.msg }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            -d chat_id="${CHAT}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=🚀 <b>Deploy started</b>%0A<code>${SHA}</code> — ${MSG}%0A👤 by ${ACTOR}" \
+            > /dev/null || echo "Telegram notify failed (non-fatal)"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy on VPS
+        id: deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          REF: ${{ inputs.ref }}
+          REBUILD_APPEV: ${{ inputs.rebuild_appev }}
+          REBUILD_API: ${{ inputs.rebuild_api }}
+        run: |
+          ssh -p "${VPS_PORT}" -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=no -o BatchMode=yes \
+              "${VPS_USER}@${VPS_HOST}" \
+              "REF='${REF}' REBUILD_APPEV='${REBUILD_APPEV}' REBUILD_API='${REBUILD_API}' bash -s" <<'REMOTE_SCRIPT'
+            set -euo pipefail
+
+            cd /opt/plagsini-ev
+
+            echo "=== Fetch + checkout ${REF} ==="
+            git fetch origin --tags
+            git checkout "${REF}"
+            # Only pull if on a branch (not detached on a SHA)
+            if git symbolic-ref -q HEAD > /dev/null; then
+              git pull --ff-only origin "${REF}"
+            fi
+            DEPLOYED_SHA=$(git rev-parse --short HEAD)
+            echo "Deployed SHA: ${DEPLOYED_SHA}"
+
+            echo "=== Sync code into running containers ==="
+            # Charging Platform (Python files — hot-copy + restart)
+            for f in api.py database.py ocpp_server.py email_service.py payment_gateway.py \
+                     features_router.py pdf_receipt.py security.py edge_sync.py push_service.py main.py; do
+              if [ -f "ChargingPlatform/${f}" ]; then
+                docker cp "ChargingPlatform/${f}" plagsini-api:/app/${f}
+              fi
+            done
+            docker cp ChargingPlatform/templates plagsini-api:/app/ 2>/dev/null || true
+            docker cp ChargingPlatform/static plagsini-api:/app/ 2>/dev/null || true
+
+            if [ -d ChargingPlatform/migrations ]; then
+              docker cp ChargingPlatform/migrations plagsini-api:/app/ 2>/dev/null || true
+            fi
+
+            echo "=== Restart charging-platform ==="
+            if [ "${REBUILD_API}" = "true" ]; then
+              docker compose -f docker-compose.prod.yml build charging-platform
+              docker compose -f docker-compose.prod.yml up -d charging-platform
+            else
+              docker restart plagsini-api
+            fi
+
+            echo "=== AppEV rebuild (if requested) ==="
+            if [ "${REBUILD_APPEV}" = "true" ]; then
+              docker compose -f docker-compose.prod.yml build --no-cache appev
+              docker compose -f docker-compose.prod.yml up -d appev
+            fi
+
+            echo "=== Wait for API health ==="
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              sleep 3
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || echo "000")
+              echo "Health check #${i}: HTTP ${CODE}"
+              if [ "${CODE}" = "200" ]; then
+                echo "✅ API healthy at SHA ${DEPLOYED_SHA}"
+                exit 0
+              fi
+            done
+
+            echo "❌ Health check FAILED after 30s — recent api logs:"
+            docker logs --tail 30 plagsini-api 2>&1
+            exit 1
+          REMOTE_SCRIPT
+
+      - name: Notify Telegram — deploy success
+        if: success() && vars.SKIP_TELEGRAM != 'true'
+        env:
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SHA: ${{ steps.sha.outputs.short }}
+          MSG: ${{ steps.sha.outputs.msg }}
+        run: |
+          curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            -d chat_id="${CHAT}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=✅ <b>Deploy SUCCESS</b>%0A<code>${SHA}</code> — ${MSG}%0Ahealth=200" \
+            > /dev/null || true
+
+      - name: Notify Telegram — deploy failed
+        if: failure() && vars.SKIP_TELEGRAM != 'true'
+        env:
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SHA: ${{ steps.sha.outputs.short }}
+          MSG: ${{ steps.sha.outputs.msg }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            -d chat_id="${CHAT}" \
+            -d parse_mode=HTML \
+            --data-urlencode "text=❌ <b>Deploy FAILED</b>%0A<code>${SHA}</code> — ${MSG}%0A<a href=\"${RUN}\">View run logs</a>" \
+            > /dev/null || true
