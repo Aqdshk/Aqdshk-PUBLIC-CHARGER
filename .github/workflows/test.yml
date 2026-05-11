@@ -100,21 +100,31 @@ jobs:
 
       - name: Validate docker-compose.prod.yml
         env:
-          # docker compose interpolates ${VAR} references in the compose file
-          # at config-time. CI doesn't have a .env, so without these stubs
-          # `config` warns on every missing var and (depending on compose
-          # version) exits non-zero. The values don't matter — we're only
-          # validating YAML structure here, not running the stack.
-          APP_BASE_URL: http://ci.invalid
+          # docker compose interpolates every ${VAR} reference in the compose
+          # file at config-time. CI doesn't have a .env, so any required var
+          # (one declared as ${VAR} or ${VAR:?...} with no default) makes
+          # `config` exit non-zero. We stub them all — values don't matter,
+          # we're only validating YAML structure.
+          # Source of truth: `grep -oE '\$\{[A-Z_]+[}:?]' docker-compose.prod.yml`
           ADMIN_EMAIL: ci@test.local
           ADMIN_PASSWORD: ci-test
           STAFF_EMAIL: ci-staff@test.local
           STAFF_PASSWORD: ci-test
-          MYSQL_ROOT_PASSWORD: ci-test
-          MYSQL_DATABASE: ci_test
-          JWT_SECRET_KEY: ci-test
           API_BASE_URL: http://ci.invalid/api
+          APP_BASE_URL: http://ci.invalid
           BOT_BASE_URL: http://ci.invalid/bot
+          DOMAIN: ci.invalid
+          GEMINI_API_KEY: ci-stub
+          GRAFANA_PASSWORD: ci-stub
+          JWT_SECRET_KEY: ci-test
+          MYSQL_DATABASE: ci_test
+          MYSQL_USER: ci_test
+          MYSQL_PASSWORD: ci-test
+          MYSQL_ROOT_PASSWORD: ci-test
+          SMTP_EMAIL: ci@test.local
+          SMTP_HOST: smtp.invalid
+          SMTP_PASSWORD: ci-stub
+          SMTP_PORT: "587"
         run: |
           docker compose -f docker-compose.prod.yml config > /dev/null
           echo "✅ docker-compose.prod.yml valid"
