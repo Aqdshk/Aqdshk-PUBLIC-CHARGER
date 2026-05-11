@@ -73,10 +73,11 @@ jobs:
           MSG: ${{ steps.sha.outputs.msg }}
           ACTOR: ${{ github.actor }}
         run: |
+          TEXT=$(printf '🚀 <b>Deploy started</b>\n<code>%s</code> — %s\n👤 by %s' "$SHA" "$MSG" "$ACTOR")
           curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             -d chat_id="${CHAT}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=🚀 <b>Deploy started</b>%0A<code>${SHA}</code> — ${MSG}%0A👤 by ${ACTOR}" \
+            --data-urlencode "text=${TEXT}" \
             > /dev/null || echo "Telegram notify failed (non-fatal)"
 
       - name: Setup SSH
@@ -168,10 +169,11 @@ jobs:
           SHA: ${{ steps.sha.outputs.short }}
           MSG: ${{ steps.sha.outputs.msg }}
         run: |
+          TEXT=$(printf '✅ <b>Deploy SUCCESS</b>\n<code>%s</code> — %s\nhealth=200' "$SHA" "$MSG")
           curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             -d chat_id="${CHAT}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=✅ <b>Deploy SUCCESS</b>%0A<code>${SHA}</code> — ${MSG}%0Ahealth=200" \
+            --data-urlencode "text=${TEXT}" \
             > /dev/null || true
 
       - name: Notify Telegram — deploy failed
@@ -183,8 +185,9 @@ jobs:
           MSG: ${{ steps.sha.outputs.msg }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          TEXT=$(printf '❌ <b>Deploy FAILED</b>\n<code>%s</code> — %s\n<a href="%s">View run logs</a>' "$SHA" "$MSG" "$RUN")
           curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             -d chat_id="${CHAT}" \
             -d parse_mode=HTML \
-            --data-urlencode "text=❌ <b>Deploy FAILED</b>%0A<code>${SHA}</code> — ${MSG}%0A<a href=\"${RUN}\">View run logs</a>" \
+            --data-urlencode "text=${TEXT}" \
             > /dev/null || true
