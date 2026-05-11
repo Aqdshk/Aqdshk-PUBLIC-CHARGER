@@ -248,7 +248,3 @@ def sync_meter_value(
         raise HTTPException(500, str(exc))
     finally:
         db.close()
-
-# CI/CD smoke test 2 — intentional syntax error below to verify CI catches it
-def broken_function(
-    # missing closing paren + body — Python will SyntaxError
