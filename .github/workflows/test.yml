@@ -1,0 +1,161 @@
+# PlagSini — automated checks on every push and PR.
+#
+# Catches the kind of breakage we hit manually before CI existed
+# (e.g. ImportError because api.py referenced a class that didn't exist
+# in database.py, the bulk-firmware route shadowed by a parameterized
+# route, etc.) BEFORE the code lands on production.
+#
+# This workflow is intentionally fast (<2 min) and lenient — it fails
+# on real breakage but doesn't nag about code-style nits.
+#
+# Failures here block merging to main (once branch protection is on)
+# but do NOT block the manual deploy workflow. Operator can still
+# force-deploy a hotfix if they accept the risk.
+
+name: CI Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-checks:
+    name: Python — syntax + import + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        working-directory: ChargingPlatform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ChargingPlatform/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest ruff
+
+      - name: Syntax check (py_compile every .py)
+        run: |
+          # Catches typos, missing colons, broken indentation across the
+          # whole ChargingPlatform tree before anything else runs.
+          find . -name "*.py" -not -path "./__pycache__/*" -not -path "./.venv/*" \
+            -print0 | xargs -0 -n1 python -m py_compile
+
+      - name: Import check (canary — proves api.py + ocpp_server.py load)
+        env:
+          # Stub envs so config.py doesn't bail out during import
+          DATABASE_URL: sqlite:///./test_ci.db
+          JWT_SECRET_KEY: ci-test-key-not-for-prod
+          ADMIN_EMAIL: ci@test.local
+          ADMIN_PASSWORD: ci-test-password
+        run: |
+          # Most realistic single-line catch for ImportError-style breakage:
+          # if api.py references a class that database.py doesn't export,
+          # this line is what would have screamed in production last time.
+          python -c "import api; print('api module loaded:', bool(api.app))"
+          python -c "import ocpp_server; print('ocpp_server module loaded')"
+
+      - name: Run pytest
+        env:
+          DATABASE_URL: sqlite:///./test_ci.db
+          JWT_SECRET_KEY: ci-test-key-not-for-prod
+        run: |
+          # -q for quieter output; --maxfail=5 so we don't drown on a regression
+          pytest -q --maxfail=5 tests/ || (echo "::warning::pytest failed" && exit 1)
+
+      - name: Ruff lint (warnings only — does not fail the job)
+        run: |
+          # Lenient lint pass — surfaces obvious issues (unused imports,
+          # undefined names) without blocking on style nits. Tighten later
+          # once the codebase is fully clean.
+          ruff check --select E9,F63,F7,F82 --output-format=github . || true
+
+  yaml-checks:
+    name: YAML — docker-compose + workflows valid
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.prod.yml
+        run: |
+          docker compose -f docker-compose.prod.yml config --quiet
+          echo "✅ docker-compose.prod.yml valid"
+
+      - name: Validate workflow YAML files
+        run: |
+          python -c "
+          import yaml, glob, sys
+          for f in glob.glob('.github/workflows/*.yml'):
+              try:
+                  with open(f) as fh: yaml.safe_load(fh)
+                  print(f'✅ {f}')
+              except Exception as e:
+                  print(f'❌ {f}: {e}', file=sys.stderr)
+                  sys.exit(1)
+          "
+
+  alembic-checks:
+    name: Alembic — migrations consistent
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    defaults:
+      run:
+        working-directory: ChargingPlatform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ChargingPlatform/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install alembic
+
+      - name: Check for multiple migration heads (would fail in prod)
+        env:
+          DATABASE_URL: sqlite:///./test_ci.db
+        run: |
+          # If two migrations both declare `down_revision = X` you get
+          # branching heads — Alembic refuses to upgrade. Catch here, not
+          # at 3am during a deploy.
+          HEADS=$(alembic heads | wc -l)
+          echo "Migration heads: $HEADS"
+          if [ "$HEADS" -gt 1 ]; then
+            echo "::error::Multiple Alembic heads — merge them before deploying"
+            alembic heads
+            exit 1
+          fi
+
+      - name: Verify migrations apply cleanly on SQLite
+        env:
+          DATABASE_URL: sqlite:///./test_ci.db
+        run: |
+          # Quick smoke that the full migration chain runs without error.
+          # Doesn't catch MySQL-specific issues but catches most schema typos.
+          alembic upgrade head
+          echo "✅ Migrations applied cleanly"

@@ -37,6 +37,11 @@ on:
         type: boolean
         required: false
         default: false
+      force_deploy:
+        description: 'Skip CI test gate (emergency hotfix only — use with care)'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   # Only one deploy at a time — prevents two pushes from racing.
@@ -63,6 +68,34 @@ jobs:
           echo "short=$SHA" >> $GITHUB_OUTPUT
           echo "full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+
+      - name: Check CI status on this commit
+        id: cicheck
+        if: ${{ !inputs.force_deploy }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA_FULL: ${{ steps.sha.outputs.full }}
+        run: |
+          # Look up the CI Checks run on this exact commit. If it failed or
+          # is still running, refuse to deploy unless the operator opted into
+          # the force-deploy escape hatch.
+          STATUS=$(gh api "repos/${{ github.repository }}/commits/${SHA_FULL}/check-runs" \
+                  --jq '[.check_runs[] | select(.name | startswith("Python") or startswith("YAML") or startswith("Alembic")) | .conclusion] | unique | join(",")' \
+                  2>/dev/null || echo "unknown")
+          echo "CI status on commit ${SHA_FULL}: ${STATUS}"
+          echo "status=${STATUS}" >> $GITHUB_OUTPUT
+
+          if [ -z "${STATUS}" ] || [ "${STATUS}" = "unknown" ]; then
+            echo "::warning::No CI run found for this commit yet (or token can't read it). Proceeding — be careful."
+          elif echo "${STATUS}" | grep -q "failure\|cancelled\|timed_out"; then
+            echo "::error::CI checks failed on ${SHA_FULL}. Fix tests before deploying, or re-trigger CI."
+            exit 1
+          elif echo "${STATUS}" | grep -q "null"; then
+            echo "::error::CI checks still in progress on ${SHA_FULL}. Wait for them to finish, then re-run this workflow."
+            exit 1
+          else
+            echo "✅ CI checks passed on this commit — safe to deploy."
+          fi
 
       - name: Notify Telegram — deploy started
         if: ${{ vars.SKIP_TELEGRAM != 'true' }}
