@@ -2317,22 +2317,10 @@ async def ocpp_get_diagnostics(charge_point_id: str, request: GetDiagnosticsRequ
     return OcppOperationResponse(success=True, message=f"Diagnostics file: {file_name or 'N/A'}", data={"file_name": file_name})
 
 
-@app.post("/api/ocpp/{charge_point_id}/update-firmware", response_model=OcppOperationResponse)
-async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
-    """OCPP 1.6 UpdateFirmware"""
-    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
-    if not charger:
-        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
-    cp = get_active_charge_point(charge_point_id)
-    if not cp:
-        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
-    resp = await cp.update_firmware(
-        location=request.location, retrieve_date=request.retrieve_date,
-        retries=request.retries, retry_interval=request.retry_interval
-    )
-    return OcppOperationResponse(success=True, message="UpdateFirmware command sent (no response expected in OCPP 1.6).")
-
-
+# IMPORTANT: bulk route MUST be registered BEFORE the {charge_point_id} variant.
+# FastAPI/Starlette matches routes in registration order — if the parameterized
+# route comes first, "bulk" gets bound to charge_point_id and the request hits
+# the single-charger handler, which 404s because no charger has id "bulk".
 @app.post("/api/ocpp/bulk/update-firmware")
 async def ocpp_bulk_update_firmware(request: BulkUpdateFirmwareRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
     """Send UpdateFirmware to multiple chargers at once. If charge_point_ids is empty, targets all currently connected chargers."""
@@ -2378,6 +2366,22 @@ async def ocpp_bulk_update_firmware(request: BulkUpdateFirmwareRequest, db: Sess
         "message": f"Sent to {sent}/{len(results)} charger(s). {failed} failed.",
         "results": results,
     }
+
+
+@app.post("/api/ocpp/{charge_point_id}/update-firmware", response_model=OcppOperationResponse)
+async def ocpp_update_firmware(charge_point_id: str, request: UpdateFirmwareRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 1.6 UpdateFirmware"""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    resp = await cp.update_firmware(
+        location=request.location, retrieve_date=request.retrieve_date,
+        retries=request.retries, retry_interval=request.retry_interval
+    )
+    return OcppOperationResponse(success=True, message="UpdateFirmware command sent (no response expected in OCPP 1.6).")
 
 
 @app.post("/api/ocpp/{charge_point_id}/reserve-now", response_model=OcppOperationResponse)
