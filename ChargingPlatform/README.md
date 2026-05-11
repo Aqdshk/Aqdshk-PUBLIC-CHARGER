@@ -89,3 +89,5 @@ python reconcile_payments.py --from 2026-03-01 --to 2026-03-01 --csv reconcile.c
 - `static/` - Shared CSS/JS assets
 
 
+
+<!-- CI/CD smoke test 1 — 2026-05-11 — should PASS all checks -->
