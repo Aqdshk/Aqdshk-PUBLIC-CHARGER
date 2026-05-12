@@ -505,11 +505,17 @@ app.include_router(features_router)
 
 # ─── Health Check & Global Exception Handler ───────────────────────────────
 
-@app.get("/health", tags=["Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
 async def health_check() -> dict:
     """
     Health check endpoint for load balancers and monitoring.
     Returns 200 if the API is up and can connect to the database.
+
+    Accepts both GET (returns JSON body) and HEAD (status code only) —
+    many uptime monitors (UptimeRobot, Pingdom, etc.) send HEAD by default
+    to save bandwidth, and the previous GET-only registration returned
+    405 Method Not Allowed on every HEAD probe, falsely marking the
+    service as down.
     """
     try:
         db = SessionLocal()
