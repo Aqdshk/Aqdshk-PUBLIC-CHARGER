@@ -71,6 +71,10 @@
                 </div>
                 <div id="addChargerMsg" style="margin-top:10px;font-size:12px;"></div>
             </div>
+            <div style="margin-bottom:16px;">
+                <input type="text" id="chargerSearch" placeholder="🔍 Search by charger ID, vendor or model..." oninput="renderChargers()" autocomplete="off"
+                    style="width:100%;padding:11px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:#fff;font-size:14px;box-sizing:border-box;outline:none;">
+            </div>
             <div id="chargerStatusList">
                 <div class="loading-spinner">Loading chargers...</div>
             </div>
@@ -188,36 +192,22 @@
             setInterval(loadChargerStatus, 5000);
         });
 
+        let _allChargers = [];
+
         async function loadChargerStatus() {
             try {
                 const response = await fetch(`${API_BASE}/chargers`);
                 const chargers = await response.json();
-                const container = document.getElementById('chargerStatusList');
                 const countEl = document.getElementById('chargerCount');
 
-                if (chargers.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">🔌</div>
-                            <div>No chargers registered</div>
-                            <p style="margin-top:12px;font-size:13px;color:rgba(255,255,255,0.6);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
-                            <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
-                                <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
-                                <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
-                            </div>
-                            <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
-                        </div>`;
-                    countEl.textContent = '0 chargers';
-                    return;
-                }
-                countEl.textContent = `${chargers.length} charger(s)`;
+                _allChargers = Array.isArray(chargers) ? chargers : [];
 
                 // Detect firmware update and status changes using localStorage
                 const stored = _loadStored();
                 const updated = { ...stored };
 
                 if (!_firstLoad) {
-                    chargers.forEach(c => {
+                    _allChargers.forEach(c => {
                         const cpId = c.charge_point_id;
                         const fw = c.firmware_version || '';
                         const st = c.status || '';
@@ -254,7 +244,7 @@
                     });
                 } else {
                     // First load — store current state only, no toast
-                    chargers.forEach(c => {
+                    _allChargers.forEach(c => {
                         updated[c.charge_point_id] = {
                             fw: c.firmware_version || '',
                             st: c.status || ''
@@ -264,7 +254,61 @@
                 }
                 _saveStored(updated);
 
-                container.innerHTML = `<div class="grid-2">${chargers.map(charger => {
+                renderChargers();
+            } catch(e){ console.error('Error:',e); document.getElementById('chargerStatusList').innerHTML = '<div class="empty-state">Error loading chargers</div>'; }
+        }
+
+        // Filter (search box) + sort (online first) + render the charger cards.
+        // Kept separate from loadChargerStatus so typing in search re-renders
+        // instantly without a network call, and the filter survives auto-refresh.
+        function renderChargers() {
+            const container = document.getElementById('chargerStatusList');
+            const countEl = document.getElementById('chargerCount');
+            const q = (document.getElementById('chargerSearch')?.value || '').trim().toLowerCase();
+
+            if (_allChargers.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔌</div>
+                        <div>No chargers registered</div>
+                        <p style="margin-top:12px;font-size:13px;color:rgba(255,255,255,0.6);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
+                        <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
+                            <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
+                            <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
+                        </div>
+                        <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
+                    </div>`;
+                countEl.textContent = '0 chargers';
+                return;
+            }
+
+            // Filter by search query (charge point id, vendor, model)
+            let list = _allChargers;
+            if (q) {
+                list = list.filter(c =>
+                    (c.charge_point_id || '').toLowerCase().includes(q) ||
+                    (c.vendor || '').toLowerCase().includes(q) ||
+                    (c.model || '').toLowerCase().includes(q));
+            }
+
+            // Sort: ONLINE chargers on top, then alphabetically by charge point id
+            list = [...list].sort((a, b) => {
+                const ao = (a.status === 'online') ? 0 : 1;
+                const bo = (b.status === 'online') ? 0 : 1;
+                if (ao !== bo) return ao - bo;
+                return (a.charge_point_id || '').localeCompare(b.charge_point_id || '');
+            });
+
+            countEl.textContent = q
+                ? `${list.length} of ${_allChargers.length} charger(s)`
+                : `${_allChargers.length} charger(s)`;
+
+            if (list.length === 0) {
+                container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div>No charger matches your search</div></div>`;
+                return;
+            }
+
+            container.innerHTML = `<div class="grid-2">${list.map(charger => {
                     const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
                     let status = charger.status || 'offline', availability = charger.availability || 'unknown';
                     if (status === 'offline') availability = 'unavailable';
@@ -297,7 +341,6 @@
                             </div>
                         </div>`;
                 }).join('')}</div>`;
-            } catch(e){ console.error('Error:',e); document.getElementById('chargerStatusList').innerHTML = '<div class="empty-state">Error loading chargers</div>'; }
         }
 
         async function startCharging(cpId) {
