@@ -114,7 +114,9 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
     final vendor = charger['vendor']?.toString() ?? '';
     final model = charger['model']?.toString() ?? '';
     final firmware = charger['firmware_version']?.toString() ?? '';
-    final isAvailable = status == 'online' && (availability == 'available' || availability == 'preparing');
+    // Only "preparing" (charging gun plugged in) allows a direct Start.
+    // "available" → online but gun not inserted, so route to detail screen.
+    final isAvailable = status == 'online' && availability == 'preparing';
     final isCharging = availability == 'charging';
     final statusLabel = _getStatusLabel(availability, status);
     final statusColor = _getStatusColor(availability, status);

@@ -195,8 +195,14 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final name = _charger['charge_point_id'] ?? 'Unknown Charger';
-    final status = _charger['availability'] ?? 'unknown';
+    final status = (_charger['availability'] ?? 'unknown').toString().toLowerCase();
+    // General "usable" state — used for status labels and connector display.
     final isAvailable = status == 'available' || status == 'preparing';
+    // Only allow Start when the connector is "preparing" — i.e. the charging
+    // gun is physically plugged into the car. "available" = online but the
+    // gun is not inserted yet, so starting makes no sense.
+    final canStart = status == 'preparing';
+    final needsPlugIn = status == 'available';
     final vendor = _charger['vendor'] ?? 'Unknown';
     final model = _charger['model'] ?? '';
 
@@ -777,16 +783,20 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                   ),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: isAvailable ? () => _startCharging(context) : null,
+                      onPressed: canStart ? () => _startCharging(context) : null,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isAvailable ? AppColors.primaryGreen : Colors.grey,
+                        backgroundColor: canStart ? AppColors.primaryGreen : Colors.grey,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       child: Text(
-                        isAvailable ? 'START CHARGING' : 'NOT AVAILABLE',
+                        canStart
+                            ? 'START CHARGING'
+                            : needsPlugIn
+                                ? 'PLUG IN CHARGER FIRST'
+                                : 'NOT AVAILABLE',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                         ),
