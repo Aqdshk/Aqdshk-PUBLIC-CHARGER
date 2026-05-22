@@ -134,7 +134,7 @@
                     <div class="metering-grid">
                         <div class="metering-item"><div class="metering-label">Voltage</div><div class="metering-value">${m.voltage!=null?m.voltage.toFixed(1):'N/A'}<span class="metering-unit">${m.voltage!=null?'V':''}</span></div></div>
                         <div class="metering-item"><div class="metering-label">Current</div><div class="metering-value">${m.current!=null?m.current.toFixed(2):'N/A'}<span class="metering-unit">${m.current!=null?'A':''}</span></div></div>
-                        <div class="metering-item"><div class="metering-label">Power</div><div class="metering-value">${m.power!=null?(m.power/1000).toFixed(2):'N/A'}<span class="metering-unit">${m.power!=null?'kW':''}</span></div></div>
+                        <div class="metering-item"><div class="metering-label">Power</div><div class="metering-value">${m.power!=null?m.power.toFixed(2):'N/A'}<span class="metering-unit">${m.power!=null?'kW':''}</span></div></div>
                         <div class="metering-item"><div class="metering-label">Total Energy</div><div class="metering-value">${m.total_kwh!=null?m.total_kwh.toFixed(2):'N/A'}<span class="metering-unit">${m.total_kwh!=null?'kWh':''}</span></div></div>
                     </div>
                     <div class="metering-timestamp">Last Update: ${m.timestamp ? formatKLTime(m.timestamp) : 'N/A'}</div>`;
