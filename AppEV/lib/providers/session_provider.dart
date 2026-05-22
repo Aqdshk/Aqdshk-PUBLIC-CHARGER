@@ -33,6 +33,7 @@ class SessionProvider with ChangeNotifier {
         _activeSession = session;
         _expectingSession = false;
         _expectingUntil = null;
+        await _enrichWithMetering();
       } else if (_expectingSession &&
           _expectingUntil != null &&
           DateTime.now().isBefore(_expectingUntil!)) {
@@ -50,6 +51,44 @@ class SessionProvider with ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// The /api/sessions object has no live power/voltage/current and no
+  /// duration. Enrich the active session with the latest meter reading
+  /// and a computed duration so the Live Charging screen has real data.
+  Future<void> _enrichWithMetering() async {
+    final s = _activeSession;
+    if (s == null) return;
+
+    // Session energy — API field is `energy_consumed`.
+    s['energy'] = s['energy'] ?? s['energy_consumed'] ?? 0;
+
+    // Duration — computed from start_time (treated as MYT if no offset).
+    final st = s['start_time']?.toString();
+    if (st != null && st.isNotEmpty) {
+      try {
+        final norm = (st.contains('+') || st.endsWith('Z')) ? st : '$st+08:00';
+        final start = DateTime.parse(norm);
+        final d = DateTime.now().difference(start);
+        final h = d.inHours;
+        final m = d.inMinutes % 60;
+        final sec = d.inSeconds % 60;
+        s['duration'] = h > 0
+            ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
+            : '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+      } catch (_) {}
+    }
+
+    // Live power/voltage/current — from the metering endpoint (power is kW).
+    final cp = s['charge_point_id']?.toString();
+    if (cp != null && cp.isNotEmpty) {
+      final m = await ApiService.getLatestMetering(cp);
+      if (m != null) {
+        s['power'] = m['power'] ?? 0;
+        s['voltage'] = m['voltage'] ?? 0;
+        s['current'] = m['current'] ?? 0;
+      }
+    }
   }
 
   Future<void> loadHistory() async {

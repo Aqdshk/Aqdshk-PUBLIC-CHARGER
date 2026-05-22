@@ -48,7 +48,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
       final session = _sessionProvider?.activeSession;
       if (session == null) return;
       final raw = _parseNum(session['power']);
-      final power = (raw / 1000); // W → kW
+      final power = raw; // already in kW from the metering endpoint
       if (!power.isFinite) return;
       if (!mounted) return;
       setState(() {
@@ -163,7 +163,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                 children: [
                   // Charger Info Card
                   _FuturisticInfoCard(
-                    chargerId: session['charger_id']?.toString() ?? 'Unknown Charger',
+                    chargerId: (session['charge_point_id'] ?? session['charger_id'])?.toString() ?? 'Unknown Charger',
                     status: 'CHARGING',
                     startTime: startTime ?? 'N/A',
                     duration: duration,
@@ -198,7 +198,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                     children: [
                       _FuturisticMeterCard(
                         label: 'POWER',
-                        value: '${(power / 1000).toStringAsFixed(2)}',
+                        value: power.toStringAsFixed(2),
                         unit: 'kW',
                         icon: Icons.flash_on_rounded,
                         gradient: [AppColors.primaryGreen, AppColors.mediumGreen],

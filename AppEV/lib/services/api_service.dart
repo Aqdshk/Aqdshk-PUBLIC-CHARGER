@@ -263,6 +263,21 @@ class ApiService {
     }
   }
 
+  /// Latest live meter reading for a charger (voltage/current/power/total_kwh).
+  /// `power` is already in kW.
+  static Future<Map<String, dynamic>?> getLatestMetering(String chargePointId) async {
+    try {
+      final response = await _authGet('$baseUrl/metering/$chargePointId/latest');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic>) return data;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getChargingHistory() async {
     try {
       final response = await _authGet('$baseUrl/sessions');
