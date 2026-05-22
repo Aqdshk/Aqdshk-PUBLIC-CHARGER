@@ -301,6 +301,22 @@ class ChargePoint(cp):
                 logger.warning(f"StatusNotification received for unknown charger {self.id}")
                 return call_result.StatusNotification()
 
+            # OCPP: connector 0 = the charge point as a whole; connector >=1 =
+            # the actual socket where the gun plugs in. A connector-0
+            # "Available" only means the station box is operable — it must NOT
+            # overwrite the socket's real status (Preparing / Charging), or the
+            # app sees a charger as "available" while a gun is already plugged
+            # in. Skip availability update for connector-0 "Available".
+            if connector_id == 0 and status == 'Available':
+                charger.last_heartbeat = _utcnow()
+                charger.status = 'online'
+                try:
+                    self.db.commit()
+                except Exception as e:
+                    logger.error(f"Error committing connector-0 StatusNotification for {self.id}: {e}")
+                    self.db.rollback()
+                return call_result.StatusNotification()
+
             # Map OCPP status to our availability status
             # If connector is "Charging", set availability to "charging" (charger might be charging locally)
             status_map = {
