@@ -195,7 +195,15 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final name = _charger['charge_point_id'] ?? 'Unknown Charger';
-    final status = (_charger['availability'] ?? 'unknown').toString().toLowerCase();
+    // Per-connector status (from /api/chargers connector_status JSON map).
+    // For multi-socket chargers the gate must follow the SELECTED socket,
+    // not the charger-level availability — socket 1 can be available while
+    // socket 2 is faulted, and the user picks which one to plug into.
+    final selectedConnId = (_selectedConnector + 1).toString();
+    final connStatusMap = _charger['connector_status'];
+    final String status = (connStatusMap is Map && connStatusMap[selectedConnId] != null)
+        ? connStatusMap[selectedConnId].toString().toLowerCase()
+        : (_charger['availability'] ?? 'unknown').toString().toLowerCase();
     // General "usable" state — used for status labels and connector display.
     final isAvailable = status == 'available' || status == 'preparing';
     // Only allow Start when the connector is "preparing" — i.e. the charging

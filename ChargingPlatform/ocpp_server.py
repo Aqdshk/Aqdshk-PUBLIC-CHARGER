@@ -403,7 +403,34 @@ class ChargePoint(cp):
                     logger.error(f"Error checking sessions for charger {self.id}: {e}", exc_info=True)
                     # Fallback: use simple status mapping when error occurs
                     charger.availability = status_map.get(status, 'unknown')
-            
+
+            # ── Per-connector status tracking ──────────────────────────────
+            # connector >=1 = individual sockets. Track each socket separately
+            # so a multi-connector charger (e.g. a DC unit with 2 guns) is
+            # represented correctly, then derive charger.availability as the
+            # best (most usable) socket — a free socket keeps the charger
+            # usable even if another socket is faulted.
+            try:
+                import json as _json
+                conn_map = {}
+                if charger.connector_status:
+                    try:
+                        conn_map = _json.loads(charger.connector_status) or {}
+                    except Exception:
+                        conn_map = {}
+                if connector_id and connector_id >= 1:
+                    conn_map[str(connector_id)] = status_map.get(status, 'unknown')
+                    charger.connector_status = _json.dumps(conn_map)
+                    _rank = {'available': 0, 'preparing': 1, 'charging': 2,
+                             'finishing': 3, 'reserved': 4, 'unavailable': 5,
+                             'faulted': 6, 'unknown': 7}
+                    best = min(conn_map.values(),
+                               key=lambda s: _rank.get(s, 7), default=None)
+                    if best:
+                        charger.availability = best
+            except Exception as e:
+                logger.error(f"Error updating per-connector status for {self.id}: {e}")
+
             charger.last_heartbeat = _utcnow()
             charger.status = 'online'  # Update status to online when we receive StatusNotification
             

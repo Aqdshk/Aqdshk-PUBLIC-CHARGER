@@ -554,6 +554,7 @@ class ChargerStatus(BaseModel):
     firmware_version: Optional[str]
     status: str
     availability: str
+    connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None
     number_of_connectors: Optional[int] = None
@@ -808,6 +809,17 @@ async def payment_settings_page():
     return FileResponse(file_path, media_type="text/html")
 
 
+def _conn_status_dict(raw):
+    """Parse the chargers.connector_status JSON string column into a dict."""
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
 @app.get("/api/chargers", response_model=List[ChargerStatus])
 async def get_chargers(
     db: Session = Depends(get_db),
@@ -898,6 +910,7 @@ async def get_chargers(
             "firmware_version": charger.firmware_version,
             "status": effective_status,
             "availability": effective_availability,
+            "connector_status": _conn_status_dict(charger.connector_status),
             "last_heartbeat": charger.last_heartbeat,
             "active_transaction_id": active_txn_id,
             "number_of_connectors": charger.number_of_connectors,
@@ -942,6 +955,7 @@ async def get_charger_status(charge_point_id: str, db: Session = Depends(get_db)
         firmware_version=charger.firmware_version,
         status=effective_status,
         availability=effective_availability,
+        connector_status=_conn_status_dict(charger.connector_status),
         last_heartbeat=charger.last_heartbeat,
         active_transaction_id=None,
     )

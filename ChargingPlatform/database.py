@@ -244,6 +244,9 @@ class Charger(Base):
     firmware_version = Column(String(255))
     status = Column(String(50), default="offline")  # online, offline
     availability = Column(String(50), default="unknown")  # available, charging, faulted, unavailable
+    # Per-connector OCPP status as a JSON string, e.g. {"1": "available", "2": "faulted"}.
+    # `availability` above stays as the derived "best usable" status for backward compat.
+    connector_status = Column(Text, nullable=True)
     last_heartbeat = Column(DateTime)
     created_at = Column(DateTime, default=_utcnow)
     
