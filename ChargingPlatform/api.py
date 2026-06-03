@@ -820,6 +820,17 @@ def _conn_status_dict(raw):
         return None
 
 
+_CHARGERS_CACHE: dict = {}
+_CHARGERS_CACHE_TTL = 5.0  # seconds. With ~440 chargers polled every 5s by
+# every active client, this collapses N requests/5s into 1 DB query/5s.
+
+
+def invalidate_chargers_cache() -> None:
+    """Bust the /api/chargers cache. Call after any mutation that affects the
+    list (add/remove charger, status change). Safe to call from any module."""
+    _CHARGERS_CACHE.clear()
+
+
 @app.get("/api/chargers", response_model=List[ChargerStatus])
 async def get_chargers(
     db: Session = Depends(get_db),
@@ -828,7 +839,20 @@ async def get_chargers(
         description="If 1/true: only chargers that are OCPP-online OR charging/preparing OR have an active transaction id.",
     ),
 ):
-    """Get all chargers with their status. Use online_only=1 for dropdowns (metering, sessions, operations)."""
+    """Get all chargers with their status. Use online_only=1 for dropdowns (metering, sessions, operations).
+
+    Cached in-memory for `_CHARGERS_CACHE_TTL` seconds: a single dashboard
+    user polls this every 5s, so without caching N concurrent users produce
+    N DB queries per 5s. With the cache it's always 1 query per 5s regardless
+    of N. Filter parameters are part of the cache key.
+    """
+    import time
+    _now = time.time()
+    _cache_key = "online" if (online_only in ("1", "true", "True")) else "all"
+    _cached = _CHARGERS_CACHE.get(_cache_key)
+    if _cached and _cached["exp"] > _now:
+        return _cached["data"]
+
     chargers = db.query(Charger).all()
 
     # Load pricing once: per-charger entries keyed by charger_id; fallback = charger_id IS NULL
@@ -922,7 +946,8 @@ async def get_chargers(
             "price_per_kwh": price_per_kwh,
         }
         result.append(ChargerStatus(**charger_dict))
-    
+
+    _CHARGERS_CACHE[_cache_key] = {"data": result, "exp": _now + _CHARGERS_CACHE_TTL}
     return result
 
 
@@ -1186,20 +1211,25 @@ async def get_metering(
     return meter_values
 
 
-@app.get("/api/metering/{charge_point_id}/latest", response_model=MeterValueResponse)
+@app.get("/api/metering/{charge_point_id}/latest", response_model=Optional[MeterValueResponse])
 async def get_latest_metering(charge_point_id: str, db: Session = Depends(get_db)):
-    """Get latest metering data for a charger"""
+    """Get latest metering data for a charger.
+
+    Returns the most recent MeterValue, or `null` (HTTP 200) if the charger
+    exists but has never sent meter readings yet. Only an unknown charger id
+    yields a 404 — so the dashboard does not paint red errors in the console
+    for brand-new / never-charged chargers.
+    """
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
-    
+
     meter_value = db.query(MeterValue).filter(
         MeterValue.charger_id == charger.id
     ).order_by(desc(MeterValue.timestamp)).first()
-    
-    if not meter_value:
-        raise HTTPException(status_code=404, detail="No metering data found")
-    
+
+    # Graceful empty: 200 with null body, NOT a 404. The frontend treats null
+    # as "no readings yet" and keeps any cached state instead of flashing red.
     return meter_value
 
 
