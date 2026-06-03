@@ -478,7 +478,7 @@ class _QuickRow extends StatelessWidget {
         children: [
           Expanded(
             child: _QuickItem(
-              icon: Icons.bolt_outlined,
+              icon: Icons.bolt_rounded,
               label: 'DC Fast',
               onTap: () => Navigator.push(
                 context,
@@ -489,7 +489,7 @@ class _QuickRow extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: _QuickItem(
-              icon: Icons.auto_awesome_outlined,
+              icon: Icons.auto_awesome_rounded,
               label: 'AutoCharge',
               onTap: () => Navigator.push(
                 context,
@@ -500,7 +500,7 @@ class _QuickRow extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: _QuickItem(
-              icon: Icons.qr_code_scanner_outlined,
+              icon: Icons.qr_code_scanner_rounded,
               label: 'Scan',
               onTap: () => Navigator.push(
                 context,
