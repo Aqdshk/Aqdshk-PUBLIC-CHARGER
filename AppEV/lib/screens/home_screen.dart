@@ -5,9 +5,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
 import '../providers/charger_provider.dart';
 import '../constants/app_colors.dart';
-import '../widgets/featured_station_card.dart';
-import '../widgets/nearby_station_card.dart';
-import '../widgets/category_icon.dart';
 import '../widgets/header_widget.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'find_charger_screen.dart';
@@ -17,15 +14,14 @@ import 'profile_screen.dart';
 import 'rewards_screen.dart';
 import 'dcfc_chargers_screen.dart';
 import 'auto_charge_screen.dart';
-import 'offline_chargers_screen.dart';
-import 'new_sites_screen.dart';
-import 'promotions_screen.dart';
 import 'chat_support_screen.dart';
-import 'invite_friends_screen.dart';
-import 'business_accounts_screen.dart';
 import 'favourite_stations_screen.dart';
 import 'charger_detail_screen.dart';
 import 'notifications_screen.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME SHELL — bottom-nav scaffold + animated tab switcher.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -37,36 +33,14 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _currentIndex = 0;
   int _previousIndex = 0;
-  late AnimationController _pulseController;
-  late AnimationController _gradientController;
 
-  final List<Widget> _screens = [
-    const DashboardScreen(),
-    const FindChargerScreen(),
-    const ScanScreen(),
-    const RewardsScreen(),
-    const ProfileScreen(),
+  final List<Widget> _screens = const [
+    DashboardScreen(),
+    FindChargerScreen(),
+    ScanScreen(),
+    RewardsScreen(),
+    ProfileScreen(),
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-    _gradientController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    _gradientController.dispose();
-    super.dispose();
-  }
 
   void _onTabTapped(int index) {
     if (index == _currentIndex) return;
@@ -78,31 +52,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    // Slide direction: right-to-left when going forward, left-to-right when going back
     final bool goingForward = _currentIndex > _previousIndex;
     final screenW = MediaQuery.sizeOf(context).width;
-    // On desktop/wide screens: center content with max width to avoid stretched layout
     const double kMaxContentWidth = 600.0;
     final bool useConstrainedLayout = screenW > kMaxContentWidth;
 
     final scaffold = Scaffold(
       backgroundColor: AppColors.background,
       body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        switchInCurve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 280),
+        switchInCurve: Curves.easeOutQuart,
         switchOutCurve: Curves.easeInOut,
         transitionBuilder: (Widget child, Animation<double> animation) {
-          // Determine if this child is the incoming or outgoing widget
           final bool isIncoming = child.key == ValueKey<int>(_currentIndex);
           final Offset beginOffset = isIncoming
               ? Offset(goingForward ? 1.0 : -1.0, 0.0)
               : Offset(goingForward ? -1.0 : 1.0, 0.0);
 
           return SlideTransition(
-            position: Tween<Offset>(
-              begin: beginOffset,
-              end: Offset.zero,
-            ).animate(animation),
+            position: Tween<Offset>(begin: beginOffset, end: Offset.zero).animate(animation),
             child: child,
           );
         },
@@ -111,12 +79,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: _screens[_currentIndex],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: _SupportFab(
         onPressed: () async {
           if (kIsWeb) {
-            // On web: open the customer service chat page directly
             const botUrl = String.fromEnvironment('BOT_BASE_URL', defaultValue: '');
-            // Default to /bot/ path through Nginx (not direct port 8001)
             const apiUrl = String.fromEnvironment('API_BASE_URL', defaultValue: '');
             final derivedBotUrl = apiUrl.isNotEmpty
                 ? '${Uri.parse(apiUrl).scheme}://${Uri.parse(apiUrl).host}/bot'
@@ -124,35 +90,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             final url = botUrl.isNotEmpty ? botUrl : derivedBotUrl;
             await launchUrl(Uri.parse(url), mode: LaunchMode.platformDefault);
           } else {
-            // On mobile: use native Flutter chat screen
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ChatSupportScreen()),
-            );
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatSupportScreen()));
           }
         },
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF00FF88), Color(0xFF00AA55)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF00FF88).withOpacity(0.4),
-                blurRadius: 12,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Icon(Icons.support_agent, color: Colors.black, size: 28),
-        ),
       ),
       bottomNavigationBar: BottomNavBar(
         currentIndex: _currentIndex,
@@ -160,7 +100,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
 
-    // On wide screens: center content with max width for better responsiveness
     if (useConstrainedLayout) {
       return Container(
         color: AppColors.background,
@@ -176,6 +115,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 }
 
+// Quiet, solid support FAB (no gradient, no glow halo).
+class _SupportFab extends StatelessWidget {
+  final VoidCallback onPressed;
+  const _SupportFab({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: onPressed,
+      backgroundColor: AppColors.primaryGreen,
+      foregroundColor: AppColors.background,
+      elevation: 0,
+      highlightElevation: 0,
+      shape: const CircleBorder(),
+      child: const Icon(Icons.support_agent, size: 26),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD — the "Explore" tab. Tesla-app aesthetic: near-black surface,
+// gold section markers, large thin hero type, calm spacing, no card clutter.
+// ─────────────────────────────────────────────────────────────────────────────
+
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
@@ -184,230 +147,97 @@ class DashboardScreen extends StatelessWidget {
     return Container(
       color: AppColors.background,
       child: SafeArea(
+        bottom: false,
         child: RefreshIndicator(
           onRefresh: () async {
             await Provider.of<SessionProvider>(context, listen: false).loadActiveSession();
             await Provider.of<ChargerProvider>(context, listen: false).loadNearbyChargers();
           },
-          color: AppColors.primaryGreen,
+          color: AppColors.premiumGold,
           backgroundColor: AppColors.cardBackground,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ===== HEADER =====
+                // Header (brand + notifications) — keep existing widget so the bell
+                // and unread badge logic stays intact.
                 HeaderWidget(
-                  onNotificationTap: () {
-                    Navigator.push(
+                  onNotificationTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                  ),
+                ),
+
+                const SizedBox(height: 26),
+
+                // ── HERO ──
+                const _HeroBlock(),
+
+                const SizedBox(height: 44),
+
+                // ── QUICK actions — 3 only, inline tiles ──
+                const _SectionLabel('QUICK'),
+                const SizedBox(height: 14),
+                const _QuickRow(),
+
+                const SizedBox(height: 44),
+
+                // ── NEARBY stations — vertical, rich rows ──
+                Consumer<ChargerProvider>(
+                  builder: (context, cp, _) => _SectionLabelRow(
+                    label: 'NEARBY',
+                    trailing: Text(
+                      cp.nearbyChargers.isEmpty ? '—' : cp.nearbyChargers.length.toString(),
+                      style: TextStyle(
+                        color: AppColors.premiumGold,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Consumer<ChargerProvider>(
+                  builder: (context, cp, _) {
+                    if (cp.isLoading) return const _LoadingRow();
+                    if (cp.nearbyChargers.isEmpty) {
+                      return const _EmptyRow(text: 'No stations within range');
+                    }
+                    final list = cp.nearbyChargers.take(4).toList();
+                    return Column(
+                      children: list.map((c) => _StationRow(charger: c)).toList(),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 44),
+
+                // ── FAVOURITES — minimal, link to full list ──
+                _SectionLabelRow(
+                  label: 'FAVOURITES',
+                  trailing: GestureDetector(
+                    onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-                    );
-                  },
-                ),
-
-                SizedBox(height: 4),
-
-                // ===== HUMAN-FRIENDLY WELCOME CARD =====
-                const _WelcomeCard(),
-
-                // ===== ACTIVE SESSION BANNER =====
-                Consumer<SessionProvider>(
-                  builder: (context, sessionProvider, _) {
-                    final session = sessionProvider.activeSession;
-                    if (session == null) return const SizedBox.shrink();
-                    return _ActiveSessionBanner(session: session);
-                  },
-                ),
-
-                // ===== QUICK ACTIONS =====
-                _sectionHeader(context, 'Quick Actions'),
-                SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: GridView.count(
-                    crossAxisCount: 4,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                    childAspectRatio: 0.68,
-                    children: [
-                      CategoryIcon(
-                        icon: Icons.bolt_rounded,
-                        label: 'DCFC',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DCFCChargersScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.auto_awesome_rounded,
-                        label: 'AutoCharge',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AutoChargeScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.build_rounded,
-                        label: 'Offline',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OfflineChargersScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.new_releases_rounded,
-                        label: 'New Sites',
-                        badge: 'NEW',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NewSitesScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.percent_rounded,
-                        label: 'Promotions',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PromotionsScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.card_giftcard_rounded,
-                        label: 'Rewards',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RewardsScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.share_rounded,
-                        label: 'Referral',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InviteFriendsScreen())),
-                      ),
-                      CategoryIcon(
-                        icon: Icons.business_rounded,
-                        label: 'Business',
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessAccountsScreen())),
-                      ),
-                    ],
-                  ),
-                ),
-
-                SizedBox(height: 24),
-
-                // ===== NEARBY STATIONS =====
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Nearby Stations',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: Colors.white, fontWeight: FontWeight.bold)),
-                      Consumer<ChargerProvider>(
-                        builder: (context, cp, _) => Text(
-                          '${cp.nearbyChargers.length} found',
-                          style: TextStyle(color: AppColors.textLight, fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 12),
-                Consumer<ChargerProvider>(
-                  builder: (context, chargerProvider, _) {
-                    if (chargerProvider.isLoading) {
-                      return SizedBox(
-                        height: 110,
-                        child: Center(child: CircularProgressIndicator(color: AppColors.primaryGreen)),
-                      );
-                    }
-                    if (chargerProvider.nearbyChargers.isEmpty) {
-                      return _emptySection('No chargers found', Icons.ev_station_outlined);
-                    }
-                    return SizedBox(
-                      height: 125,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        itemCount: chargerProvider.nearbyChargers.length,
-                        itemBuilder: (context, index) {
-                          return NearbyStationCard(charger: chargerProvider.nearbyChargers[index]);
-                        },
-                      ),
-                    );
-                  },
-                ),
-
-                SizedBox(height: 24),
-
-                // ===== FEATURED / RECOMMENDED =====
-                _sectionHeader(context, 'Recommended'),
-                SizedBox(height: 12),
-                Consumer<ChargerProvider>(
-                  builder: (context, chargerProvider, _) {
-                    if (chargerProvider.isLoading) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: _shimmerCard(),
-                      );
-                    }
-                    if (chargerProvider.nearbyChargers.isEmpty) {
-                      return _emptySection('No chargers available', Icons.ev_station_outlined);
-                    }
-                    // Show the first available charger, or first charger
-                    final featured = chargerProvider.nearbyChargers.first;
-                    return FeaturedStationCard(charger: featured);
-                  },
-                ),
-
-                SizedBox(height: 24),
-
-                // ===== ALL CHARGERS LIST (compact) =====
-                if (true) // Always show
-                  Consumer<ChargerProvider>(
-                    builder: (context, chargerProvider, _) {
-                      if (chargerProvider.nearbyChargers.length <= 1) return const SizedBox.shrink();
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _sectionHeader(context, 'All Chargers'),
-                          SizedBox(height: 12),
-                          ...chargerProvider.nearbyChargers.skip(1).map((charger) => _CompactChargerTile(charger: charger)),
-                        ],
-                      );
-                    },
-                  ),
-
-                SizedBox(height: 24),
-
-                // ===== FAVOURITES =====
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Favourite Stations',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: Colors.white, fontWeight: FontWeight.bold)),
-                      GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavouriteStationsScreen())),
-                        child: Text('See all',
-                            style: TextStyle(color: AppColors.primaryGreen, fontSize: 13, fontWeight: FontWeight.w600)),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Container(
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.borderLight),
+                      MaterialPageRoute(builder: (_) => const FavouriteStationsScreen()),
                     ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.bookmark_border_rounded, color: AppColors.textLight.withOpacity(0.3), size: 32),
-                          SizedBox(height: 8),
-                          Text('No favourite stations yet',
-                              style: TextStyle(color: AppColors.textLight, fontSize: 13)),
-                        ],
+                    child: Text(
+                      'SEE ALL',
+                      style: TextStyle(
+                        color: AppColors.premiumGold,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
                       ),
                     ),
                   ),
                 ),
+                const SizedBox(height: 14),
+                const _EmptyRow(text: 'No favourites yet'),
 
-                SizedBox(height: 100), // Space for bottom nav
+                // Bottom breathing room (above bottom nav + FAB).
+                const SizedBox(height: 140),
               ],
             ),
           ),
@@ -415,189 +245,304 @@ class DashboardScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  static Widget _sectionHeader(BuildContext context, String title) {
+// ─────────────────────────────────────────────────────────────────────────────
+// HERO — the single big block at the top. Mirrors a Tesla "vehicle status"
+// card: large thin numeric, small qualifier line.
+//   • Active session → kWh delivered, charger id.
+//   • Idle → quiet welcome line.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _HeroBlock extends StatelessWidget {
+  const _HeroBlock();
+
+  static double _num(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Consumer<SessionProvider>(
+        builder: (context, sp, _) {
+          final session = sp.activeSession;
+          if (session != null) {
+            final chargerId = session['charge_point_id']?.toString()
+                ?? session['charger_id']?.toString()
+                ?? 'Charger';
+            final energy = _num(session['energy']);
+            final power = _num(session['power']);
+            return GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LiveChargingScreen()),
+              ),
+              behavior: HitTestBehavior.opaque,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryGreen,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'CHARGING',
+                        style: TextStyle(
+                          color: AppColors.primaryGreen,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 2.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        energy.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 68,
+                          fontWeight: FontWeight.w200,
+                          height: 1.0,
+                          letterSpacing: -2.5,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'kWh',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    power > 0
+                        ? '$chargerId · ${power.toStringAsFixed(1)} kW now'
+                        : chargerId,
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          // Idle
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(width: 14, height: 1, color: AppColors.premiumGold),
+                  const SizedBox(width: 10),
+                  Text(
+                    'WELCOME',
+                    style: TextStyle(
+                      color: AppColors.premiumGold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2.5,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Ready to charge.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 38,
+                  fontWeight: FontWeight.w300,
+                  height: 1.1,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No active session.',
+                style: TextStyle(
+                  color: AppColors.textLight,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w300,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION LABEL — gold dash + tiny uppercase letter-spaced text.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          Container(
-            width: 4,
-            height: 16,
-            decoration: BoxDecoration(
-              color: AppColors.primaryGreen.withOpacity(0.8),
-              borderRadius: BorderRadius.circular(8),
+          Container(width: 14, height: 1, color: AppColors.premiumGold),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: TextStyle(
+              color: AppColors.premiumGold,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 2.5,
             ),
           ),
-          SizedBox(width: 8),
-          Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
         ],
       ),
     );
   }
+}
 
-  static Widget _emptySection(String text, IconData icon) {
+class _SectionLabelRow extends StatelessWidget {
+  final String label;
+  final Widget trailing;
+  const _SectionLabelRow({required this.label, required this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: AppColors.surface.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.borderLight),
-        ),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(icon, color: AppColors.textLight.withOpacity(0.3), size: 36),
-              SizedBox(height: 8),
-              Text(text, style: TextStyle(color: AppColors.textLight, fontSize: 13)),
-            ],
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          Container(width: 14, height: 1, color: AppColors.premiumGold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: AppColors.premiumGold,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 2.5,
+              ),
+            ),
           ),
-        ),
-      ),
-    );
-  }
-
-  static Widget _shimmerCard() {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: Center(
-        child: CircularProgressIndicator(color: AppColors.primaryGreen, strokeWidth: 2),
+          trailing,
+        ],
       ),
     );
   }
 }
 
-class _WelcomeCard extends StatelessWidget {
-  const _WelcomeCard();
+// ─────────────────────────────────────────────────────────────────────────────
+// QUICK ROW — 3 minimal action tiles. Outline only, no fills, no glow.
+// (DC Fast, AutoCharge, Scan — the actions a user reaches for most.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _QuickRow extends StatelessWidget {
+  const _QuickRow();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.borderLight),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppColors.primaryGreen.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(Icons.handshake_rounded, color: AppColors.primaryGreen, size: 22),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Welcome back',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Choose an action below to start your charging journey.',
-                    style: TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 11.5,
-                    ),
-                  ),
-                ],
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          Expanded(
+            child: _QuickItem(
+              icon: Icons.bolt_outlined,
+              label: 'DC Fast',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DCFCChargersScreen()),
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _QuickItem(
+              icon: Icons.auto_awesome_outlined,
+              label: 'AutoCharge',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AutoChargeScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _QuickItem(
+              icon: Icons.qr_code_scanner_outlined,
+              label: 'Scan',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ScanScreen()),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ==================== ACTIVE SESSION BANNER ====================
-
-class _ActiveSessionBanner extends StatelessWidget {
-  final Map<String, dynamic> session;
-
-  const _ActiveSessionBanner({required this.session});
+class _QuickItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _QuickItem({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final chargerId = session['charger_id']?.toString() ?? 'Unknown';
-    double _num(dynamic v) {
-      if (v is num) return v.toDouble();
-      if (v is String) return double.tryParse(v) ?? 0.0;
-      return 0.0;
-    }
-    final energy = _num(session['energy']);
-
     return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LiveChargingScreen())),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [
-            AppColors.primaryGreen.withOpacity(0.15),
-            AppColors.primaryGreen.withOpacity(0.08),
-          ]),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.primaryGreen.withOpacity(0.3)),
+          border: Border.all(color: AppColors.borderHairline),
+          borderRadius: BorderRadius.circular(2),
         ),
-        child: Row(
+        child: Column(
           children: [
-            // Animated pulse dot
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primaryGreen.withOpacity(0.2),
-                shape: BoxShape.circle,
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.3,
               ),
-              child: Icon(Icons.bolt_rounded, color: AppColors.primaryGreen, size: 22),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Charging in progress',
-                      style: TextStyle(color: AppColors.primaryGreen, fontSize: 13, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 2),
-                  Text('$chargerId · ${energy.toStringAsFixed(2)} kWh',
-                      style: TextStyle(color: AppColors.textLight, fontSize: 12)),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primaryGreen,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text('View', style: TextStyle(color: AppColors.background, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -606,12 +551,15 @@ class _ActiveSessionBanner extends StatelessWidget {
   }
 }
 
-// ==================== COMPACT CHARGER TILE ====================
+// ─────────────────────────────────────────────────────────────────────────────
+// STATION ROW — full-width vertical row. Status dot + tiny uppercase label
+// on the right; name big-ish on the left; vendor / kW / price on a second
+// line. Outline border only — no fills, no gradients.
+// ─────────────────────────────────────────────────────────────────────────────
 
-class _CompactChargerTile extends StatelessWidget {
+class _StationRow extends StatelessWidget {
   final Map<String, dynamic> charger;
-
-  const _CompactChargerTile({required this.charger});
+  const _StationRow({required this.charger});
 
   @override
   Widget build(BuildContext context) {
@@ -620,6 +568,9 @@ class _CompactChargerTile extends StatelessWidget {
     final availability = charger['availability']?.toString() ?? 'unknown';
     final vendor = charger['vendor']?.toString() ?? '';
     final model = charger['model']?.toString() ?? '';
+    final maxKw = charger['max_power_kw'];
+    final price = charger['tariff_per_kwh'] ?? charger['price_per_kwh'];
+
     final isOnline = status == 'online';
     final isAvailable = isOnline && (availability == 'available' || availability == 'preparing');
     final isCharging = availability == 'charging';
@@ -627,79 +578,168 @@ class _CompactChargerTile extends StatelessWidget {
     Color dotColor;
     String statusText;
     if (!isOnline) {
-      dotColor = Colors.grey;
-      statusText = 'Offline';
+      dotColor = Colors.grey.shade600;
+      statusText = 'OFFLINE';
+    } else if (isCharging) {
+      dotColor = AppColors.warning;
+      statusText = 'IN USE';
     } else if (isAvailable) {
       dotColor = AppColors.primaryGreen;
-      statusText = 'Available';
-    } else if (isCharging) {
-      dotColor = Colors.orange;
-      statusText = 'In Use';
+      statusText = 'AVAILABLE';
     } else {
-      dotColor = Colors.grey;
-      statusText = availability;
+      dotColor = Colors.grey.shade600;
+      statusText = availability.toUpperCase();
     }
 
     return GestureDetector(
-      onTap: () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => ChargerDetailScreen(charger: charger))),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ChargerDetailScreen(charger: charger)),
+      ),
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        margin: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         decoration: BoxDecoration(
-          color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.borderLight),
+          border: Border.all(color: AppColors.borderHairline),
+          borderRadius: BorderRadius.circular(2),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Icon
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [dotColor, dotColor.withOpacity(0.7)]),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.ev_station_rounded, color: Colors.white, size: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    color: dotColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
             ),
-            SizedBox(width: 12),
-            // Name & vendor
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  if (vendor.isNotEmpty || model.isNotEmpty)
-                    Text([vendor, model].where((s) => s.isNotEmpty).join(' · '),
-                        style: TextStyle(color: AppColors.textLight, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    (vendor.isNotEmpty || model.isNotEmpty)
+                        ? [vendor, model].where((s) => s.isNotEmpty).join(' · ')
+                        : '—',
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (maxKw is num) ...[
+                  Text(
+                    '${maxKw.toStringAsFixed(0)} kW',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                 ],
-              ),
+                if (price is num)
+                  Text(
+                    'RM ${price.toStringAsFixed(2)}/kWh',
+                    style: TextStyle(
+                      color: AppColors.premiumGold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+              ],
             ),
-            // Status
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: dotColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-                  SizedBox(width: 4),
-                  Text(statusText, style: TextStyle(color: dotColor, fontSize: 11, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            SizedBox(width: 6),
-            Icon(Icons.chevron_right_rounded, color: AppColors.textLight, size: 20),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty / Loading rows — same minimal outline aesthetic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EmptyRow extends StatelessWidget {
+  final String text;
+  const _EmptyRow({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 18),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.borderHairline),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: AppColors.textLight,
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadingRow extends StatelessWidget {
+  const _LoadingRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Container(
+        height: 72,
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.borderHairline),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              color: AppColors.premiumGold,
+              strokeWidth: 1.5,
+            ),
+          ),
         ),
       ),
     );

@@ -6,10 +6,15 @@ class AppColors {
   static const Color mediumGreen  = Color(0xFF00D977);
   static const Color darkGreen    = Color(0xFF00AA55);
 
-  // ── Backgrounds ──
-  static const Color background     = Color(0xFF0A0A1A);
-  static const Color surface        = Color(0xFF0F1B2D);
-  static const Color cardBackground = Color(0xFF12192B);
+  // ── Premium accent (Tesla-style warm gold) — use sparingly: brand mark,
+  // section bullets, dividers. NOT for primary CTAs (those stay green).
+  static const Color premiumGold       = Color(0xFFC9A461);
+  static const Color premiumGoldMuted  = Color(0xFF8A7544);
+
+  // ── Backgrounds — near-black, slightly cooler than pure 0,0,0 ──
+  static const Color background     = Color(0xFF0A0B0D);
+  static const Color surface        = Color(0xFF101216);
+  static const Color cardBackground = Color(0xFF13151A);
 
   // ── Text ──
   static const Color textPrimary   = Color(0xFFE8E8E8);
@@ -22,8 +27,9 @@ class AppColors {
   static const Color success = Color(0xFF00FF88);
   static const Color warning = Color(0xFFFFA500);
 
-  // ── Border ──
-  static const Color borderLight = Color(0xFF1E2D42);
+  // ── Border — hairline at low opacity ──
+  static Color get borderHairline => Colors.white.withOpacity(0.06);
+  static const Color borderLight  = Color(0xFF1E2D42);
 
   // ── Accent ──
   static const Color accentGreen = primaryGreen;
