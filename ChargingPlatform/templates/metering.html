@@ -107,9 +107,21 @@
             });
         }
 
+        // Cache of last-good data per charger id, so a single slow / failed
+        // poll doesn't blank the page (the cause of the "kejap ada kejap
+        // takde" flicker).
+        const _meteringCache = {};
+        let _meteringInflight = false;
+        let _meteringSelectedCpId = '';
+
         document.addEventListener('DOMContentLoaded', () => {
             populateChargerSelect();
-            setInterval(() => { if (document.getElementById('meteringCharger').value) loadMetering(); }, 2000);
+            // 5s polling — fast enough to feel live, calm enough not to hammer.
+            setInterval(() => {
+                if (document.getElementById('meteringCharger').value) loadMetering();
+            }, 5000);
+            // Refresh dropdown every 60s so newly-online chargers appear.
+            setInterval(populateChargerSelect, 60000);
         });
 
         async function populateChargerSelect() {
@@ -117,28 +129,95 @@
                 let chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
                 chargers = filterDropdownChargers(chargers);
                 const sel = document.getElementById('meteringCharger');
+                const prevValue = sel.value;
                 sel.innerHTML = '<option value="">Select Charger</option>';
                 chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
+                // Preserve the user's selection across refreshes.
+                if (prevValue && [...sel.options].some(o => o.value === prevValue)) {
+                    sel.value = prevValue;
+                }
             } catch(e){ console.error('Error:',e); }
+        }
+
+        // Render metering data — broken out so cached + live paths share format.
+        function _renderMetering(m, opts) {
+            const container = document.getElementById('meteringData');
+            const stale = opts && opts.stale;
+            const ageSec = opts && opts.ageSec;
+            const banner = stale
+                ? `<div class="metering-stale" style="background:rgba(255,165,0,0.10);border:1px solid rgba(255,165,0,0.35);color:#ffb347;padding:6px 12px;border-radius:8px;font-size:11px;margin-bottom:10px;display:inline-block;">⚠ Data ${ageSec != null ? formatAge(ageSec) + ' old' : 'is stale'} — charger may be offline</div>`
+                : '';
+            container.innerHTML = `
+                ${banner}
+                <div class="metering-grid">
+                    <div class="metering-item"><div class="metering-label">Voltage</div><div class="metering-value">${m.voltage!=null?m.voltage.toFixed(1):'N/A'}<span class="metering-unit">${m.voltage!=null?'V':''}</span></div></div>
+                    <div class="metering-item"><div class="metering-label">Current</div><div class="metering-value">${m.current!=null?m.current.toFixed(2):'N/A'}<span class="metering-unit">${m.current!=null?'A':''}</span></div></div>
+                    <div class="metering-item"><div class="metering-label">Power</div><div class="metering-value">${m.power!=null?m.power.toFixed(2):'N/A'}<span class="metering-unit">${m.power!=null?'kW':''}</span></div></div>
+                    <div class="metering-item"><div class="metering-label">Total Energy</div><div class="metering-value">${m.total_kwh!=null?m.total_kwh.toFixed(2):'N/A'}<span class="metering-unit">${m.total_kwh!=null?'kWh':''}</span></div></div>
+                </div>
+                <div class="metering-timestamp">Last Update: ${m.timestamp ? formatKLTime(m.timestamp) : 'N/A'}</div>`;
+        }
+
+        function formatAge(sec) {
+            if (sec < 60) return `${Math.round(sec)}s`;
+            if (sec < 3600) return `${Math.round(sec/60)}m`;
+            if (sec < 86400) return `${Math.round(sec/3600)}h`;
+            return `${Math.round(sec/86400)}d`;
         }
 
         async function loadMetering() {
             const cpId = document.getElementById('meteringCharger').value;
             const container = document.getElementById('meteringData');
-            if (!cpId) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚡</div><div>Select a charger to view metering data</div></div>'; return; }
+            if (!cpId) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚡</div><div>Select a charger to view metering data</div></div>';
+                _meteringSelectedCpId = '';
+                return;
+            }
+            // Re-paint cached data immediately on selection change — no flicker.
+            if (cpId !== _meteringSelectedCpId) {
+                _meteringSelectedCpId = cpId;
+                if (_meteringCache[cpId]) {
+                    const cached = _meteringCache[cpId];
+                    const ageSec = (Date.now() - cached.fetchedAt) / 1000;
+                    _renderMetering(cached.data, { stale: ageSec > 30, ageSec });
+                }
+            }
+            // Skip if a poll is already in-flight (avoid overlapping requests).
+            if (_meteringInflight) return;
+            _meteringInflight = true;
             try {
                 const res = await fetch(`${API_BASE}/metering/${cpId}/latest`);
-                if (!res.ok) { container.innerHTML = '<div class="empty-state">No metering data available</div>'; return; }
+                if (!res.ok) {
+                    // Endpoint failed — KEEP showing cached data if any.
+                    if (!_meteringCache[cpId]) {
+                        container.innerHTML = '<div class="empty-state">No metering data available</div>';
+                    }
+                    return;
+                }
                 const m = await res.json();
-                container.innerHTML = `
-                    <div class="metering-grid">
-                        <div class="metering-item"><div class="metering-label">Voltage</div><div class="metering-value">${m.voltage!=null?m.voltage.toFixed(1):'N/A'}<span class="metering-unit">${m.voltage!=null?'V':''}</span></div></div>
-                        <div class="metering-item"><div class="metering-label">Current</div><div class="metering-value">${m.current!=null?m.current.toFixed(2):'N/A'}<span class="metering-unit">${m.current!=null?'A':''}</span></div></div>
-                        <div class="metering-item"><div class="metering-label">Power</div><div class="metering-value">${m.power!=null?m.power.toFixed(2):'N/A'}<span class="metering-unit">${m.power!=null?'kW':''}</span></div></div>
-                        <div class="metering-item"><div class="metering-label">Total Energy</div><div class="metering-value">${m.total_kwh!=null?m.total_kwh.toFixed(2):'N/A'}<span class="metering-unit">${m.total_kwh!=null?'kWh':''}</span></div></div>
-                    </div>
-                    <div class="metering-timestamp">Last Update: ${m.timestamp ? formatKLTime(m.timestamp) : 'N/A'}</div>`;
-            } catch(e){ console.error('Error:',e); container.innerHTML = '<div class="empty-state">No metering data available</div>'; }
+                if (m == null || typeof m !== 'object' || m.timestamp == null) {
+                    if (!_meteringCache[cpId]) {
+                        container.innerHTML = '<div class="empty-state">No metering data available</div>';
+                    }
+                    return;
+                }
+                _meteringCache[cpId] = { data: m, fetchedAt: Date.now() };
+                // Compute age of the actual reading (not the fetch).
+                let ageSec = 0;
+                try {
+                    const ts = new Date(m.timestamp.includes('+') || m.timestamp.endsWith('Z') ? m.timestamp : m.timestamp + '+08:00');
+                    ageSec = (Date.now() - ts.getTime()) / 1000;
+                } catch (_) {}
+                _renderMetering(m, { stale: ageSec > 30, ageSec });
+            } catch (e) {
+                console.error('Error:', e);
+                // Network glitch — keep cached display, don't blank.
+                if (!_meteringCache[cpId]) {
+                    container.innerHTML = '<div class="empty-state">No metering data available</div>';
+                }
+            } finally {
+                _meteringInflight = false;
+            }
         }
     </script>
 </body>
