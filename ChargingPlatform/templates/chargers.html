@@ -64,7 +64,7 @@
         <div class="dashboard-container fade-in">
             <div id="addChargerCard" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;">
                 <div style="font-weight:600;margin-bottom:12px;">➕ Add Charger Manually</div>
-                <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px;">Add ESP32 or charger before it connects via OCPP.</p>
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Add ESP32 or charger before it connects via OCPP.</p>
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                     <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:220px;font-size:13px;">
                     <button class="btn btn-success btn-small" onclick="addChargerManual()">Add</button>
@@ -272,7 +272,7 @@
                     <div class="empty-state">
                         <div class="empty-state-icon">🔌</div>
                         <div>No chargers registered</div>
-                        <p style="margin-top:12px;font-size:13px;color:rgba(255,255,255,0.6);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
+                        <p style="margin-top:12px;font-size:13px;color:var(--text-secondary);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
                         <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
                             <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
                             <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>

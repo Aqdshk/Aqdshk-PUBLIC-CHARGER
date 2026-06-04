@@ -43,14 +43,14 @@
         }
         .big-stat .stat-label {
             font-size: clamp(7px, 0.48vw, 9px);
-            color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.7px;
+            color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px;
         }
         .big-stat .stat-change {
             font-size: clamp(8px, 0.5vw, 10px); margin-top: 2px;
         }
         .big-stat .stat-change.up { color: #00ff88; }
         .big-stat .stat-change.down { color: #ff4466; }
-        .big-stat .stat-change.neutral { color: rgba(255,255,255,0.4); }
+        .big-stat .stat-change.neutral { color: var(--text-muted); }
 
         /* ===== Chart Cards — compact ===== */
         .chart-card {
@@ -61,7 +61,7 @@
         }
         .chart-card h3 {
             font-size: clamp(9px, 0.6vw, 11px);
-            color: rgba(255,255,255,0.7); margin-bottom: clamp(4px, 0.35vw, 8px);
+            color: var(--text-secondary); margin-bottom: clamp(4px, 0.35vw, 8px);
         }
         .chart-container { position: relative; height: clamp(120px, 12vw, 170px); }
         .chart-container-sm { position: relative; height: clamp(100px, 10vw, 140px); }
@@ -80,7 +80,7 @@
             border-radius: clamp(4px, 0.4vw, 6px);
             padding: clamp(6px, 0.5vw, 10px);
             margin-bottom: clamp(4px, 0.3vw, 6px);
-            border-left: 3px solid rgba(255,255,255,0.1);
+            border-left: 3px solid var(--border);
             display: flex; gap: clamp(6px, 0.45vw, 10px); align-items: flex-start;
             transition: transform 0.2s, box-shadow 0.2s;
         }
@@ -102,11 +102,11 @@
         .insight-category.action { background: rgba(255,68,102,0.15); color: #ff4466; }
         .insight-category.info { background: rgba(68,136,255,0.15); color: #4488ff; }
         .insight-title { font-size: clamp(10px, 0.65vw, 12px); font-weight: 600; color: #fff; margin-bottom: 2px; }
-        .insight-message { font-size: clamp(9px, 0.55vw, 11px); color: rgba(255,255,255,0.55); line-height: 1.4; }
+        .insight-message { font-size: clamp(9px, 0.55vw, 11px); color: var(--text-secondary); line-height: 1.4; }
 
         .section-title {
             font-size: clamp(10px, 0.7vw, 13px); font-weight: 700;
-            color: rgba(255,255,255,0.8);
+            color: var(--text-primary);
             margin: clamp(10px, 0.9vw, 18px) 0 clamp(6px, 0.45vw, 10px);
             padding-left: clamp(6px, 0.4vw, 8px); border-left: 3px solid #00ff88;
         }
@@ -115,13 +115,13 @@
         .charger-table { width: 100%; border-collapse: collapse; font-size: clamp(9px, 0.6vw, 11px); }
         .charger-table th {
             text-align: left; padding: clamp(4px, 0.3vw, 6px) clamp(5px, 0.4vw, 8px);
-            color: rgba(255,255,255,0.5); font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); font-weight: 600; text-transform: uppercase;
             font-size: clamp(7px, 0.48vw, 9px); letter-spacing: 0.4px;
-            border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap;
+            border-bottom: 1px solid var(--border); white-space: nowrap;
         }
         .charger-table td {
             padding: clamp(4px, 0.3vw, 6px) clamp(5px, 0.4vw, 8px);
-            color: rgba(255,255,255,0.8); border-bottom: 1px solid rgba(255,255,255,0.03);
+            color: var(--text-primary); border-bottom: 1px solid var(--border);
         }
         .charger-table tr:hover td { background: rgba(0,255,136,0.03); }
         .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
@@ -262,7 +262,7 @@
                     </thead>
                     <tbody id="chargerBody"></tbody>
                 </table>
-                <div id="noChargers" style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);display:none;">No chargers registered yet</div>
+                <div id="noChargers" style="text-align:center;padding:30px;color:var(--text-muted);display:none;">No chargers registered yet</div>
             </div>
 
             <!-- AI Insights -->
@@ -375,7 +375,7 @@
                 purple: '#aa66ff', purpleBg: 'rgba(170,102,255,0.15)',
             };
 
-            const defaultOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: 'rgba(255,255,255,0.3)', maxRotation: 0, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.03)' } }, y: { ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } } } };
+            const defaultOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: 'var(--text-muted)', maxRotation: 0, font: { size: 10 } }, grid: { color: 'var(--border)' } }, y: { ticks: { color: 'var(--text-muted)', font: { size: 10 } }, grid: { color: 'var(--border)' } } } };
 
             // Revenue chart
             const revLabels = d.revenue.daily.map(x => x.date.slice(5));
@@ -398,7 +398,7 @@
             charts.peak = new Chart(document.getElementById('peakChart'), {
                 type: 'bar', data: {
                     labels: d.traffic.peak_hours.map(x => `${x.hour}:00`),
-                    datasets: [{ data: d.traffic.peak_hours.map(x => x.sessions), backgroundColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orangeBg : 'rgba(255,255,255,0.02)'), borderColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orange : 'rgba(255,255,255,0.05)'), borderWidth: 1 }]
+                    datasets: [{ data: d.traffic.peak_hours.map(x => x.sessions), backgroundColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orangeBg : 'var(--border)'), borderColor: d.traffic.peak_hours.map(x => x.sessions > 0 ? chartColors.orange : 'var(--border)'), borderWidth: 1 }]
                 }, options: defaultOpts
             });
 
@@ -418,10 +418,10 @@
                     type: 'doughnut', data: {
                         labels: methods.map(m => m.method),
                         datasets: [{ data: methods.map(m => m.total), backgroundColor: methods.map((_, i) => colors[i % colors.length] + '40'), borderColor: methods.map((_, i) => colors[i % colors.length]), borderWidth: 2 }]
-                    }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } } } } }
+                    }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-secondary)', font: { size: 11 } } } } }
                 });
             } else {
-                document.getElementById('paymentChart').parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.3);font-size:13px;">No payment data yet</div>';
+                document.getElementById('paymentChart').parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">No payment data yet</div>';
             }
         }
 
@@ -452,7 +452,7 @@
                     <td><span class="status-dot ${statusCls}"></span>${c.status} / ${c.availability}</td>
                     <td>${c.total_sessions}</td>
                     <td>${c.total_energy_kwh}</td>
-                    <td style="color:${c.active_faults > 0 ? '#ff4466' : 'rgba(255,255,255,0.5)'}">${c.active_faults}</td>
+                    <td style="color:${c.active_faults > 0 ? '#ff4466' : 'var(--text-muted)'}">${c.active_faults}</td>
                 </tr>`;
             }).join('');
         }
