@@ -14,27 +14,37 @@ class HeaderWidget extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Logo
-          Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+          // Logo — Expanded so Flexible inside can shrink the brand name.
+          Expanded(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               Image.asset(
                 'assets/images/logo.png',
-                height: 58,
-                width: 58,
+                height: 48,
+                width: 48,
                 fit: BoxFit.contain,
               ),
-              SizedBox(width: 12),
-              Text(
-                        'PlagSini',
-                        style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                      ),
+              const SizedBox(width: 10),
+              // Flexible so the brand name shrinks rather than overflowing on
+              // narrow viewports (small phones, embedded webviews).
+              const Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'PlagSini',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
                     ),
-                  ],
+                  ),
+                ),
+              ),
+              ],
+            ),
           ),
           GlowingIconButton(
             icon: Icons.notifications_outlined,

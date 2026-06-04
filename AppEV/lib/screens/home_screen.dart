@@ -310,8 +310,14 @@ class _HeroBlock extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Row(
+                  // FittedBox so the giant kWh number never overflows on
+                  // narrow viewports — shrinks as a unit with its 'kWh' suffix.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         energy.toStringAsFixed(1),
@@ -337,6 +343,7 @@ class _HeroBlock extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
                   ),
                   const SizedBox(height: 10),
                   Text(
@@ -374,14 +381,20 @@ class _HeroBlock extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 18),
-              const Text(
-                'Ready to charge.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 38,
-                  fontWeight: FontWeight.w300,
-                  height: 1.1,
-                  letterSpacing: -0.5,
+              // FittedBox shrinks the headline cleanly on narrow viewports
+              // (avoids the right-edge overflow seen on small mobile widths).
+              const FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Ready to charge.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w300,
+                    height: 1.1,
+                    letterSpacing: -0.5,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
