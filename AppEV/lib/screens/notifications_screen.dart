@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
+import '../providers/notification_provider.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS SCREEN — backed by /api/notifications.
+//
+// Real notifications (no hardcoded mock data). Empty state shown when the
+// user has no events yet — honest signal to a new user that nothing has
+// happened on their account.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -13,57 +23,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  final List<_NotificationItem> _notifications = [
-    _NotificationItem(
-      icon: Icons.bolt_rounded,
-      title: 'Charging Complete',
-      message: 'Your EV has been fully charged at Station PlagSini KL-01. Total: RM 12.50',
-      time: '2 min ago',
-      type: _NotifType.success,
-      isRead: false,
-    ),
-    _NotificationItem(
-      icon: Icons.local_offer_rounded,
-      title: 'Weekend Promo!',
-      message: 'Get 20% off on all charging sessions this weekend. Use code: WEEKEND20',
-      time: '1 hour ago',
-      type: _NotifType.promo,
-      isRead: false,
-    ),
-    _NotificationItem(
-      icon: Icons.account_balance_wallet_rounded,
-      title: 'Wallet Top-Up Successful',
-      message: 'RM 50.00 has been added to your PlagSini wallet. Current balance: RM 87.50',
-      time: '3 hours ago',
-      type: _NotifType.wallet,
-      isRead: false,
-    ),
-    _NotificationItem(
-      icon: Icons.ev_station_rounded,
-      title: 'New Station Nearby',
-      message: 'A new PlagSini charging station is now available at Setia City Mall!',
-      time: 'Yesterday',
-      type: _NotifType.info,
-      isRead: true,
-    ),
-    _NotificationItem(
-      icon: Icons.star_rounded,
-      title: 'Reward Earned!',
-      message: 'You earned 150 PlagSini Points from your last charging session.',
-      time: 'Yesterday',
-      type: _NotifType.reward,
-      isRead: true,
-    ),
-    _NotificationItem(
-      icon: Icons.update_rounded,
-      title: 'App Update Available',
-      message: 'PlagSini v2.1 is available with new features and bug fixes.',
-      time: '2 days ago',
-      type: _NotifType.info,
-      isRead: true,
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -71,11 +30,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
     _fadeController.forward();
+    // Load on next frame so context is fully mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<NotificationProvider>().load();
+    });
   }
 
   @override
@@ -84,20 +44,40 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     super.dispose();
   }
 
-  int get _unreadCount => _notifications.where((n) => !n.isRead).length;
-
-  void _markAllAsRead() {
-    setState(() {
-      for (var n in _notifications) {
-        n.isRead = true;
-      }
-    });
+  // Map server notification dict → display attributes (icon + colour).
+  _Visual _visualFor(String type) {
+    switch (type) {
+      case 'success':
+        return _Visual(Icons.bolt_rounded, AppColors.primaryGreen);
+      case 'wallet':
+        return const _Visual(Icons.account_balance_wallet_rounded, Color(0xFF00B4D8));
+      case 'promo':
+        return const _Visual(Icons.local_offer_rounded, Color(0xFFFF006E));
+      case 'reward':
+        return const _Visual(Icons.star_rounded, Color(0xFFFFD700));
+      case 'warning':
+        return _Visual(Icons.warning_amber_rounded, AppColors.warning);
+      case 'info':
+      default:
+        return const _Visual(Icons.info_outline_rounded, Color(0xFF8B9DC3));
+    }
   }
 
-  void _clearNotification(int index) {
-    setState(() {
-      _notifications.removeAt(index);
-    });
+  // Convert ISO timestamp → "2 min ago" style relative label.
+  String _relativeTime(String? iso) {
+    if (iso == null) return '';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      final diff = DateTime.now().difference(dt);
+      if (diff.inSeconds < 60) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+      if (diff.inHours < 24) return '${diff.inHours} hour${diff.inHours > 1 ? 's' : ''} ago';
+      if (diff.inDays == 1) return 'Yesterday';
+      if (diff.inDays < 7) return '${diff.inDays} days ago';
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return '';
+    }
   }
 
   @override
@@ -107,143 +87,162 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.notifications_rounded, color: AppColors.primaryGreen, size: 22),
-            SizedBox(width: 8),
-            Text(
-              'Notifications',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+        title: Consumer<NotificationProvider>(
+          builder: (context, np, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.notifications_rounded, color: AppColors.primaryGreen, size: 22),
+              const SizedBox(width: 8),
+              const Text(
+                'Notifications',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            ),
-            if (_unreadCount > 0) ...[
-              SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryGreen.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primaryGreen.withOpacity(0.3)),
-                ),
-                child: Text(
-                  '$_unreadCount new',
-                  style: TextStyle(
-                    color: AppColors.primaryGreen,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+              if (np.unreadCount > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryGreen.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.primaryGreen.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    '${np.unreadCount} new',
+                    style: TextStyle(
+                      color: AppColors.primaryGreen,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
         centerTitle: true,
         actions: [
-          if (_unreadCount > 0)
-            TextButton(
-              onPressed: _markAllAsRead,
-              child: Text(
-                'Read all',
-                style: TextStyle(
-                  color: AppColors.primaryGreen.withOpacity(0.8),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          Consumer<NotificationProvider>(
+            builder: (context, np, _) => np.unreadCount > 0
+                ? TextButton(
+                    onPressed: () => np.markAllRead(),
+                    child: Text(
+                      'Read all',
+                      style: TextStyle(
+                        color: AppColors.primaryGreen.withOpacity(0.8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
         elevation: 0,
       ),
       body: FadeTransition(
         opacity: _fadeAnimation,
-        child: _notifications.isEmpty
-            ? _buildEmptyState()
-            : ListView.builder(
+        child: Consumer<NotificationProvider>(
+          builder: (context, np, _) {
+            if (np.isLoading && np.items.isEmpty) {
+              return const Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primaryGreen,
+                ),
+              );
+            }
+            if (np.items.isEmpty) return _buildEmptyState();
+            return RefreshIndicator(
+              color: AppColors.primaryGreen,
+              backgroundColor: AppColors.cardBackground,
+              onRefresh: () => np.load(),
+              child: ListView.builder(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: _notifications.length,
-                itemBuilder: (context, index) {
-                  return _buildNotificationTile(index);
-                },
+                itemCount: np.items.length,
+                itemBuilder: (context, i) => _buildTile(np, np.items[i]),
               ),
+            );
+          },
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.primaryGreen.withOpacity(0.1),
-              border: Border.all(color: AppColors.primaryGreen.withOpacity(0.2)),
-            ),
-            child: Icon(
-              Icons.notifications_off_outlined,
-              size: 36,
-              color: AppColors.primaryGreen.withOpacity(0.5),
-            ),
+    return ListView(
+      // ListView (not Center) so RefreshIndicator works in the empty state.
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.25),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primaryGreen.withOpacity(0.1),
+                  border: Border.all(color: AppColors.primaryGreen.withOpacity(0.2)),
+                ),
+                child: Icon(
+                  Icons.notifications_off_outlined,
+                  size: 36,
+                  color: AppColors.primaryGreen.withOpacity(0.5),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No Notifications',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "You're all caught up!",
+                style: TextStyle(color: AppColors.textLight, fontSize: 14),
+              ),
+            ],
           ),
-          SizedBox(height: 16),
-          Text(
-            'No Notifications',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'You\'re all caught up!',
-            style: TextStyle(
-              color: AppColors.textLight,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildNotificationTile(int index) {
-    final notif = _notifications[index];
-    final color = _getNotifColor(notif.type);
+  Widget _buildTile(NotificationProvider np, Map<String, dynamic> n) {
+    final id = n['id'] as int;
+    final title = (n['title'] ?? '').toString();
+    final message = (n['message'] ?? '').toString();
+    final type = (n['type'] ?? 'info').toString();
+    final isRead = n['is_read'] == true;
+    final time = _relativeTime(n['created_at']?.toString());
+    final vis = _visualFor(type);
+    final color = vis.color;
 
     return Dismissible(
-      key: UniqueKey(),
+      key: ValueKey('notif-$id'),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
         color: Colors.red.withOpacity(0.15),
-        child: Icon(Icons.delete_outline, color: Colors.redAccent, size: 24),
+        child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 24),
       ),
-      onDismissed: (_) => _clearNotification(index),
+      onDismissed: (_) => np.remove(id),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: notif.isRead
-              ? AppColors.cardBackground
-              : AppColors.cardBackground.withOpacity(0.9),
+          color: isRead ? AppColors.cardBackground : AppColors.cardBackground.withOpacity(0.9),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: notif.isRead
+            color: isRead
                 ? AppColors.borderLight.withOpacity(0.3)
                 : color.withOpacity(0.25),
           ),
-          boxShadow: notif.isRead
+          boxShadow: isRead
               ? null
               : [
                   BoxShadow(
@@ -257,17 +256,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: () {
-              setState(() {
-                notif.isRead = true;
-              });
-            },
+            onTap: () => np.markRead(id),
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Icon
                   Container(
                     width: 42,
                     height: 42,
@@ -276,10 +270,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: color.withOpacity(0.2)),
                     ),
-                    child: Icon(notif.icon, color: color, size: 20),
+                    child: Icon(vis.icon, color: color, size: 20),
                   ),
-                  SizedBox(width: 12),
-                  // Content
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,17 +281,15 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                           children: [
                             Expanded(
                               child: Text(
-                                notif.title,
+                                title,
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 14,
-                                  fontWeight: notif.isRead
-                                      ? FontWeight.w500
-                                      : FontWeight.bold,
+                                  fontWeight: isRead ? FontWeight.w500 : FontWeight.bold,
                                 ),
                               ),
                             ),
-                            if (!notif.isRead)
+                            if (!isRead)
                               Container(
                                 width: 8,
                                 height: 8,
@@ -306,29 +297,26 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                   shape: BoxShape.circle,
                                   color: color,
                                   boxShadow: [
-                                    BoxShadow(
-                                      color: color.withOpacity(0.5),
-                                      blurRadius: 6,
-                                    ),
+                                    BoxShadow(color: color.withOpacity(0.5), blurRadius: 6),
                                   ],
                                 ),
                               ),
                           ],
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Text(
-                          notif.message,
+                          message,
                           style: TextStyle(
                             color: AppColors.textSecondary.withOpacity(0.7),
                             fontSize: 12,
                             height: 1.4,
                           ),
-                          maxLines: 2,
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        SizedBox(height: 6),
+                        const SizedBox(height: 6),
                         Text(
-                          notif.time,
+                          time,
                           style: TextStyle(
                             color: AppColors.textLight.withOpacity(0.5),
                             fontSize: 11,
@@ -345,39 +333,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       ),
     );
   }
-
-  Color _getNotifColor(_NotifType type) {
-    switch (type) {
-      case _NotifType.success:
-        return AppColors.primaryGreen;
-      case _NotifType.promo:
-        return const Color(0xFFFF006E);
-      case _NotifType.wallet:
-        return const Color(0xFF00B4D8);
-      case _NotifType.reward:
-        return const Color(0xFFFFD700);
-      case _NotifType.info:
-        return const Color(0xFF8B9DC3);
-    }
-  }
 }
 
-enum _NotifType { success, promo, wallet, reward, info }
-
-class _NotificationItem {
+class _Visual {
   final IconData icon;
-  final String title;
-  final String message;
-  final String time;
-  final _NotifType type;
-  bool isRead;
-
-  _NotificationItem({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.time,
-    required this.type,
-    required this.isRead,
-  });
+  final Color color;
+  const _Visual(this.icon, this.color);
 }

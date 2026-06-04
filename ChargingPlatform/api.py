@@ -34,6 +34,7 @@ from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
     Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
+    Notification,
     OTPVerification, PaymentGatewayConfig, PaymentTransaction,
     Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
@@ -3935,6 +3936,17 @@ async def topup_wallet(
         audit_log("topup", user_id, f"RM{dec_amount} via {request.payment_method}", client_ip, float(dec_amount), db=db)
 
         db.commit()
+
+        # In-app notification — pinged immediately so the bell badge fires
+        # before the user even sees the success toast.
+        _create_notification(
+            db,
+            user_id=user_id,
+            notif_type="wallet",
+            title="Wallet Top-Up Successful",
+            message=f"RM {float(dec_amount):.2f} added to your PlagSini wallet. Current balance: RM {float(balance_after):.2f}",
+            related_id=str(transaction.id),
+        )
         
         logger.info(f"Wallet top-up: User {user_id}, Amount RM{dec_amount}, New balance RM{wallet.balance}")
         
@@ -7900,3 +7912,124 @@ async def _dev_auto_init():
         logger.info("OCPP WebSocket server started on ws://0.0.0.0:9000 (dev auto-init)")
     except Exception as e:
         logger.error(f"Dev auto-init OCPP error: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NOTIFICATIONS — in-app feed (per user). Trigger points elsewhere call
+# `_create_notification(db, user_id, ...)`. The AppEV notifications screen
+# reads /api/notifications and the bell badge polls /api/notifications/count.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _create_notification(
+    db,
+    user_id: int,
+    notif_type: str,
+    title: str,
+    message: str,
+    related_id: Optional[str] = None,
+) -> None:
+    """Best-effort insert. Wrapped in try so a notification failure never
+    breaks the primary action (top-up, session stop, etc.)."""
+    try:
+        n = Notification(
+            user_id=user_id,
+            type=notif_type,
+            title=title[:120],
+            message=message,
+            related_id=related_id,
+        )
+        db.add(n)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"create_notification failed (user={user_id}): {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+@app.get("/api/notifications")
+async def list_notifications(
+    limit: int = 50,
+    unread_only: bool = False,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Return the current user's notifications (newest first)."""
+    q = db.query(Notification).filter(Notification.user_id == current_user.id)
+    if unread_only:
+        q = q.filter(Notification.is_read == False)  # noqa: E712
+    rows = q.order_by(Notification.created_at.desc()).limit(max(1, min(limit, 200))).all()
+    return [
+        {
+            "id": n.id,
+            "type": n.type,
+            "title": n.title,
+            "message": n.message,
+            "related_id": n.related_id,
+            "is_read": bool(n.is_read),
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in rows
+    ]
+
+
+@app.get("/api/notifications/count")
+async def notifications_count(
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Lightweight unread-count endpoint for the bell badge."""
+    unread = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,  # noqa: E712
+    ).count()
+    total = db.query(Notification).filter(Notification.user_id == current_user.id).count()
+    return {"unread": unread, "total": total}
+
+
+@app.post("/api/notifications/{notif_id}/read")
+async def mark_notification_read(
+    notif_id: int,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    n = db.query(Notification).filter(
+        Notification.id == notif_id,
+        Notification.user_id == current_user.id,
+    ).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    n.is_read = True
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/notifications/read-all")
+async def mark_all_notifications_read(
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,  # noqa: E712
+    ).update({"is_read": True})
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/notifications/{notif_id}")
+async def delete_notification(
+    notif_id: int,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    n = db.query(Notification).filter(
+        Notification.id == notif_id,
+        Notification.user_id == current_user.id,
+    ).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db.delete(n)
+    db.commit()
+    return {"ok": True}

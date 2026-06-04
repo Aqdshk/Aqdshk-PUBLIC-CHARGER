@@ -12,6 +12,7 @@ import 'providers/payment_provider.dart';
 import 'providers/session_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/notification_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -278,6 +279,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SessionProvider()),
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: Consumer2<LocaleProvider, ThemeProvider>(
         builder: (context, localeProvider, themeProvider, child) => MaterialApp(

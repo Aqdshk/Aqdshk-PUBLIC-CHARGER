@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
 import '../providers/charger_provider.dart';
+import '../providers/notification_provider.dart';
 import '../constants/app_colors.dart';
 import '../widgets/header_widget.dart';
 import '../widgets/bottom_nav_bar.dart';
@@ -41,6 +42,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     RewardsScreen(),
     ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Initial unread-badge fetch so the bell shows the right number before
+    // the user opens the notifications screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<NotificationProvider>().refreshUnread();
+      }
+    });
+  }
 
   void _onTabTapped(int index) {
     if (index == _currentIndex) return;
@@ -154,6 +167,8 @@ class DashboardScreen extends StatelessWidget {
           onRefresh: () async {
             await Provider.of<SessionProvider>(context, listen: false).loadActiveSession();
             await Provider.of<ChargerProvider>(context, listen: false).loadNearbyChargers();
+            // Refresh badge count alongside data; cheap endpoint.
+            await Provider.of<NotificationProvider>(context, listen: false).refreshUnread();
           },
           color: AppColors.premiumGold,
           backgroundColor: AppColors.cardBackground,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
+import '../providers/notification_provider.dart';
 import 'glowing_icon_button.dart';
 
 class HeaderWidget extends StatelessWidget {
@@ -46,10 +48,15 @@ class HeaderWidget extends StatelessWidget {
               ],
             ),
           ),
-          GlowingIconButton(
-            icon: Icons.notifications_outlined,
-            onTap: onNotificationTap ?? () {},
-            badge: '3',
+          // Real unread badge — Consumer rebuilds when count flips.
+          Consumer<NotificationProvider>(
+            builder: (context, np, _) => GlowingIconButton(
+              icon: Icons.notifications_outlined,
+              onTap: onNotificationTap ?? () {},
+              badge: np.unreadCount > 0
+                  ? (np.unreadCount > 9 ? '9+' : '${np.unreadCount}')
+                  : null,
+            ),
           ),
         ],
       ),

@@ -216,6 +216,25 @@ class PushSubscription(Base):
     user = relationship("User", back_populates="push_subscriptions")
 
 
+class Notification(Base):
+    """In-app notification feed (per-user).
+
+    Created by app events: session complete, top-up success, low balance,
+    booking reminders, system broadcasts. Read by the AppEV notifications
+    screen and the bell-badge unread count.
+    """
+    __tablename__ = "notifications"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    type        = Column(String(32), nullable=False)   # 'success'|'wallet'|'promo'|'info'|'reward'|'warning'
+    title       = Column(String(120), nullable=False)
+    message     = Column(Text, nullable=False)
+    related_id  = Column(String(64), nullable=True)    # session id, txn id, charger id, etc.
+    is_read     = Column(Boolean, default=False, nullable=False, index=True)
+    created_at  = Column(DateTime, default=_utcnow, index=True)
+
+
 class OTPVerification(Base):
     """Store OTP codes for email verification during registration."""
     __tablename__ = "otp_verifications"

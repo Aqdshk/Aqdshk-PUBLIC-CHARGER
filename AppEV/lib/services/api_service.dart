@@ -278,6 +278,55 @@ class ApiService {
     }
   }
 
+  // ── Notifications ────────────────────────────────────────────────────────
+  // Backed by /api/notifications. All methods silently degrade (return
+  // empty / no-op) so a flaky network never blanks the screen.
+
+  static Future<List<Map<String, dynamic>>> getNotifications({int limit = 50}) async {
+    try {
+      final response = await _authGet('$baseUrl/notifications?limit=$limit');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is List) return data.cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<int> getNotificationsUnreadCount() async {
+    try {
+      final response = await _authGet('$baseUrl/notifications/count');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is Map && data['unread'] is int) return data['unread'] as int;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  static Future<bool> markNotificationRead(int id) async {
+    try {
+      final r = await _authPost('$baseUrl/notifications/$id/read');
+      return r.statusCode == 200;
+    } catch (_) { return false; }
+  }
+
+  static Future<bool> markAllNotificationsRead() async {
+    try {
+      final r = await _authPost('$baseUrl/notifications/read-all');
+      return r.statusCode == 200;
+    } catch (_) { return false; }
+  }
+
+  static Future<bool> deleteNotification(int id) async {
+    try {
+      final r = await _authDelete('$baseUrl/notifications/$id');
+      return r.statusCode == 200;
+    } catch (_) { return false; }
+  }
+
   static Future<List<Map<String, dynamic>>> getChargingHistory() async {
     try {
       final response = await _authGet('$baseUrl/sessions');
