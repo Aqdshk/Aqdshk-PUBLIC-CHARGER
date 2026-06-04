@@ -5,25 +5,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <link rel="stylesheet" href="/static/styles.css?v=12">
     <script src="/static/theme.js?v=2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ===== Hero banner ===== */
+        .hero {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 16px; padding: 18px 22px; margin-bottom: 14px;
+            background: linear-gradient(135deg, rgba(0,255,136,0.08), rgba(68,136,255,0.04) 60%, transparent);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 10px;
+        }
+        .hero-title { font-size: clamp(15px, 1.1vw, 19px); font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+        .hero-sub { font-size: clamp(10px, 0.65vw, 12px); color: var(--text-muted); }
+        .hero-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 12px; border-radius: 999px;
+            background: rgba(0,255,136,0.12); border: 1px solid rgba(0,255,136,0.3);
+            color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+        }
+        .hero-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+        /* ===== Tonal KPI cards — override the tiny global .stat-card ===== */
+        .stats-grid {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 12px !important;
+            margin-bottom: 14px !important;
+        }
+        .stat-card {
+            position: relative; overflow: hidden;
+            padding: 18px 20px !important;
+            text-align: left !important;
+            border-radius: 10px !important;
+            border: 1px solid var(--border) !important;
+            background: var(--bg-card) !important;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
+        }
+        .stat-card::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, var(--accent-tint, rgba(0,255,136,0.10)) 0%, transparent 60%);
+            opacity: 0.9; pointer-events: none;
+        }
+        .stat-card::after {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+            background: var(--accent-bar, var(--accent));
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.35); border-color: var(--accent-bar, var(--accent)) !important; }
+        .stat-card .stat-icon {
+            position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+            font-size: 28px !important; opacity: 0.18; margin: 0 !important;
+        }
+        .stat-card .stat-label {
+            font-size: 10px !important; letter-spacing: 1.4px !important;
+            color: var(--text-muted) !important; margin-bottom: 6px !important;
+            text-transform: uppercase; font-weight: 700 !important;
+            position: relative; z-index: 1;
+        }
+        .stat-card .stat-value {
+            font-size: clamp(22px, 1.6vw, 30px) !important;
+            font-weight: 800 !important; color: var(--text-primary) !important;
+            line-height: 1 !important; position: relative; z-index: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .stat-card[data-tone="green"]  { --accent-bar: #00ff88; --accent-tint: rgba(0,255,136,0.10); }
+        .stat-card[data-tone="blue"]   { --accent-bar: #4488ff; --accent-tint: rgba(68,136,255,0.10); }
+        .stat-card[data-tone="orange"] { --accent-bar: #ff9944; --accent-tint: rgba(255,153,68,0.10); }
+        .stat-card[data-tone="purple"] { --accent-bar: #a855ff; --accent-tint: rgba(168,85,255,0.10); }
+        .stat-card[data-tone="green"]  .stat-value { color: #00ff88; }
+        .stat-card[data-tone="blue"]   .stat-value { color: #4488ff; }
+        .stat-card[data-tone="orange"] .stat-value { color: #ff9944; }
+        .stat-card[data-tone="purple"] .stat-value { color: #a855ff; }
+
+        /* ===== Chart cards ===== */
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: clamp(4px, 0.4vw, 8px);
-            margin-bottom: clamp(4px, 0.4vw, 8px);
+            gap: 12px;
+            margin-bottom: 12px;
         }
         .charts-grid-2 {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: clamp(4px, 0.4vw, 8px);
+            gap: 12px;
         }
-        .chart-wrap { position: relative; height: clamp(80px, 7vw, 120px); }
-        .chart-wrap-wide { position: relative; height: clamp(70px, 6vw, 100px); }
-        @media(max-width:1200px){ .charts-grid{ grid-template-columns:repeat(2,1fr); } }
-        @media(max-width:768px){ .charts-grid,.charts-grid-2{ grid-template-columns:1fr; } .chart-wrap,.chart-wrap-wide { height: 120px; } }
+        .charts-grid .card, .charts-grid-2 .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .charts-grid .card:hover, .charts-grid-2 .card:hover {
+            border-color: rgba(0,255,136,0.25);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        }
+        .card-header { padding: 12px 16px 8px; border-bottom: 1px solid var(--border); }
+        .card-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.4px; text-transform: uppercase; }
+        .card-body { padding: 14px 16px; }
+        .chart-wrap { position: relative; height: clamp(180px, 16vw, 220px); }
+        .chart-wrap-wide { position: relative; height: clamp(200px, 18vw, 260px); }
+        @media(max-width:1200px){ .charts-grid{ grid-template-columns:repeat(2,1fr); } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
+        @media(max-width:768px){ .charts-grid,.charts-grid-2{ grid-template-columns:1fr; } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
     </style>
 </head>
 <body>
@@ -78,27 +163,36 @@
         </header>
 
         <div class="dashboard-container fade-in">
-            <!-- Stats -->
+            <!-- Hero banner — live status pulse -->
+            <div class="hero">
+                <div>
+                    <div class="hero-title">Plag Sini operations — live</div>
+                    <div class="hero-sub" id="heroSub">Monitoring charger fleet, sessions and energy throughput in real time.</div>
+                </div>
+                <div class="hero-pill"><span class="hero-dot"></span><span id="heroPill">SYSTEM OPERATIONAL</span></div>
+            </div>
+
+            <!-- KPI stat cards -->
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">🔌</div>
-                    <div class="stat-value" id="totalChargers">-</div>
+                <div class="stat-card" data-tone="green">
                     <div class="stat-label">Total Chargers</div>
+                    <div class="stat-value" id="totalChargers">—</div>
+                    <div class="stat-icon">🔌</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-value" id="onlineChargers">-</div>
+                <div class="stat-card" data-tone="blue">
                     <div class="stat-label">Online</div>
+                    <div class="stat-value" id="onlineChargers">—</div>
+                    <div class="stat-icon">📡</div>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" data-tone="orange">
+                    <div class="stat-label">Charging Now</div>
+                    <div class="stat-value" id="chargingNow">—</div>
                     <div class="stat-icon">⚡</div>
-                    <div class="stat-value" id="chargingNow">-</div>
-                    <div class="stat-label">Charging</div>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" data-tone="purple">
+                    <div class="stat-label">Total Sessions</div>
+                    <div class="stat-value" id="totalSessions">—</div>
                     <div class="stat-icon">📋</div>
-                    <div class="stat-value" id="totalSessions">-</div>
-                    <div class="stat-label">Sessions</div>
                 </div>
             </div>
 
@@ -148,9 +242,21 @@
         document.addEventListener('DOMContentLoaded', () => { initializeCharts(); loadDashboardData(); setInterval(loadDashboardData, 10000); });
 
         function initializeCharts() {
-            Chart.defaults.color = '#5a6478';
-            Chart.defaults.borderColor = '#1e2a3a';
-            const legendOpts = { position:'bottom', labels:{ color:'#8892a4', boxWidth:10, padding:6, font:{size:10} } };
+            // Read theme palette so charts re-tint with light/dark mode and
+            // don't ship hardcoded near-black axis labels (the prior cause of
+            // "distorted, hard to read" text).
+            const css = getComputedStyle(document.documentElement);
+            const tick = css.getPropertyValue('--text-muted').trim() || '#8892a4';
+            const grid = css.getPropertyValue('--border').trim() || 'rgba(255,255,255,0.06)';
+            const legend = css.getPropertyValue('--text-secondary').trim() || '#aaa';
+            Chart.defaults.color = tick;
+            Chart.defaults.borderColor = grid;
+            Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
+            const legendOpts = { position:'bottom', labels:{ color:legend, boxWidth:10, padding:8, font:{size:11, weight:'500'} } };
+            const baseScales = (extra={}) => ({
+                y:{ beginAtZero:true, grid:{color:grid, drawBorder:false}, ticks:{color:tick, font:{size:11}, padding:4, ...(extra.yTicks||{})} },
+                x:{ grid:{display:false}, ticks:{color:tick, font:{size:11}, padding:4, ...(extra.xTicks||{})} },
+            });
 
             chargerStatusChart = new Chart(document.getElementById('chargerStatusChart'), {
                 type:'doughnut', data:{ labels:['Online','Offline'], datasets:[{ data:[0,0], backgroundColor:[C.green,C.red], borderWidth:0 }] },
@@ -161,16 +267,21 @@
                 options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:legendOpts } }
             });
             sessionsStatusChart = new Chart(document.getElementById('sessionsStatusChart'), {
-                type:'bar', data:{ labels:['Active','Pending','Done'], datasets:[{ data:[0,0,0], backgroundColor:[C.green,C.yellow,C.blue], borderRadius:4 }] },
-                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+                type:'bar', data:{ labels:['Active','Pending','Done'], datasets:[{ data:[0,0,0], backgroundColor:[C.green,C.yellow,C.blue], borderRadius:6, borderSkipped:false }] },
+                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:baseScales() }
             });
             sessionsTimelineChart = new Chart(document.getElementById('sessionsTimelineChart'), {
-                type:'line', data:{ labels:[], datasets:[{ data:[], borderColor:C.green, backgroundColor:'rgba(0,230,118,0.08)', fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:C.green }] },
-                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+                type:'line', data:{ labels:[], datasets:[{ data:[], borderColor:C.green, backgroundColor:'rgba(0,230,118,0.10)', fill:true, tension:0.4, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:C.green, pointBorderColor:'#fff', pointBorderWidth:1, borderWidth:2.5 }] },
+                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:baseScales() }
             });
+            // Energy chart — horizontal bars so long charger IDs render
+            // readably instead of being squashed/rotated on a crammed x-axis.
             energyChart = new Chart(document.getElementById('energyChart'), {
-                type:'bar', data:{ labels:[], datasets:[{ data:[], backgroundColor:C.blue, borderRadius:4 }] },
-                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true, grid:{color:'#1e2a3a'}, ticks:{font:{size:10}} }, x:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+                type:'bar', data:{ labels:[], datasets:[{ data:[], backgroundColor:'rgba(68,136,255,0.85)', borderRadius:6, borderSkipped:false, barThickness:14 }] },
+                options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y', plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>` ${ctx.parsed.x.toFixed(2)} kWh` } } }, scales:{
+                    x:{ beginAtZero:true, grid:{color:grid, drawBorder:false}, ticks:{color:tick, font:{size:11}} },
+                    y:{ grid:{display:false}, ticks:{color:tick, font:{size:11}, autoSkip:false} },
+                }}
             });
         }
 
@@ -198,8 +309,40 @@
                 for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); days.push(d.toLocaleDateString('en-MY',{weekday:'short'})); const ds=new Date(d); ds.setHours(0,0,0,0); const de=new Date(d); de.setHours(23,59,59,999); counts.push(sessions.filter(s=>{const sd=new Date(s.start_time); return sd>=ds&&sd<=de;}).length); }
                 sessionsTimelineChart.data.labels=days; sessionsTimelineChart.data.datasets[0].data=counts; sessionsTimelineChart.update();
 
-                const ebc={}; chargers.forEach(c=>ebc[c.charge_point_id]=0); sessions.forEach(s=>{if(ebc.hasOwnProperty(s.charge_point_id)) ebc[s.charge_point_id]+=(s.energy_consumed||0);});
-                energyChart.data.labels=Object.keys(ebc).map(id=>id.length>10?id.slice(-8):id); energyChart.data.datasets[0].data=Object.values(ebc).map(v=>parseFloat(v.toFixed(2))); energyChart.update();
+                // Build energy-by-charger but only KEEP chargers that
+                // actually consumed energy, then top 10 — prevents the
+                // x-axis from being crammed with 400+ near-zero labels.
+                const ebc = {};
+                chargers.forEach(c => { ebc[c.charge_point_id] = 0; });
+                sessions.forEach(s => { if (ebc.hasOwnProperty(s.charge_point_id)) ebc[s.charge_point_id] += (s.energy_consumed || 0); });
+                const ranked = Object.entries(ebc)
+                    .filter(([, v]) => v > 0)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10);
+                const labels = ranked.map(([id]) => id.length > 12 ? '…' + id.slice(-10) : id);
+                const values = ranked.map(([, v]) => parseFloat(v.toFixed(2)));
+                energyChart.data.labels = labels;
+                energyChart.data.datasets[0].data = values;
+                energyChart.update();
+
+                // Hero pill — reflect live system state.
+                const pill = document.getElementById('heroPill');
+                const sub = document.getElementById('heroSub');
+                const onlineN = chargers.filter(c => c.status === 'online').length;
+                const faultN = chargers.filter(c => c.availability === 'faulted').length;
+                if (pill && sub) {
+                    if (faultN > 0) {
+                        pill.textContent = `${faultN} FAULTS`;
+                        pill.parentElement.style.background = 'rgba(255,68,102,0.12)';
+                        pill.parentElement.style.borderColor = 'rgba(255,68,102,0.35)';
+                        pill.parentElement.style.color = '#ff4466';
+                        pill.parentElement.querySelector('.hero-dot').style.background = '#ff4466';
+                        pill.parentElement.querySelector('.hero-dot').style.boxShadow = '0 0 8px #ff4466';
+                    } else {
+                        pill.textContent = 'SYSTEM OPERATIONAL';
+                    }
+                    sub.textContent = `${onlineN}/${chargers.length} chargers online · ${sessions.length} sessions tracked`;
+                }
             } catch(e){ console.error('Dashboard error:',e); }
         }
     </script>
