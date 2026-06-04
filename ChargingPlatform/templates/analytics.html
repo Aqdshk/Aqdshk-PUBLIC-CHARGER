@@ -238,7 +238,7 @@
                 </div>
                 <div class="chart-card">
                     <h3>💳 Top-up by Payment Method</h3>
-                    <div class="chart-container"><canvas id="paymentChart"></canvas></div>
+                    <div class="chart-container" data-payment-slot><canvas id="paymentChart"></canvas></div>
                 </div>
             </div>
 
@@ -417,16 +417,27 @@
 
             // Payment methods doughnut
             const methods = d.wallet.payment_methods;
-            if (methods.length > 0) {
+            // Locate the payment chart slot. On the FIRST render with no
+            // data we replaced the canvas with an empty-state div, which
+            // means subsequent Refresh clicks couldn't find #paymentChart
+            // and the null lookup crashed renderCharts. Recreate the canvas
+            // if we previously nuked it, so re-render always has a target.
+            let payCanvas = document.getElementById('paymentChart');
+            const payHolder = document.querySelector('[data-payment-slot]');
+            if (!payCanvas && payHolder) {
+                payHolder.innerHTML = '<canvas id="paymentChart"></canvas>';
+                payCanvas = document.getElementById('paymentChart');
+            }
+            if (methods.length > 0 && payCanvas) {
                 const colors = [chartColors.green, chartColors.blue, chartColors.orange, chartColors.purple, chartColors.red];
-                charts.payment = new Chart(document.getElementById('paymentChart'), {
+                charts.payment = new Chart(payCanvas, {
                     type: 'doughnut', data: {
                         labels: methods.map(m => m.method),
                         datasets: [{ data: methods.map(m => m.total), backgroundColor: methods.map((_, i) => colors[i % colors.length] + '40'), borderColor: methods.map((_, i) => colors[i % colors.length]), borderWidth: 2 }]
                     }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: _legendColor, font: { size: 11 } } } } }
                 });
-            } else {
-                document.getElementById('paymentChart').parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">No payment data yet</div>';
+            } else if (payHolder) {
+                payHolder.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">No payment data yet</div>';
             }
         }
 
