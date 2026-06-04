@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCPP 1.6 Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=8">
+    <link rel="stylesheet" href="/static/styles.css?v=12">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
@@ -43,7 +43,8 @@
         .resp-pill { display:inline-block; padding:2px clamp(6px, 0.5vw, 10px); border-radius:10px; font-size: clamp(8px, 0.5vw, 10px); font-weight:600; margin-bottom:4px; }
         .resp-pill.ok { background:rgba(0,230,118,.12); color:var(--accent); }
         .resp-pill.err { background:rgba(255,68,68,.12); color:var(--red); }
-        .resp pre { background:rgba(5,5,16,.6); padding: clamp(6px, 0.5vw, 10px); border-radius:4px; color:var(--text-secondary); font-size: clamp(8px, 0.5vw, 10px); overflow-x:auto; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+        .resp pre { background:var(--bg-card); padding: clamp(8px, 0.6vw, 12px); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:'Menlo','Monaco','Courier New',monospace; font-size: clamp(9px, 0.55vw, 11px); overflow-x:auto; white-space:pre-wrap; word-break:break-word; line-height:1.55; }
+        [data-theme="light"] .resp pre { background:#f8fafc; color:#1f2937; border-color:#e2e8f0; }
         .no-op { text-align:center; padding: clamp(30px, 3vw, 60px) clamp(8px, 0.8vw, 16px); color:var(--text-muted); }
         .no-op .ico { font-size: clamp(24px, 2vw, 36px); margin-bottom: clamp(6px, 0.5vw, 10px); opacity:.4; }
         .no-op h3 { color:var(--text-secondary); font-size: clamp(11px, 0.75vw, 14px); margin-bottom:4px; }
