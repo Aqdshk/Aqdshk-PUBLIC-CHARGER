@@ -42,6 +42,54 @@
     --container-max: 1320px;
 }
 
+/* ── Light theme overrides (applied when <html data-theme="light">) ──
+   Surfaces flip to clean white-on-grey. Brand green is slightly darker
+   so it stays readable on white. Status colors are dimmed for contrast. */
+:root[data-theme="light"] {
+    --bg-base:        #f4f6f8;
+    --bg-surface:     #ffffff;
+    --bg-card:        #ffffff;
+    --bg-elevated:    #f8fafb;
+    --border:         #e3e6ea;
+    --border-hover:   #c8cdd5;
+    --text-primary:   #1a1c1e;
+    --text-secondary: #4a5158;
+    --text-muted:     #828a94;
+    --accent:         #00a850;
+    --accent-dim:     rgba(0, 168, 80, 0.10);
+    --accent-hover:   #008f43;
+    --blue:           #2196f3;
+    --orange:         #f57c00;
+    --red:            #e53935;
+    --purple:         #8e24aa;
+    --cyan:           #00acc1;
+    --shadow-sm:      0 1px 2px rgba(15, 25, 40, 0.06);
+    --shadow-md:      0 2px 8px rgba(15, 25, 40, 0.08);
+}
+
+/* Smooth flip without flashing during the swap */
+html, body, .sidebar, .top-header, .dashboard-container, .charger-item,
+.metering-item, .nav-item, .btn {
+    transition: background-color 200ms ease, color 200ms ease,
+                border-color 200ms ease;
+}
+
+/* Theme toggle button — injected into .sidebar-footer by theme.js */
+.theme-toggle {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 10px; margin-bottom: 6px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-secondary);
+    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+    text-align: left; transition: all var(--transition);
+}
+.theme-toggle:hover {
+    background: var(--accent-dim); color: var(--accent);
+    border-color: var(--accent);
+}
+.theme-toggle svg { flex: 0 0 auto; }
+.theme-toggle-label { flex: 1 1 auto; }
+
 body {
     font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg-base);

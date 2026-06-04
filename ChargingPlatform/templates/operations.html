@@ -6,6 +6,7 @@
     <title>OCPP 1.6 Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=8">
+    <script src="/static/theme.js?v=1"></script>
     <style>
         .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
         .ops-sidebar { width: clamp(170px, 14vw, 220px); min-width: clamp(170px, 14vw, 220px); background:var(--bg-card); border-right:1px solid var(--border); overflow-y:auto; padding: clamp(6px, 0.5vw, 10px) 0; }
@@ -524,13 +525,13 @@
 
                 // Stop conditions checked AFTER processing events.
                 if (_pendingChargers.size === 0) {
-                    stopFirmwareWatch();
+                    stopFirmwareWatch('all-pending-resolved');
                     return;
                 }
                 if (Date.now() - _watchStartTime > HARD_CAP_MS) {
                     const stuck = Array.from(_pendingChargers).join(', ');
                     showToast('⚠️ Watch Timed Out', `Stopped polling after 30 min. Did not receive completion status for: <b>${stuck}</b>`, 'offline', 20000);
-                    stopFirmwareWatch();
+                    stopFirmwareWatch('hard-cap-30min');
                 }
             }
 
@@ -538,18 +539,22 @@
                 if (!chargerId) return;
                 _pendingChargers.add(chargerId);
                 if (!_watchStartTime) _watchStartTime = Date.now();
+                // Reset _lastCheck on the FIRST add of a new watch session so we
+                // don't replay stale events from earlier on the same page load.
                 if (!_pollTimer) {
+                    _lastCheck = new Date().toISOString();
                     _pollTimer = setInterval(checkFirmwareEvents, POLL_INTERVAL_MS);
-                    console.log('[firmware-watch] started');
+                    console.log('[firmware-watch] started @', _lastCheck);
                 }
                 console.log('[firmware-watch] pending:', Array.from(_pendingChargers));
             }
 
-            function stopFirmwareWatch() {
+            function stopFirmwareWatch(reason) {
                 if (_pollTimer) {
                     clearInterval(_pollTimer);
                     _pollTimer = null;
-                    console.log('[firmware-watch] stopped');
+                    console.log('[firmware-watch] stopped — reason:', reason || 'unknown',
+                                'pending was:', Array.from(_pendingChargers));
                 }
                 _pendingChargers.clear();
                 _watchStartTime = 0;
@@ -577,11 +582,16 @@
                 return _origFetch(input, init);
             };
 
-            // Stop polling when tab hidden — no point checking when user can't see toasts.
+            // Tab hidden: DON'T stop the watch — just log it. The browser may
+            // throttle setInterval to ~1/min in background tabs, but events
+            // will still be fetched eventually, and toasts will queue up so
+            // the user sees them when they switch back. Stopping here was
+            // causing missed-toast bugs when DevTools focus changed visibility.
             document.addEventListener('visibilitychange', () => {
-                if (document.hidden) stopFirmwareWatch();
+                console.log('[firmware-watch] visibility:', document.visibilityState,
+                            '(polling continues regardless)');
             });
-            window.addEventListener('beforeunload', stopFirmwareWatch);
+            window.addEventListener('beforeunload', () => stopFirmwareWatch('beforeunload'));
         })();
     </script>
 </body>
