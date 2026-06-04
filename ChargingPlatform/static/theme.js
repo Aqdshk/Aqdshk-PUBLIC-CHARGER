@@ -41,9 +41,7 @@
         if (btn) btn.innerHTML = buttonHTML(t);
     }
 
-    function injectToggle() {
-        var footer = document.querySelector('.sidebar-footer');
-        if (!footer || document.getElementById('themeToggleBtn')) return;
+    function buildButton() {
         var btn = document.createElement('button');
         btn.id = 'themeToggleBtn';
         btn.type = 'button';
@@ -51,14 +49,49 @@
         btn.setAttribute('aria-label', 'Toggle dark / light mode');
         btn.onclick = window.toggleDashboardTheme;
         btn.innerHTML = buttonHTML(currentTheme());
-        // Insert at the TOP of the sidebar footer so it sits above existing
-        // footer items (Admin / Logout / Docs link).
-        footer.insertBefore(btn, footer.firstChild);
+        return btn;
+    }
+
+    function injectToggle() {
+        if (document.getElementById('themeToggleBtn')) return;
+        var footer = document.querySelector('.sidebar-footer');
+        var sidebar = document.querySelector('.sidebar');
+        if (!sidebar) return;
+        // Wrap in a small container styled like the footer so the button
+        // visually sits above the Admin/Logout area. Insert as a SIBLING
+        // before .sidebar-footer (NOT inside it) — auth.js wipes the
+        // footer's innerHTML when it injects the staff name + logout, which
+        // was eating any button placed inside.
+        var wrap = document.createElement('div');
+        wrap.id = 'themeToggleWrap';
+        wrap.className = 'theme-toggle-wrap';
+        wrap.appendChild(buildButton());
+        if (footer) {
+            sidebar.insertBefore(wrap, footer);
+        } else {
+            sidebar.appendChild(wrap);
+        }
+    }
+
+    // Watch the sidebar for re-renders (auth.js runs after DOMContentLoaded
+    // and rewrites the footer). If our toggle disappears, put it back.
+    function startWatcher() {
+        var sidebar = document.querySelector('.sidebar');
+        if (!sidebar || !window.MutationObserver) return;
+        var obs = new MutationObserver(function () {
+            if (!document.getElementById('themeToggleBtn')) injectToggle();
+        });
+        obs.observe(sidebar, { childList: true, subtree: true });
+    }
+
+    function boot() {
+        injectToggle();
+        startWatcher();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', injectToggle);
+        document.addEventListener('DOMContentLoaded', boot);
     } else {
-        injectToggle();
+        boot();
     }
 })();

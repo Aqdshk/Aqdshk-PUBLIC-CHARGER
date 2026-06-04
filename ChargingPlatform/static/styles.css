@@ -74,10 +74,16 @@ html, body, .sidebar, .top-header, .dashboard-container, .charger-item,
                 border-color 200ms ease;
 }
 
-/* Theme toggle button — injected into .sidebar-footer by theme.js */
+/* Theme toggle — wrap sits as a SIBLING above .sidebar-footer (auth.js
+   rewrites the footer's innerHTML when it injects the staff name + logout,
+   so the toggle has to live outside it). */
+.theme-toggle-wrap {
+    padding: 8px;
+    border-top: 1px solid var(--border);
+}
 .theme-toggle {
     display: flex; align-items: center; gap: 8px;
-    width: 100%; padding: 6px 10px; margin-bottom: 6px;
+    width: 100%; padding: 6px 10px;
     background: transparent; border: 1px solid var(--border);
     border-radius: var(--radius-sm); color: var(--text-secondary);
     cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
