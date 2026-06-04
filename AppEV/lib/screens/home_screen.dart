@@ -59,6 +59,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     final scaffold = Scaffold(
       backgroundColor: AppColors.background,
+      // Let body extend behind the floating nav bar so content shows through.
+      extendBody: true,
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 280),
         switchInCurve: Curves.easeOutQuart,
