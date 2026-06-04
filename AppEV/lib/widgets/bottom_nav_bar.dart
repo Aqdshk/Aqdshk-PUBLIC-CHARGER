@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FLOATING BOTTOM NAV — capsule-shaped, hovers over content with an animated
-// pill that slides between active items (GoCar / Tesla-style).
+// FLOATING BOTTOM NAV — capsule-shaped, hovers over content. Each cell owns
+// its own animated pill background; the active cell expands to fit its label
+// while inactive cells collapse to icon-only. No overlay → labels can never
+// overflow their pill.
 //
 // Public API unchanged: pass [currentIndex] + [onTap]. Scaffold should set
 // `extendBody: true` so body content shows through behind the bar.
@@ -31,9 +33,7 @@ class BottomNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Padding(
-      // Floating margin around the capsule. Adds the device safe-area on top
-      // so the pill never sits under the home indicator.
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + bottomInset),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, 12 + bottomInset),
       child: _FloatingBar(
         currentIndex: currentIndex,
         items: _items,
@@ -62,12 +62,11 @@ class _FloatingBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double height = 64;
+    const double height = 60;
     return Container(
       height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
-        // Subtle vertical gradient — keeps the bar from looking flat-dead
-        // against AMOLED black.
         gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
@@ -88,58 +87,33 @@ class _FloatingBar extends StatelessWidget {
           ),
         ],
       ),
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final double slot = c.maxWidth / items.length;
-          // Active pill: slightly inset from slot edges so neighbours breathe.
-          const double pillPadH = 8;
-          const double pillPadV = 8;
-          return Stack(
-            children: [
-              // Sliding active pill — the headline animation.
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 380),
-                curve: Curves.easeOutCubic,
-                left: slot * currentIndex + pillPadH,
-                top: pillPadV,
-                bottom: pillPadV,
-                width: slot - pillPadH * 2,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryGreen.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(40),
-                    border: Border.all(
-                      color: AppColors.primaryGreen.withOpacity(0.35),
-                      width: 1,
-                    ),
-                  ),
-                ),
-              ),
-              // Foreground tap targets (icon + label).
-              Row(
-                children: List.generate(items.length, (i) {
-                  final spec = items[i];
-                  return Expanded(
-                    child: _NavCell(
-                      icon: spec.icon,
-                      label: spec.label,
-                      isActive: i == currentIndex,
-                      onTap: () => onTap(i),
-                    ),
-                  );
-                }),
-              ),
-            ],
-          );
-        },
+      // Active cell grows to its content (icon + label); inactive shrinks to
+      // an icon-only square. `AnimatedSize` smooths the layout shift so the
+      // expansion feels like a single fluid motion across the whole bar.
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: List.generate(items.length, (i) {
+            final spec = items[i];
+            return _NavCell(
+              icon: spec.icon,
+              label: spec.label,
+              isActive: i == currentIndex,
+              onTap: () => onTap(i),
+            );
+          }),
+        ),
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Single tap target. Uses an AnimatedScale on press for tactile feedback and
-// AnimatedDefaultTextStyle / TweenAnimationBuilder for the active→idle morph.
+// Single tap target. The cell hugs its content (icon, or icon+label when
+// active) so the active pill is always exactly wide enough — label never
+// overflows.
 // ─────────────────────────────────────────────────────────────────────────────
 class _NavCell extends StatefulWidget {
   final IconData icon;
@@ -174,48 +148,57 @@ class _NavCellState extends State<_NavCell> {
       onTapUp: (_) => setState(() => _pressed = false),
       onTap: widget.onTap,
       child: AnimatedScale(
-        scale: _pressed ? 0.88 : 1.0,
+        scale: _pressed ? 0.9 : 1.0,
         duration: const Duration(milliseconds: 140),
         curve: Curves.easeOut,
-        child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.isActive ? 14 : 10,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            color: widget.isActive
+                ? activeColor.withOpacity(0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(40),
+            border: Border.all(
+              color: widget.isActive
+                  ? activeColor.withOpacity(0.35)
+                  : Colors.transparent,
+              width: 1,
+            ),
+          ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
               TweenAnimationBuilder<double>(
-                tween: Tween(begin: 1.0, end: widget.isActive ? 1.08 : 1.0),
+                tween: Tween(begin: 1.0, end: widget.isActive ? 1.06 : 1.0),
                 duration: const Duration(milliseconds: 320),
                 curve: Curves.easeOutBack,
                 builder: (_, v, child) =>
                     Transform.scale(scale: v, child: child),
-                child: Icon(widget.icon, size: 22, color: color),
+                child: Icon(widget.icon, size: 21, color: color),
               ),
-              // Label only renders for the active item — collapses cleanly
-              // with an animated width so the pill stays compact.
-              ClipRect(
-                child: AnimatedAlign(
-                  alignment: Alignment.centerLeft,
-                  duration: const Duration(milliseconds: 320),
-                  curve: Curves.easeOutCubic,
-                  widthFactor: widget.isActive ? 1.0 : 0.0,
-                  child: AnimatedOpacity(
-                    opacity: widget.isActive ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 220),
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Text(
-                        widget.label,
-                        style: TextStyle(
-                          color: activeColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
-                        ),
+              // Label only rendered for the active cell — FittedBox guarantees
+              // it shrinks if the bar gets unusually narrow.
+              if (widget.isActive)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        color: activeColor,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
