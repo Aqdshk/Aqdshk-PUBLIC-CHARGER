@@ -5,6 +5,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/session_provider.dart';
 import '../providers/charger_provider.dart';
 import '../providers/notification_provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
+import 'topup_screen.dart';
+import 'my_bookings_screen.dart';
 import '../constants/app_colors.dart';
 import '../widgets/header_widget.dart';
 import '../widgets/bottom_nav_bar.dart';
@@ -150,12 +154,32 @@ class _SupportFab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DASHBOARD — the "Explore" tab. Tesla-app aesthetic: near-black surface,
-// gold section markers, large thin hero type, calm spacing, no card clutter.
+// DASHBOARD — "Explore" tab. Vibrant Grab/TnG wallet-style: gradient balance
+// card on top, colourful action grid, promo banner, then nearby stations.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  Map<String, dynamic>? _wallet;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadWallet());
+  }
+
+  Future<void> _loadWallet() async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null) return;
+    final w = await ApiService.getWallet(user.id);
+    if (mounted) setState(() => _wallet = w);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -165,20 +189,21 @@ class DashboardScreen extends StatelessWidget {
         bottom: false,
         child: RefreshIndicator(
           onRefresh: () async {
-            await Provider.of<SessionProvider>(context, listen: false).loadActiveSession();
-            await Provider.of<ChargerProvider>(context, listen: false).loadNearbyChargers();
-            // Refresh badge count alongside data; cheap endpoint.
-            await Provider.of<NotificationProvider>(context, listen: false).refreshUnread();
+            await Future.wait([
+              Provider.of<SessionProvider>(context, listen: false).loadActiveSession(),
+              Provider.of<ChargerProvider>(context, listen: false).loadNearbyChargers(),
+              Provider.of<NotificationProvider>(context, listen: false).refreshUnread(),
+              _loadWallet(),
+            ]);
           },
-          color: AppColors.premiumGold,
+          color: AppColors.primaryGreen,
           backgroundColor: AppColors.cardBackground,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header (brand + notifications) — keep existing widget so the bell
-                // and unread badge logic stays intact.
+                // Brand + bell
                 HeaderWidget(
                   onNotificationTap: () => Navigator.push(
                     context,
@@ -186,36 +211,38 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
 
+                const SizedBox(height: 8),
+
+                // ── WALLET BALANCE CARD ── (the headline)
+                _WalletHero(wallet: _wallet),
+
+                const SizedBox(height: 22),
+
+                // ── COLOURFUL ACTION STRIP ── (5 quick actions)
+                const _ActionStrip(),
+
                 const SizedBox(height: 26),
 
-                // ── HERO ──
-                const _HeroBlock(),
+                // ── PROMO BANNER ── (gradient CTA)
+                const _PromoBanner(),
 
-                const SizedBox(height: 44),
+                const SizedBox(height: 26),
 
-                // ── QUICK actions — 3 only, inline tiles ──
-                const _SectionLabel('QUICK'),
-                const SizedBox(height: 14),
-                const _QuickRow(),
+                // ── STATS STRIP ── (live activity)
+                const _StatsStrip(),
 
-                const SizedBox(height: 44),
+                const SizedBox(height: 26),
 
-                // ── NEARBY stations — vertical, rich rows ──
-                Consumer<ChargerProvider>(
-                  builder: (context, cp, _) => _SectionLabelRow(
-                    label: 'NEARBY',
-                    trailing: Text(
-                      cp.nearbyChargers.isEmpty ? '—' : cp.nearbyChargers.length.toString(),
-                      style: TextStyle(
-                        color: AppColors.premiumGold,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
+                // ── NEARBY stations ──
+                _SectionHeader(
+                  title: 'Nearby Stations',
+                  actionLabel: 'See all',
+                  onAction: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FavouriteStationsScreen()),
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 Consumer<ChargerProvider>(
                   builder: (context, cp, _) {
                     if (cp.isLoading) return const _LoadingRow();
@@ -229,31 +256,7 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
 
-                const SizedBox(height: 44),
-
-                // ── FAVOURITES — minimal, link to full list ──
-                _SectionLabelRow(
-                  label: 'FAVOURITES',
-                  trailing: GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const FavouriteStationsScreen()),
-                    ),
-                    child: Text(
-                      'SEE ALL',
-                      style: TextStyle(
-                        color: AppColors.premiumGold,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const _EmptyRow(text: 'No favourites yet'),
-
-                // Bottom breathing room (above bottom nav + FAB).
+                // Bottom breathing room (above floating nav + FAB).
                 const SizedBox(height: 140),
               ],
             ),
@@ -771,6 +774,462 @@ class _LoadingRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW VIBRANT WIDGETS — Grab/TnG wallet aesthetic
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── WALLET HERO ─────────────────────────────────────────────────────────────
+// Green→teal gradient card. Balance is the focal point; points + Top Up CTA
+// sit underneath. Watermark wallet icon adds depth without competing.
+class _WalletHero extends StatelessWidget {
+  final Map<String, dynamic>? wallet;
+  const _WalletHero({required this.wallet});
+
+  @override
+  Widget build(BuildContext context) {
+    final balance = (wallet?['balance'] as num?)?.toDouble() ?? 0.0;
+    final points = (wallet?['points'] as num?)?.toInt() ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF00C870), Color(0xFF00875A), Color(0xFF0F4A38)],
+            stops: [0.0, 0.55, 1.0],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryGreen.withOpacity(0.25),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -8,
+              top: -8,
+              child: Icon(
+                Icons.account_balance_wallet_rounded,
+                size: 110,
+                color: Colors.white.withOpacity(0.06),
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.bolt_rounded, color: Colors.white, size: 11),
+                      SizedBox(width: 3),
+                      Text(
+                        'PLAGSINI WALLET',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'RM',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.75),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      balance.toStringAsFixed(2),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 36,
+                        fontWeight: FontWeight.w800,
+                        height: 1.0,
+                        letterSpacing: -1.0,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Icon(Icons.star_rounded, color: Colors.amber.shade300, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$points Points',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.92),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const TopUpScreen()),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.add_rounded, color: Color(0xFF00875A), size: 16),
+                            SizedBox(width: 4),
+                            Text(
+                              'Top Up',
+                              style: TextStyle(
+                                color: Color(0xFF00875A),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── ACTION STRIP ────────────────────────────────────────────────────────────
+class _ActionStrip extends StatelessWidget {
+  const _ActionStrip();
+
+  static const _items = [
+    _ActionSpec(label: 'Find', icon: Icons.search_rounded, c1: Color(0xFF4FC3F7), c2: Color(0xFF1976D2)),
+    _ActionSpec(label: 'DC Fast', icon: Icons.flash_on_rounded, c1: Color(0xFFFFB74D), c2: Color(0xFFE65100)),
+    _ActionSpec(label: 'Scan', icon: Icons.qr_code_scanner_rounded, c1: Color(0xFFBA68C8), c2: Color(0xFF6A1B9A)),
+    _ActionSpec(label: 'Auto', icon: Icons.auto_awesome_rounded, c1: Color(0xFF81C784), c2: Color(0xFF2E7D32)),
+    _ActionSpec(label: 'Schedule', icon: Icons.schedule_rounded, c1: Color(0xFFF06292), c2: Color(0xFFAD1457)),
+  ];
+
+  void _navigate(BuildContext context, String label) {
+    switch (label) {
+      case 'Find':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const FindChargerScreen()));
+        break;
+      case 'DC Fast':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const DCFCChargersScreen()));
+        break;
+      case 'Scan':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanScreen()));
+        break;
+      case 'Auto':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const AutoChargeScreen()));
+        break;
+      case 'Schedule':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const MyBookingsScreen()));
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: _items.map((s) {
+          return GestureDetector(
+            onTap: () => _navigate(context, s.label),
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [s.c1, s.c2],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: s.c2.withOpacity(0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(s.icon, color: Colors.white, size: 24),
+                ),
+                const SizedBox(height: 7),
+                SizedBox(
+                  width: 60,
+                  child: Text(
+                    s.label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _ActionSpec {
+  final String label;
+  final IconData icon;
+  final Color c1;
+  final Color c2;
+  const _ActionSpec({required this.label, required this.icon, required this.c1, required this.c2});
+}
+
+// ── PROMO BANNER ────────────────────────────────────────────────────────────
+class _PromoBanner extends StatelessWidget {
+  const _PromoBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF6B5BFF), Color(0xFFA855F7), Color(0xFFEC4899)],
+            stops: [0.0, 0.55, 1.0],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6B5BFF).withOpacity(0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'WEEKEND BOOST',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Earn 2× points\non every kWh',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Charge today and stack rewards faster.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.local_fire_department_rounded, color: Colors.white, size: 36),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── STATS STRIP ─────────────────────────────────────────────────────────────
+class _StatsStrip extends StatelessWidget {
+  const _StatsStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: const [
+          Expanded(child: _StatPill(label: 'kWh used', value: '0.0', accent: Color(0xFF4FC3F7), icon: Icons.bolt_rounded)),
+          SizedBox(width: 10),
+          Expanded(child: _StatPill(label: 'Sessions', value: '0', accent: Color(0xFF81C784), icon: Icons.history_rounded)),
+          SizedBox(width: 10),
+          Expanded(child: _StatPill(label: 'CO₂ saved', value: '0 kg', accent: Color(0xFFA855F7), icon: Icons.eco_rounded)),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color accent;
+  final IconData icon;
+  const _StatPill({required this.label, required this.value, required this.accent, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withOpacity(0.18), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: accent, size: 14),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: AppColors.textLight,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── SECTION HEADER ──────────────────────────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  const _SectionHeader({required this.title, this.actionLabel, this.onAction});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const Spacer(),
+          if (actionLabel != null)
+            GestureDetector(
+              onTap: onAction,
+              child: Row(
+                children: [
+                  Text(
+                    actionLabel!,
+                    style: TextStyle(
+                      color: AppColors.primaryGreen,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(Icons.chevron_right_rounded, color: AppColors.primaryGreen, size: 16),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
