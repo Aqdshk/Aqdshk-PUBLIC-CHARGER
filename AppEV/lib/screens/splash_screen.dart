@@ -362,11 +362,11 @@ class _SplashScreenState extends State<SplashScreen>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0x7012263C),  // ~44% top
-                Color(0x550A1628),  // ~33% middle (photo most visible here)
-                Color(0xCC060B18),  // ~80% bottom (legibility for brand text)
+                Color(0x3312263C),  // ~20% top — photo nearly raw here
+                Color(0x1A0A1628),  // ~10% middle — fully readable image
+                Color(0x99060B18),  // ~60% bottom — text legibility only
               ],
-              stops: [0.0, 0.45, 1.0],
+              stops: [0.0, 0.5, 1.0],
             ),
           ),
         ),
