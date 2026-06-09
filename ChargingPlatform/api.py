@@ -7440,9 +7440,23 @@ async def analytics_insights(
         })
 
     # ═══ 2. CHARGER HEALTH INSIGHTS ═══
+    # Use the SAME effective-online logic as /api/chargers (last_heartbeat
+    # fresh within OFFLINE_THRESHOLD_MINUTES). The raw `status` column can
+    # be stale: a charger that goes offline never updates its row, so
+    # filtering on DB `status='offline'` undercounts, and filtering on
+    # `availability='faulted'` over-counts (includes long-dead chargers
+    # that happened to be faulted before disappearing).
+    online_cutoff = now - timedelta(minutes=OFFLINE_THRESHOLD_MINUTES)
     total_chargers = db.query(Charger).count()
-    offline_chargers = db.query(Charger).filter(Charger.status == "offline").count()
-    faulted_chargers = db.query(Charger).filter(Charger.availability == "faulted").count()
+    offline_chargers = db.query(Charger).filter(
+        (Charger.last_heartbeat == None) | (Charger.last_heartbeat < online_cutoff)  # noqa: E711
+    ).count()
+    # Actionable faults only: charger is currently reachable AND reports faulted.
+    faulted_chargers = db.query(Charger).filter(
+        Charger.availability == "faulted",
+        Charger.last_heartbeat != None,  # noqa: E711
+        Charger.last_heartbeat >= online_cutoff,
+    ).count()
 
     if total_chargers == 0:
         insights.append({
