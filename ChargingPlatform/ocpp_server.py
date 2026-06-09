@@ -700,16 +700,28 @@ class ChargePoint(cp):
                 except (ValueError, TypeError):
                     value = 0.0
                 measurand = sv.get('measurand', '')
-                
+                # OCPP 1.6: chargers may send power in 'W' or 'kW', energy in
+                # 'Wh' or 'kWh'. Respect the unit field so we always store in
+                # canonical SI prefix expected by the UI (power=kW, energy=kWh).
+                unit = (sv.get('unit') or '').strip()
+
                 if measurand == 'Voltage':
                     voltage = value
                 elif measurand == 'Current.Import':
                     current = value
                 elif measurand == 'Power.Active.Import':
-                    # Store watts; UI divides by 1000 once for kW (avoid double conversion)
-                    power = value
+                    # Canonicalise to kW. If unit absent, infer from magnitude
+                    # (anything >1000 is almost certainly watts).
+                    if unit.lower() == 'w' or (not unit and value > 1000):
+                        power = value / 1000.0
+                    else:
+                        power = value  # already kW
                 elif measurand == 'Energy.Active.Import.Register':
-                    total_kwh = value / 1000.0  # Wh → kWh
+                    # Canonicalise to kWh.
+                    if unit.lower() == 'kwh':
+                        total_kwh = value
+                    else:
+                        total_kwh = value / 1000.0  # Wh → kWh
             
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
@@ -791,10 +803,14 @@ class ChargePoint(cp):
                 except (ValueError, TypeError):
                     val = 0.0
                 m = sv.get('measurand', '')
+                u = (sv.get('unit') or '').strip().lower()
                 if m == 'Voltage':                          _v = val
                 elif m == 'Current.Import':                 _c = val
-                elif m == 'Power.Active.Import':            _p = val
-                elif m == 'Energy.Active.Import.Register':  _e = val / 1000.0
+                elif m == 'Power.Active.Import':
+                    # Normalise to kW (same logic as primary handler above).
+                    _p = val / 1000.0 if (u == 'w' or (not u and val > 1000)) else val
+                elif m == 'Energy.Active.Import.Register':
+                    _e = val if u == 'kwh' else val / 1000.0
             _sync.sync_meter_value(
                 self.id,
                 transaction_id=transaction_id,
