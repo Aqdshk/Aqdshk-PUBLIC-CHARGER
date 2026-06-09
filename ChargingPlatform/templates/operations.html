@@ -5,24 +5,99 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCPP 1.6 Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=13">
+    <link rel="stylesheet" href="/static/styles.css?v=14">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
-        .ops-sidebar { width: clamp(170px, 14vw, 220px); min-width: clamp(170px, 14vw, 220px); background:var(--bg-card); border-right:1px solid var(--border); overflow-y:auto; padding: clamp(6px, 0.5vw, 10px) 0; }
-        .ops-sidebar::-webkit-scrollbar { width:3px; } .ops-sidebar::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
-        .ops-cat { padding: clamp(4px, 0.3vw, 6px) clamp(8px, 0.7vw, 14px) clamp(2px, 0.2vw, 4px); font-size: clamp(7px, 0.45vw, 8px); text-transform:uppercase; letter-spacing:1.2px; color:var(--text-muted); font-weight:700; }
-        .ops-item { display:flex; align-items:center; gap: clamp(4px, 0.4vw, 8px); padding: clamp(4px, 0.4vw, 7px) clamp(8px, 0.7vw, 14px); color:var(--text-secondary); cursor:pointer; font-size: clamp(9px, 0.6vw, 11px); border-left:2px solid transparent; transition:all .15s; }
-        .ops-item:hover { background:rgba(0,230,118,.04); color:var(--text-primary); }
-        .ops-item.active { background:rgba(0,230,118,.08); border-left-color:var(--accent); color:var(--accent); font-weight:600; }
-        .ops-icon { font-size: clamp(10px, 0.7vw, 13px); width: clamp(14px, 1vw, 18px); text-align:center; flex-shrink:0; }
-        .ops-sep { height:1px; background:var(--border); margin: clamp(4px, 0.4vw, 8px) clamp(8px, 0.7vw, 14px); }
+        .ops-sidebar {
+            width: 260px; min-width: 260px;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 14px 12px;
+        }
+        .ops-sidebar::-webkit-scrollbar { width:4px; }
+        .ops-sidebar::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+        .ops-cat {
+            padding: 14px 8px 6px;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.6px;
+            color: var(--text-muted);
+            font-weight: 800;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ops-cat::before {
+            content: ''; width: 16px; height: 2px;
+            background: var(--cat-color, var(--accent));
+            border-radius: 1px;
+        }
+        .ops-cat[data-cat="core"] { --cat-color: #00ff88; }
+        .ops-cat[data-cat="reservation"] { --cat-color: #4488ff; }
+        .ops-cat[data-cat="advanced"] { --cat-color: #ff9944; }
+        .ops-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 9px 12px; margin: 2px 0;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 12px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: all .15s;
+            position: relative;
+        }
+        .ops-item:hover {
+            background: rgba(255,255,255,0.03);
+            color: var(--text-primary);
+        }
+        .ops-item.active {
+            background: rgba(0,230,118,0.10);
+            border-color: rgba(0,230,118,0.30);
+            color: #00ff88;
+            font-weight: 600;
+        }
+        .ops-icon {
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 7px;
+            flex-shrink: 0;
+        }
+        .ops-item.active .ops-icon {
+            background: rgba(0,230,118,0.18);
+        }
+        .ops-sep { display: none; }
         .ops-main { flex:1; padding: clamp(8px, 0.8vw, 16px) clamp(10px, 1vw, 20px); overflow-y:auto; }
         .ops-hdr h2 { font-size: clamp(12px, 0.85vw, 15px); font-weight:700; color:var(--text-primary); margin-bottom:2px; }
         .ops-hdr p { color:var(--text-muted); font-size: clamp(9px, 0.55vw, 11px); margin-bottom: clamp(8px, 0.7vw, 14px); }
-        .charger-bar { display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); padding: clamp(5px, 0.4vw, 8px) clamp(8px, 0.6vw, 12px); background:rgba(0,230,118,.03); border:1px solid rgba(0,230,118,.12); border-radius:var(--radius-sm); margin-bottom: clamp(8px, 0.7vw, 14px); flex-wrap:wrap; }
-        .charger-bar label { color:var(--accent); font-weight:600; font-size: clamp(9px, 0.55vw, 11px); white-space:nowrap; }
-        .charger-bar select { flex:1; max-width:280px; padding: clamp(3px, 0.3vw, 5px) clamp(5px, 0.4vw, 8px); background:var(--bg-base); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size: clamp(9px, 0.55vw, 11px); }
+        .charger-bar {
+            display: flex; align-items: center; gap: 14px;
+            padding: 12px 18px;
+            background: linear-gradient(135deg, rgba(0,230,118,0.06), rgba(68,136,255,0.03));
+            border: 1px solid rgba(0,230,118,0.20);
+            border-left: 3px solid var(--accent);
+            border-radius: 10px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .charger-bar label {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 11px;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+        }
+        .charger-bar select {
+            flex: 1; max-width: 320px;
+            padding: 8px 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 500;
+        }
         .charger-bar select:focus { outline:none; border-color:var(--accent); }
         .c-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
         .c-txt { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); }
@@ -45,10 +120,47 @@
         .resp-pill.err { background:rgba(255,68,68,.12); color:var(--red); }
         .resp pre { background:var(--bg-card); padding: clamp(8px, 0.6vw, 12px); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:'Menlo','Monaco','Courier New',monospace; font-size: clamp(9px, 0.55vw, 11px); overflow-x:auto; white-space:pre-wrap; word-break:break-word; line-height:1.55; }
         [data-theme="light"] .resp pre { background:#f8fafc; color:#1f2937; border-color:#e2e8f0; }
-        .no-op { text-align:center; padding: clamp(30px, 3vw, 60px) clamp(8px, 0.8vw, 16px); color:var(--text-muted); }
-        .no-op .ico { font-size: clamp(24px, 2vw, 36px); margin-bottom: clamp(6px, 0.5vw, 10px); opacity:.4; }
-        .no-op h3 { color:var(--text-secondary); font-size: clamp(11px, 0.75vw, 14px); margin-bottom:4px; }
-        .no-op p { font-size: clamp(9px, 0.55vw, 11px); }
+        .no-op {
+            text-align: center;
+            padding: 80px 24px 60px;
+            color: var(--text-muted);
+        }
+        .no-op .ico {
+            width: 84px; height: 84px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, rgba(0,230,118,0.12), rgba(68,136,255,0.06));
+            border: 1px solid rgba(0,230,118,0.20);
+            border-radius: 24px;
+            font-size: 38px;
+            margin-bottom: 18px;
+            box-shadow: 0 8px 32px rgba(0,230,118,0.10);
+        }
+        .no-op h3 {
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+            margin-bottom: 6px;
+        }
+        .no-op p {
+            font-size: 13px;
+            color: var(--text-muted);
+            max-width: 320px;
+            margin: 0 auto 24px;
+            line-height: 1.5;
+        }
+        .no-op-hints {
+            display: inline-flex; flex-direction: column; gap: 8px;
+            margin-top: 8px;
+            text-align: left;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 18px;
+            font-size: 11.5px;
+            color: var(--text-secondary);
+        }
+        .no-op-hints b { color: var(--accent); font-weight: 700; letter-spacing: 0.3px; }
         @media(max-width:900px){ .ops-layout{flex-direction:column;} .ops-sidebar{width:100%;min-width:100%;max-height:160px;border-right:none;border-bottom:1px solid var(--border);} .ops-main{padding: clamp(6px, 0.6vw, 12px);} }
         .bulk-charger-list { max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-base); margin-top:4px; }
         .bulk-charger-list::-webkit-scrollbar{width:3px;} .bulk-charger-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
@@ -128,7 +240,7 @@
 
         <div class="ops-layout">
             <div class="ops-sidebar">
-                <div class="ops-cat">Core Operations</div>
+                <div class="ops-cat" data-cat="core">Core Operations</div>
                 <div class="ops-item" data-op="change-availability"><span class="ops-icon">🔄</span> Change Availability</div>
                 <div class="ops-item" data-op="change-configuration"><span class="ops-icon">📝</span> Change Configuration</div>
                 <div class="ops-item" data-op="clear-cache"><span class="ops-icon">🗑️</span> Clear Cache</div>
@@ -139,12 +251,10 @@
                 <div class="ops-item" data-op="unlock-connector"><span class="ops-icon">🔓</span> Unlock Connector</div>
                 <div class="ops-item" data-op="update-firmware"><span class="ops-icon">📦</span> Update Firmware</div>
                 <div class="ops-item" data-op="bulk-update-firmware"><span class="ops-icon">📦</span> Bulk Update Firmware</div>
-                <div class="ops-sep"></div>
-                <div class="ops-cat">Reservation</div>
+                <div class="ops-cat" data-cat="reservation">Reservation</div>
                 <div class="ops-item" data-op="reserve-now"><span class="ops-icon">📌</span> Reserve Now</div>
                 <div class="ops-item" data-op="cancel-reservation"><span class="ops-icon">❌</span> Cancel Reservation</div>
-                <div class="ops-sep"></div>
-                <div class="ops-cat">Advanced</div>
+                <div class="ops-cat" data-cat="advanced">Advanced</div>
                 <div class="ops-item" data-op="data-transfer"><span class="ops-icon">📡</span> Data Transfer</div>
                 <div class="ops-item" data-op="get-configuration"><span class="ops-icon">📋</span> Get Configuration</div>
                 <div class="ops-item" data-op="get-local-list-version"><span class="ops-icon">📃</span> Get Local List Version</div>
@@ -159,8 +269,13 @@
                 <div id="opsContent">
                     <div class="no-op">
                         <div class="ico">🎛️</div>
-                        <h3>Select an Operation</h3>
-                        <p>Choose an OCPP 1.6 operation from the left panel.</p>
+                        <h3>Operations Control Centre</h3>
+                        <p>Send OCPP 1.6 commands directly to any connected charge point — reset, configure, diagnose, schedule.</p>
+                        <div class="no-op-hints">
+                            <div><b>1.</b> Pick a charger from the bar above</div>
+                            <div><b>2.</b> Choose an operation from the left panel</div>
+                            <div><b>3.</b> Fill parameters &amp; hit Execute</div>
+                        </div>
                     </div>
                 </div>
             </div>
