@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCPP 1.6 Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=17">
+    <link rel="stylesheet" href="/static/styles.css?v=18">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
@@ -352,13 +352,36 @@
             document.querySelectorAll('.ops-item').forEach(el=>el.classList.remove('active'));
             document.querySelector(`.ops-item[data-op="${opKey}"]`)?.classList.add('active');
 
+            // Helper: default to "now + 2 min" for empty datetime-local
+            // fields (firmware retrieve_date, reserve expiry, etc.) so user
+            // doesn't have to manually pick — matches the bulk firmware UX.
+            const _defaultDt = (offsetMin) => {
+                const d = new Date(Date.now() + offsetMin*60000);
+                const pad = n => String(n).padStart(2,'0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            };
+            const _dtDefaultFor = (fname) => {
+                if (fname === 'retrieve_date') return _defaultDt(2);
+                if (fname === 'expiry_date')   return _defaultDt(60);  // reserve = 1 hour
+                if (fname === 'start_time')    return _defaultDt(0);
+                if (fname === 'stop_time')     return _defaultDt(60);
+                return _defaultDt(2);
+            };
+            // Firmware URI default — same as bulk page for convenience.
+            const _defaultFwUrl = 'http://203.99.148.43:8000/static/firmware/APP_TK-AMC003-LCD_V2-0-03.bin';
+
             let fh = '';
             op.fields.forEach(f=>{
                 const hid = f.hidden===true;
+                let val = f.value || '';
+                // Auto-fill defaults for known fields
+                if (!val && f.type === 'datetime-local') val = _dtDefaultFor(f.name);
+                if (!val && opKey === 'update-firmware' && f.name === 'location') val = _defaultFwUrl;
+
                 let inp='';
                 if(f.type==='select'){ inp=`<select id="field_${f.name}">${f.options.map(o=>`<option value="${o}" ${o===f.value?'selected':''}>${o||'-- Select --'}</option>`).join('')}</select>`; }
-                else if(f.type==='textarea'){ inp=`<textarea id="field_${f.name}">${f.value||''}</textarea>`; }
-                else { inp=`<input type="${f.type}" id="field_${f.name}" value="${f.value||''}" placeholder="${f.hint||''}">`; }
+                else if(f.type==='textarea'){ inp=`<textarea id="field_${f.name}">${val}</textarea>`; }
+                else { inp=`<input type="${f.type}" id="field_${f.name}" value="${val}" placeholder="${f.hint||''}">`; }
                 fh+=`<div class="pg" id="group_${f.name}" ${hid?'style="display:none;"':''}><label>${f.label}</label>${inp}${f.hint?`<div class="hint">${f.hint}</div>`:''}</div>`;
             });
             if(!op.fields.length) fh='<p style="color:var(--text-muted);font-size:11px;">No parameters required.</p>';
