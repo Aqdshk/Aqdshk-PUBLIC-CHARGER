@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Charger Status - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=13">
+    <link rel="stylesheet" href="/static/styles.css?v=19">
     <script src="/static/theme.js?v=2"></script>
 </head>
 <body>
@@ -61,8 +61,8 @@
             </div>
         </header>
 
-        <div class="dashboard-container fade-in">
-            <div id="addChargerCard" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;">
+        <div class="dashboard-container fade-in" style="display:flex;flex-direction:column;height:calc(100vh - 56px);padding-bottom:0;overflow:hidden;">
+            <div id="addChargerCard" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;flex-shrink:0;">
                 <div style="font-weight:600;margin-bottom:12px;">➕ Add Charger Manually</div>
                 <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Add ESP32 or charger before it connects via OCPP.</p>
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -72,14 +72,22 @@
                 </div>
                 <div id="addChargerMsg" style="margin-top:10px;font-size:12px;"></div>
             </div>
-            <div style="margin-bottom:16px;">
+            <!-- Sticky search bar — stays visible while the list scrolls -->
+            <div style="margin-bottom:12px;flex-shrink:0;">
                 <input type="text" id="chargerSearch" placeholder="🔍 Search by charger ID, vendor or model..." oninput="renderChargers()" autocomplete="off"
                     style="width:100%;padding:11px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:14px;box-sizing:border-box;outline:none;">
             </div>
-            <div id="chargerStatusList">
+            <!-- Scrollable list — list scrolls internally, page itself stays put -->
+            <div id="chargerStatusList" style="flex:1;overflow-y:auto;padding-right:6px;padding-bottom:16px;scrollbar-gutter:stable;">
                 <div class="loading-spinner">Loading chargers...</div>
             </div>
         </div>
+        <style>
+            #chargerStatusList::-webkit-scrollbar { width:6px; }
+            #chargerStatusList::-webkit-scrollbar-track { background:transparent; }
+            #chargerStatusList::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+            #chargerStatusList::-webkit-scrollbar-thumb:hover { background:var(--text-muted); }
+        </style>
     </div>
 
     <style>
