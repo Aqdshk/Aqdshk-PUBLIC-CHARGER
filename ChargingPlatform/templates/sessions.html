@@ -7,6 +7,31 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=13">
     <script src="/static/theme.js?v=2"></script>
+    <style>
+        .ss-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+        .ss-toolbar input { flex:1; min-width:180px; padding:7px 11px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; outline:none; }
+        .ss-chip { padding:5px 11px; font-size:10px; font-weight:600; border:1px solid var(--border); background:transparent; color:var(--text-muted); border-radius:14px; cursor:pointer; letter-spacing:0.3px; transition:all 0.15s; white-space:nowrap; }
+        .ss-chip:hover { color:var(--text-primary); border-color:var(--text-muted); }
+        .ss-chip.active { background:rgba(0,255,136,0.12); border-color:rgba(0,255,136,0.4); color:#00ff88; }
+        .ss-table-wrap { max-height:560px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); }
+        .ss-table { width:100%; border-collapse:collapse; font-size:12px; }
+        .ss-table thead { position:sticky; top:0; background:var(--bg-card); z-index:1; }
+        .ss-table th { text-align:left; padding:10px 12px; color:var(--text-muted); font-weight:700; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid var(--border); white-space:nowrap; }
+        .ss-table td { padding:9px 12px; color:var(--text-primary); border-bottom:1px solid var(--border); vertical-align:middle; }
+        .ss-table tbody tr { transition:background 0.12s; }
+        .ss-table tbody tr:hover td { background:rgba(0,255,136,0.04); }
+        .ss-table tbody tr:last-child td { border-bottom:none; }
+        .ss-table .txn { font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+        .ss-table .cp { color:var(--text-secondary); font-size:11px; }
+        .ss-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+        .ss-table .time { color:var(--text-secondary); font-size:11px; white-space:nowrap; }
+        .ss-pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:9px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; }
+        .ss-pill.completed { background:rgba(0,255,136,0.12); color:#00ff88; }
+        .ss-pill.active    { background:rgba(255,153,68,0.14); color:#ff9944; }
+        .ss-pill.cancelled { background:rgba(120,120,120,0.18); color:var(--text-muted); }
+        .ss-pill.failed    { background:rgba(255,68,102,0.14); color:#ff4466; }
+        .ss-count { font-size:10px; color:var(--text-muted); letter-spacing:0.5px; font-weight:500; }
+    </style>
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -64,8 +89,32 @@
         </header>
 
         <div class="dashboard-container fade-in">
-            <div id="sessionList">
-                <div class="loading-spinner">Loading sessions...</div>
+            <div class="ss-toolbar">
+                <input type="text" id="sessionSearch" placeholder="🔍 Search by transaction, charger, ID tag…" autocomplete="off">
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                    <button class="ss-chip active" data-ss-filter="all">All</button>
+                    <button class="ss-chip" data-ss-filter="active">⚡ Active</button>
+                    <button class="ss-chip" data-ss-filter="completed">✓ Completed</button>
+                    <button class="ss-chip" data-ss-filter="energy">≥1 kWh</button>
+                </div>
+            </div>
+            <div class="ss-table-wrap">
+                <table class="ss-table">
+                    <thead>
+                        <tr>
+                            <th>Txn</th>
+                            <th>Charger / Connector</th>
+                            <th>Start</th>
+                            <th>Stop</th>
+                            <th class="num">Energy</th>
+                            <th>ID Tag</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionBody">
+                        <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">Loading sessions…</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -113,34 +162,114 @@
             } catch(e){ console.error('Error:',e); }
         }
 
+        // ── Compact table view: cache + in-memory filter ──────────────────
+        let _allSessions = [];
+        let _ssFilter = 'all';
+        let _ssSearch = '';
+
+        function _shortTime(iso) {
+            if (!iso) return '—';
+            try {
+                let s = String(iso).trim();
+                if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+                const hasTZ = /[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{2}$/.test(s);
+                if (!hasTZ) s = s + '+08:00';
+                const d = new Date(s);
+                // Compact: "30/05 14:37" — date is paramount, day-of-week ignored
+                const dd = String(d.getDate()).padStart(2,'0');
+                const mm = String(d.getMonth()+1).padStart(2,'0');
+                const hh = String(d.getHours()).padStart(2,'0');
+                const mi = String(d.getMinutes()).padStart(2,'0');
+                return `${dd}/${mm} ${hh}:${mi}`;
+            } catch (e) { return iso; }
+        }
+
+        function _filterSessions(list) {
+            const q = _ssSearch.trim().toLowerCase();
+            return list.filter(s => {
+                if (_ssFilter === 'active' && s.status !== 'active') return false;
+                if (_ssFilter === 'completed' && s.status !== 'completed') return false;
+                if (_ssFilter === 'energy' && (s.energy_consumed || 0) < 1) return false;
+                if (q) {
+                    const txn = String(s.transaction_id || '');
+                    const cp  = (s.charge_point_id || '').toLowerCase();
+                    const tag = (s.id_tag || '').toLowerCase();
+                    if (!txn.includes(q) && !cp.includes(q) && !tag.includes(q)) return false;
+                }
+                return true;
+            });
+        }
+
+        function renderSessions() {
+            const tbody = document.getElementById('sessionBody');
+            const countEl = document.getElementById('sessionCount');
+            if (!_allSessions.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">No charging sessions found</td></tr>';
+                if (countEl) countEl.textContent = '0 sessions';
+                return;
+            }
+            // Newest first
+            const filtered = _filterSessions(_allSessions).sort((a, b) => {
+                const ta = new Date(a.start_time || 0).getTime();
+                const tb = new Date(b.start_time || 0).getTime();
+                return tb - ta;
+            });
+            if (countEl) {
+                countEl.textContent = filtered.length === _allSessions.length
+                    ? `${_allSessions.length} session(s)`
+                    : `${filtered.length} of ${_allSessions.length}`;
+            }
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">No sessions match this filter</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(s => {
+                const conn = (s.connector_id != null && s.connector_id !== undefined) ? `· #${s.connector_id}` : '';
+                const energy = (s.energy_consumed || 0).toFixed(2);
+                const stopTxt = s.stop_time ? _shortTime(s.stop_time) : '<em style="color:var(--text-muted);font-style:normal;">ongoing</em>';
+                return `<tr>
+                    <td class="txn">#${s.transaction_id}</td>
+                    <td><div>${s.charge_point_id}</div><div class="cp">${conn || 'connector N/A'}</div></td>
+                    <td class="time">${_shortTime(s.start_time)}</td>
+                    <td class="time">${stopTxt}</td>
+                    <td class="num">${energy}</td>
+                    <td class="cp">${s.id_tag || '—'}</td>
+                    <td><span class="ss-pill ${s.status}">${s.status}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
         async function loadSessions() {
             try {
                 const filter = document.getElementById('chargerFilter')?.value || '';
                 const url = filter ? `${API_BASE}/sessions?charge_point_id=${filter}` : `${API_BASE}/sessions`;
-                const sessions = await (await fetch(url)).json();
-                const container = document.getElementById('sessionList');
-                const countEl = document.getElementById('sessionCount');
-
-                if (sessions.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div>No charging sessions found</div></div>'; countEl.textContent = '0 sessions'; return; }
-                countEl.textContent = `${sessions.length} session(s)`;
-
-                container.innerHTML = sessions.map(s => `
-                    <div class="session-item">
-                        <div class="session-header">
-                            <span class="transaction-id">Transaction #${s.transaction_id}</span>
-                            <span class="session-status ${s.status}">${s.status.toUpperCase()}</span>
-                        </div>
-                        <div class="session-details">
-                            <div><strong>Charger:</strong> ${s.charge_point_id}</div>
-                            <div><strong>Connector:</strong> ${s.connector_id != null && s.connector_id !== undefined ? s.connector_id : 'N/A'}</div>
-                            <div><strong>Start:</strong> ${formatKLTime(s.start_time)}</div>
-                            <div><strong>Stop:</strong> ${s.stop_time ? formatKLTime(s.stop_time) : 'Ongoing'}</div>
-                            <div><strong>Energy:</strong> ${s.energy_consumed.toFixed(2)} kWh</div>
-                            <div><strong>ID Tag:</strong> ${s.id_tag||'N/A'}</div>
-                        </div>
-                    </div>`).join('');
-            } catch(e){ console.error('Error:',e); document.getElementById('sessionList').innerHTML = '<div class="empty-state">Error loading sessions</div>'; }
+                _allSessions = await (await fetch(url)).json();
+                renderSessions();
+            } catch(e){
+                console.error('Error:',e);
+                document.getElementById('sessionBody').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-muted);">Error loading sessions</td></tr>';
+            }
         }
+
+        // Wire chips + search
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.ss-chip').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.ss-chip').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    _ssFilter = btn.dataset.ssFilter;
+                    renderSessions();
+                });
+            });
+            const searchInput = document.getElementById('sessionSearch');
+            if (searchInput) {
+                let t;
+                searchInput.addEventListener('input', () => {
+                    clearTimeout(t);
+                    t = setTimeout(() => { _ssSearch = searchInput.value; renderSessions(); }, 150);
+                });
+            }
+        });
     </script>
 </body>
 </html>
