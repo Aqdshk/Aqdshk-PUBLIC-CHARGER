@@ -55,6 +55,7 @@
                 <h1 class="page-title"><span>⚡</span> Metering Data</h1>
             </div>
             <div class="header-right">
+                <span id="autoChargerLabel" style="display:none;font-size:11px;color:var(--text-muted);margin-right:8px;letter-spacing:0.3px;">⚡ <b id="autoChargerName" style="color:var(--accent);"></b></span>
                 <select id="meteringCharger" onchange="loadMetering()" class="filter-select" style="padding:6px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;">
                     <option value="">Select Charger</option>
                 </select>
@@ -63,14 +64,24 @@
         </header>
 
         <div class="dashboard-container fade-in">
-            <div class="card">
+            <!-- Empty-state collapsed view: nothing charging right now -->
+            <div id="meteringEmpty" class="card" style="display:none;text-align:center;padding:48px 20px;">
+                <div style="font-size:48px;opacity:0.25;margin-bottom:12px;">⚡</div>
+                <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">No active charging session</div>
+                <div style="font-size:12px;color:var(--text-muted);">Metering will appear automatically when a charger starts charging.</div>
+                <details style="margin-top:24px;font-size:11px;color:var(--text-muted);">
+                    <summary style="cursor:pointer;letter-spacing:0.3px;">View any charger manually</summary>
+                    <div style="margin-top:10px;color:var(--text-secondary);">Pick a charger from the dropdown at the top right.</div>
+                </details>
+            </div>
+
+            <!-- Live data card -->
+            <div id="meteringCard" class="card" style="display:none;">
                 <div class="card-header">
                     <span class="card-title"><span>⚡</span> Live Metering</span>
                 </div>
                 <div class="card-body">
-                    <div id="meteringData">
-                        <div class="empty-state"><div class="empty-state-icon">⚡</div><div>Select a charger to view metering data</div></div>
-                    </div>
+                    <div id="meteringData"></div>
                 </div>
             </div>
         </div>
@@ -115,27 +126,93 @@
         let _meteringInflight = false;
         let _meteringSelectedCpId = '';
 
+        // True when the current selection was forced by auto-detect — so a
+        // user override (manual dropdown change) sticks until they clear it.
+        let _userPickedCharger = false;
+
         document.addEventListener('DOMContentLoaded', () => {
             populateChargerSelect();
             // 5s polling — fast enough to feel live, calm enough not to hammer.
             setInterval(() => {
                 if (document.getElementById('meteringCharger').value) loadMetering();
             }, 5000);
-            // Refresh dropdown every 60s so newly-online chargers appear.
-            setInterval(populateChargerSelect, 60000);
+            // Refresh dropdown every 30s so a charger that JUST started
+            // charging shows up promptly in the auto-select.
+            setInterval(populateChargerSelect, 30000);
+
+            // Track user overrides so we don't yank the dropdown out from
+            // under them on the next refresh.
+            document.getElementById('meteringCharger').addEventListener('change', (e) => {
+                _userPickedCharger = !!e.target.value;
+                // Toggle empty/live cards immediately on manual pick.
+                const emptyCard = document.getElementById('meteringEmpty');
+                const liveCard  = document.getElementById('meteringCard');
+                if (e.target.value) {
+                    emptyCard.style.display = 'none';
+                    liveCard.style.display = '';
+                } else {
+                    _userPickedCharger = false; // reverted to "Select Charger"
+                    // Let next populate() decide based on actual state.
+                    populateChargerSelect();
+                }
+            });
         });
 
         async function populateChargerSelect() {
             try {
-                let chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
-                chargers = filterDropdownChargers(chargers);
+                let chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                if (!Array.isArray(chargers)) chargers = [];
+
+                // Pick the charger that's currently CHARGING (preferred) or
+                // has an active transaction. This is what the user actually
+                // cares about on this page.
+                const activeCharging = chargers.filter(c => {
+                    const av = (c.availability || '').toLowerCase();
+                    const txn = c.active_transaction_id != null && Number(c.active_transaction_id) > 0;
+                    return av === 'charging' || txn;
+                });
+
+                // Populate dropdown with online/charging/preparing chargers
+                // so the user can still pick something else if they want.
+                const dropList = filterDropdownChargers(chargers);
                 const sel = document.getElementById('meteringCharger');
                 const prevValue = sel.value;
                 sel.innerHTML = '<option value="">Select Charger</option>';
-                chargers.forEach(c => { const o = document.createElement('option'); o.value = c.charge_point_id; o.textContent = c.charge_point_id; sel.appendChild(o); });
-                // Preserve the user's selection across refreshes.
-                if (prevValue && [...sel.options].some(o => o.value === prevValue)) {
+                dropList.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c.charge_point_id;
+                    const av = (c.availability || '').toLowerCase();
+                    o.textContent = c.charge_point_id + (av === 'charging' ? '  • CHARGING' : '');
+                    sel.appendChild(o);
+                });
+
+                const autoLabel = document.getElementById('autoChargerLabel');
+                const autoName  = document.getElementById('autoChargerName');
+                const emptyCard = document.getElementById('meteringEmpty');
+                const liveCard  = document.getElementById('meteringCard');
+
+                if (_userPickedCharger && prevValue && [...sel.options].some(o => o.value === prevValue)) {
+                    // Honour the user's manual pick.
                     sel.value = prevValue;
+                    autoLabel.style.display = 'none';
+                    emptyCard.style.display = 'none';
+                    liveCard.style.display = '';
+                    loadMetering();
+                } else if (activeCharging.length > 0) {
+                    // Auto-pick first charging charger.
+                    const target = activeCharging[0].charge_point_id;
+                    sel.value = target;
+                    autoName.textContent = target;
+                    autoLabel.style.display = '';
+                    emptyCard.style.display = 'none';
+                    liveCard.style.display = '';
+                    loadMetering();
+                } else {
+                    // Nothing charging — collapse to empty state.
+                    sel.value = '';
+                    autoLabel.style.display = 'none';
+                    liveCard.style.display = 'none';
+                    emptyCard.style.display = '';
                 }
             } catch(e){ console.error('Error:',e); }
         }
