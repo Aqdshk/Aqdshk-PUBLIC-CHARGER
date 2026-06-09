@@ -14,7 +14,7 @@
         .sidebar-user { display:flex; align-items:center; gap: clamp(6px, 0.5vw, 10px); padding: clamp(6px, 0.5vw, 10px); background:var(--accent-dim); border-radius:var(--radius-sm); margin-bottom: clamp(4px, 0.4vw, 8px); }
         .sidebar-user-avatar { width: clamp(24px, 1.8vw, 30px); height: clamp(24px, 1.8vw, 30px); background:var(--accent); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#000; font-size: clamp(10px, 0.65vw, 12px); }
         .sidebar-user-info { flex:1; }
-        .sidebar-user-name { color:#fff; font-size: clamp(10px, 0.65vw, 12px); font-weight:600; }
+        .sidebar-user-name { color:var(--text-primary); font-size: clamp(10px, 0.65vw, 12px); font-weight:600; }
         .sidebar-user-role { color:var(--accent); font-size: clamp(8px, 0.5vw, 10px); }
         .sidebar-logout { width:100%; padding: clamp(4px, 0.4vw, 7px); background:transparent; border:1px solid var(--red); color:var(--red); border-radius:var(--radius-sm); cursor:pointer; font-size: clamp(9px, 0.55vw, 11px); font-weight:600; transition:all var(--transition); display:flex; align-items:center; justify-content:center; gap:5px; }
         .sidebar-logout:hover { background:var(--red); color:#fff; }
@@ -777,7 +777,7 @@
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
                     <div style="background:var(--bg-base);border-radius:var(--radius-sm);padding:10px;">
                         <div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;">User</div>
-                        <div style="color:#fff;font-weight:600;font-size:12px;">${t.user_name||'Unknown'}</div>
+                        <div style="color:var(--text-primary);font-weight:600;font-size:12px;">${t.user_name||'Unknown'}</div>
                         <div style="color:var(--text-secondary);font-size:11px;">${t.user_email}</div>
                     </div>
                     <div style="background:var(--bg-base);border-radius:var(--radius-sm);padding:10px;">
