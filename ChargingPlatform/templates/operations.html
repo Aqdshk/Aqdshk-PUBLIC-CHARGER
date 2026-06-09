@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCPP 1.6 Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=16">
+    <link rel="stylesheet" href="/static/styles.css?v=17">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .ops-layout { display:flex; gap:0; min-height:calc(100vh - 56px); }
@@ -418,7 +418,16 @@
             const list = document.getElementById('bulkChargerList');
             if (!list) return;
             const q = (filter || '').toLowerCase();
-            const items = _allChargers.filter(c => !q || c.charge_point_id.toLowerCase().includes(q) || (c.vendor||'').toLowerCase().includes(q) || (c.model||'').toLowerCase().includes(q));
+            // Sort: online first, then by ID — so user doesn't scroll past
+            // hundreds of offline rows to find the tickable ones.
+            const items = _allChargers
+                .filter(c => !q || c.charge_point_id.toLowerCase().includes(q) || (c.vendor||'').toLowerCase().includes(q) || (c.model||'').toLowerCase().includes(q))
+                .sort((a, b) => {
+                    const ao = a.status === 'online' ? 0 : 1;
+                    const bo = b.status === 'online' ? 0 : 1;
+                    if (ao !== bo) return ao - bo;
+                    return (a.charge_point_id || '').localeCompare(b.charge_point_id || '');
+                });
             if (!items.length) { list.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:11px;text-align:center;">No chargers found.</div>'; return; }
             list.innerHTML = items.map(c => {
                 const online = c.status === 'online';
