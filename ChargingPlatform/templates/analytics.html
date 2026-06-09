@@ -246,24 +246,46 @@
             <div class="section-title">💵 Financial Summary</div>
             <div class="analytics-grid" id="financialGrid"></div>
 
-            <!-- Charger Performance Table -->
-            <div class="section-title">🔌 Charger Performance</div>
-            <div class="chart-card" style="margin-bottom:20px;">
-                <table class="charger-table" id="chargerTable">
-                    <thead>
-                        <tr>
-                            <th>Charger ID</th>
-                            <th>Vendor</th>
-                            <th>Status</th>
-                            <th>Sessions</th>
-                            <th>Energy (kWh)</th>
-                            <th>Active Faults</th>
-                        </tr>
-                    </thead>
-                    <tbody id="chargerBody"></tbody>
-                </table>
-                <div id="noChargers" style="text-align:center;padding:30px;color:var(--text-muted);display:none;">No chargers registered yet</div>
+            <!-- Charger Performance Table — compact, filterable, scrollable -->
+            <div class="section-title" style="display:flex;align-items:center;gap:10px;">
+                <span>🔌 Charger Performance</span>
+                <span id="chargerCount" style="font-size:10px;font-weight:500;color:var(--text-muted);letter-spacing:0.5px;"></span>
             </div>
+            <div class="chart-card" style="margin-bottom:20px;padding:10px;">
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+                    <input type="text" id="chargerSearch" placeholder="Search ID / vendor…"
+                           style="flex:1;min-width:160px;padding:6px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px;outline:none;">
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                        <button class="cp-chip active" data-cp-filter="active">⚡ Active</button>
+                        <button class="cp-chip" data-cp-filter="online">🟢 Online</button>
+                        <button class="cp-chip" data-cp-filter="faulted">🛑 Faulted</button>
+                        <button class="cp-chip" data-cp-filter="all">All</button>
+                    </div>
+                </div>
+                <div style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+                    <table class="charger-table" id="chargerTable" style="margin:0;">
+                        <thead style="position:sticky;top:0;background:var(--bg-card);z-index:1;">
+                            <tr>
+                                <th>Charger ID</th>
+                                <th>Vendor</th>
+                                <th>Status</th>
+                                <th style="text-align:right;">Sessions</th>
+                                <th style="text-align:right;">Energy</th>
+                                <th style="text-align:right;">Faults</th>
+                            </tr>
+                        </thead>
+                        <tbody id="chargerBody"></tbody>
+                    </table>
+                </div>
+                <div id="noChargers" style="text-align:center;padding:30px;color:var(--text-muted);display:none;font-size:11px;">No chargers match this filter</div>
+            </div>
+            <style>
+                .cp-chip { padding:4px 10px; font-size:10px; font-weight:600; border:1px solid var(--border); background:transparent; color:var(--text-muted); border-radius:14px; cursor:pointer; letter-spacing:0.3px; transition:all 0.15s; white-space:nowrap; }
+                .cp-chip:hover { color:var(--text-primary); border-color:var(--text-muted); }
+                .cp-chip.active { background:rgba(0,255,136,0.12); border-color:rgba(0,255,136,0.4); color:#00ff88; }
+                #chargerBody tr { transition:background 0.12s; }
+                #chargerBody tr:hover td { background:rgba(0,255,136,0.04); }
+            </style>
 
             <!-- AI Insights -->
             <div class="section-title">🧠 AI Insights & Recommendations</div>
@@ -452,26 +474,104 @@
             grid.innerHTML = items.map(i => `<div class="big-stat"><div class="stat-label">${i.label}</div><div class="stat-value" style="color:${i.color}">${i.value}</div></div>`).join('');
         }
 
+        // Cached full list + current filter state so search/chip clicks
+        // don't need a round-trip; we just re-filter in-memory.
+        let _allChargers = [];
+        let _cpFilter = 'active';
+        let _cpSearch = '';
+
+        function _filterChargers(list) {
+            const q = _cpSearch.trim().toLowerCase();
+            return list.filter(c => {
+                // Filter chip
+                if (_cpFilter === 'active' && (c.total_sessions || 0) === 0) return false;
+                if (_cpFilter === 'online' && c.status !== 'online') return false;
+                if (_cpFilter === 'faulted' && c.availability !== 'faulted') return false;
+                // Search box
+                if (q) {
+                    const id = (c.charge_point_id || '').toLowerCase();
+                    const v = (c.vendor || '').toLowerCase();
+                    if (!id.includes(q) && !v.includes(q)) return false;
+                }
+                return true;
+            });
+        }
+
         function renderChargerTable(chargers) {
+            if (chargers) _allChargers = chargers;
             const tbody = document.getElementById('chargerBody');
-            if (!chargers || chargers.length === 0) {
+            const empty = document.getElementById('noChargers');
+            const countEl = document.getElementById('chargerCount');
+
+            if (!_allChargers || _allChargers.length === 0) {
                 tbody.innerHTML = '';
-                document.getElementById('noChargers').style.display = 'block';
+                empty.style.display = 'block';
+                empty.textContent = 'No chargers registered yet';
+                if (countEl) countEl.textContent = '';
                 return;
             }
-            document.getElementById('noChargers').style.display = 'none';
-            tbody.innerHTML = chargers.map(c => {
-                const statusCls = c.status === 'online' ? 'online' : c.availability === 'faulted' ? 'faulted' : 'offline';
+
+            // Sort: most sessions first, then most energy, then faults last
+            const filtered = _filterChargers(_allChargers).sort((a, b) => {
+                const sa = a.total_sessions || 0, sb = b.total_sessions || 0;
+                if (sb !== sa) return sb - sa;
+                const ea = parseFloat(a.total_energy_kwh) || 0;
+                const eb = parseFloat(b.total_energy_kwh) || 0;
+                return eb - ea;
+            });
+
+            if (countEl) {
+                countEl.textContent = filtered.length === _allChargers.length
+                    ? `${_allChargers.length} chargers`
+                    : `${filtered.length} of ${_allChargers.length}`;
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                empty.textContent = 'No chargers match this filter';
+                return;
+            }
+            empty.style.display = 'none';
+
+            tbody.innerHTML = filtered.map(c => {
+                const statusCls = c.status === 'online'
+                    ? (c.availability === 'faulted' ? 'faulted' : 'online')
+                    : 'offline';
+                const faults = c.active_faults || 0;
                 return `<tr>
                     <td><strong>${c.charge_point_id}</strong></td>
-                    <td>${c.vendor || '-'}</td>
-                    <td><span class="status-dot ${statusCls}"></span>${c.status} / ${c.availability}</td>
-                    <td>${c.total_sessions}</td>
-                    <td>${c.total_energy_kwh}</td>
-                    <td style="color:${c.active_faults > 0 ? '#ff4466' : 'var(--text-muted)'}">${c.active_faults}</td>
+                    <td>${c.vendor || '—'}</td>
+                    <td><span class="status-dot ${statusCls}"></span>${c.availability || c.status}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;">${c.total_sessions || 0}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;">${c.total_energy_kwh || 0}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;color:${faults > 0 ? '#ff4466' : 'var(--text-muted)'}">${faults}</td>
                 </tr>`;
             }).join('');
         }
+
+        // Wire chips + search (once, on DOMContentLoaded).
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.cp-chip').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.cp-chip').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    _cpFilter = btn.dataset.cpFilter;
+                    renderChargerTable();
+                });
+            });
+            const searchInput = document.getElementById('chargerSearch');
+            if (searchInput) {
+                let t;
+                searchInput.addEventListener('input', () => {
+                    clearTimeout(t);
+                    t = setTimeout(() => {
+                        _cpSearch = searchInput.value;
+                        renderChargerTable();
+                    }, 150);
+                });
+            }
+        });
 
         function renderInsights(data) {
             document.getElementById('insightCount').textContent = `${data.total_insights} insights`;
