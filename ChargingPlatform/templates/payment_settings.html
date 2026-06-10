@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payment Gateway - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=20">
+    <link rel="stylesheet" href="/static/styles.css?v=21">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .payment-tabs{display:flex;gap:0;background:var(--bg-card);border-radius:var(--radius);overflow:hidden;margin-bottom: clamp(10px, 1vw, 20px);border:1px solid var(--border);}
@@ -62,16 +62,19 @@
         /* Lift modal off the backdrop with a brighter surface + shadow.
            Was using --bg-card which is near-identical to the backdrop in
            dark mode → modal blended in invisibly. */
+        /* Hardcoded brighter shade — var(--bg-surface) is #111620 which
+           blends into the backdrop. #232b3d sits clearly above black. */
         .modal{
-            background:var(--bg-surface,#1c2230);
-            border:1px solid rgba(255,255,255,0.10);
+            background:#232b3d;
+            border:1px solid rgba(255,255,255,0.14);
             border-radius:14px;
             max-width:760px;width:100%;max-height:88vh;overflow-y:auto;
             padding:24px 26px;
-            box-shadow:0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,255,136,0.08);
+            box-shadow:0 24px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,255,136,0.22), 0 0 80px rgba(0,255,136,0.05);
             animation: modalIn .18s ease-out;
+            position:relative;
         }
-        [data-theme="light"] .modal{ background:#ffffff; border-color:#e2e8f0; }
+        [data-theme="light"] .modal{ background:#ffffff; border-color:#e2e8f0; box-shadow:0 24px 60px rgba(0,0,0,0.25); }
         @keyframes modalIn { from { opacity:0; transform:translateY(10px) scale(.98) } to { opacity:1; transform:none } }
         .modal-title{font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:18px;display:flex;align-items:center;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--border);}
         .modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
