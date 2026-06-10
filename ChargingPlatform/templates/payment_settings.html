@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payment Gateway - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
-    <link rel="stylesheet" href="/static/styles.css?v=13">
+    <link rel="stylesheet" href="/static/styles.css?v=20">
     <script src="/static/theme.js?v=2"></script>
     <style>
         .payment-tabs{display:flex;gap:0;background:var(--bg-card);border-radius:var(--radius);overflow:hidden;margin-bottom: clamp(10px, 1vw, 20px);border:1px solid var(--border);}
@@ -57,11 +57,40 @@
         .status-processing{background:rgba(0,200,255,.15);color:var(--cyan);}
         .status-pending_approval{background:rgba(255,140,0,.15);color:#ff8c00;}
 
-        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;z-index:1000;justify-content:center;align-items:center;padding: clamp(10px, 1vw, 20px);backdrop-filter:blur(4px);}
+        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);display:none;z-index:1000;justify-content:center;align-items:center;padding: clamp(10px, 1vw, 20px);backdrop-filter:blur(6px);}
         .modal-overlay.active{display:flex;}
-        .modal{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-width:700px;width:100%;max-height:90vh;overflow-y:auto;padding: clamp(12px, 1.2vw, 24px);}
-        .modal-title{font-size: clamp(14px, 1vw, 18px);font-weight:600;color:var(--text-primary);margin-bottom: clamp(10px, 1vw, 20px);display:flex;align-items:center;gap:8px;}
-        .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top: clamp(10px, 1vw, 20px);padding-top: clamp(8px, 0.8vw, 16px);border-top:1px solid var(--border);}
+        /* Lift modal off the backdrop with a brighter surface + shadow.
+           Was using --bg-card which is near-identical to the backdrop in
+           dark mode → modal blended in invisibly. */
+        .modal{
+            background:var(--bg-surface,#1c2230);
+            border:1px solid rgba(255,255,255,0.10);
+            border-radius:14px;
+            max-width:760px;width:100%;max-height:88vh;overflow-y:auto;
+            padding:24px 26px;
+            box-shadow:0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,255,136,0.08);
+            animation: modalIn .18s ease-out;
+        }
+        [data-theme="light"] .modal{ background:#ffffff; border-color:#e2e8f0; }
+        @keyframes modalIn { from { opacity:0; transform:translateY(10px) scale(.98) } to { opacity:1; transform:none } }
+        .modal-title{font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:18px;display:flex;align-items:center;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+        .modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
+
+        /* Form grid — wasn't defined anywhere, so children rendered as
+           plain blocks. Now a 2-column grid with .full spanning both. */
+        .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px;}
+        .form-grid .form-group.full{grid-column:1 / -1;}
+        .form-grid .form-group{padding:0;margin:0;}
+        .form-grid .form-group label{display:block;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;}
+        .form-grid .form-group input,.form-grid .form-group select,.form-grid .form-group textarea{
+            width:100%;padding:9px 11px;background:var(--bg-base);border:1px solid var(--border);border-radius:7px;color:var(--text-primary);font-size:13px;font-family:inherit;box-sizing:border-box;
+        }
+        .form-grid .form-group textarea{min-height:70px;resize:vertical;font-family:'Menlo','Monaco','Courier New',monospace;font-size:12px;}
+        .form-grid .form-group input:focus,.form-grid .form-group select:focus,.form-grid .form-group textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,255,136,.10);}
+        .form-grid .form-group .hint{display:block;font-size:10px;color:var(--text-muted);margin-top:4px;}
+        .form-grid .checkbox-group{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);font-weight:500;cursor:pointer;text-transform:none;letter-spacing:0;}
+        .form-grid .checkbox-group input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;}
+        @media(max-width:640px){.form-grid{grid-template-columns:1fr;}}
 
         .topup-card{background:linear-gradient(135deg,rgba(0,255,136,.08),rgba(0,200,255,.08));border:1px solid rgba(0,255,136,.2);border-radius:var(--radius);padding: clamp(10px, 1vw, 20px);text-align:center;}
         .topup-amount{font-size: clamp(22px, 2vw, 36px);font-weight:700;color:var(--accent);}
