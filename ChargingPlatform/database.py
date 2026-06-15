@@ -216,6 +216,42 @@ class PushSubscription(Base):
     user = relationship("User", back_populates="push_subscriptions")
 
 
+class PaymentTerminal(Base):
+    """Self-service payment kiosk mounted at a charging station.
+
+    A tablet (or dedicated POS in future) running the terminal kiosk
+    web page. User picks a charger on screen → TNG QR shown → user
+    scans with TNG app on phone → backend triggers OCPP RemoteStart.
+
+    One terminal can be assigned multiple chargers (a 4-bay location
+    uses one terminal for all four).
+    """
+    __tablename__ = "payment_terminals"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    device_id       = Column(String(64), nullable=False, unique=True, index=True)
+    api_key         = Column(String(128), nullable=False)
+    display_name    = Column(String(128), nullable=False)
+    location_label  = Column(String(256), nullable=True)
+    location_lat    = Column(Numeric(10, 7), nullable=True)
+    location_lng    = Column(Numeric(10, 7), nullable=True)
+    status          = Column(String(16), nullable=False, default="active")  # active|offline|disabled
+    last_heartbeat  = Column(DateTime, nullable=True)
+    notes           = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=_utcnow)
+    updated_at      = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class TerminalCharger(Base):
+    """Assignment of chargers to terminals (many-to-many)."""
+    __tablename__ = "terminal_chargers"
+
+    terminal_id   = Column(Integer, ForeignKey("payment_terminals.id", ondelete="CASCADE"), primary_key=True, index=True)
+    charger_id    = Column(Integer, ForeignKey("chargers.id", ondelete="CASCADE"), primary_key=True, index=True)
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at    = Column(DateTime, default=_utcnow)
+
+
 class Notification(Base):
     """In-app notification feed (per-user).
 

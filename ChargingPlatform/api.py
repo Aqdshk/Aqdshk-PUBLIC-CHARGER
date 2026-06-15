@@ -22,9 +22,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, desc, func, or_, text
@@ -35,7 +35,7 @@ from database import (
     AuditLog,
     Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
-    OTPVerification, PaymentGatewayConfig, PaymentTransaction,
+    OTPVerification, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
     Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db,
@@ -8045,5 +8045,276 @@ async def delete_notification(
     if not n:
         raise HTTPException(status_code=404, detail="Notification not found")
     db.delete(n)
+    db.commit()
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PAYMENT TERMINALS — self-service kiosks at charging stations
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _terminal_auth(device_id: str, x_terminal_key: Optional[str], db) -> PaymentTerminal:
+    """Authenticate a terminal request via device_id (URL) + X-Terminal-Key
+    header. Updates last_heartbeat as a side-effect."""
+    if not x_terminal_key:
+        raise HTTPException(status_code=401, detail="Missing X-Terminal-Key header")
+    term = db.query(PaymentTerminal).filter(PaymentTerminal.device_id == device_id).first()
+    if not term or term.api_key != x_terminal_key:
+        raise HTTPException(status_code=403, detail="Invalid terminal credentials")
+    if term.status == "disabled":
+        raise HTTPException(status_code=403, detail="Terminal disabled")
+    term.last_heartbeat = _utcnow()
+    db.commit()
+    return term
+
+
+@app.get("/api/terminal/{device_id}/chargers")
+async def terminal_list_chargers(
+    device_id: str,
+    x_terminal_key: Optional[str] = Header(None),
+    db = Depends(get_db),
+):
+    """Return chargers assigned to this terminal, in display order, with
+    live status for the kiosk UI."""
+    term = _terminal_auth(device_id, x_terminal_key, db)
+    rows = (
+        db.query(TerminalCharger, Charger)
+        .join(Charger, Charger.id == TerminalCharger.charger_id)
+        .filter(TerminalCharger.terminal_id == term.id)
+        .order_by(TerminalCharger.display_order.asc(), Charger.charge_point_id.asc())
+        .all()
+    )
+    # Use last_heartbeat for effective online status (same as /api/chargers)
+    online_cutoff = _utcnow() - timedelta(minutes=OFFLINE_THRESHOLD_MINUTES)
+    out = []
+    for tc, c in rows:
+        is_online = c.last_heartbeat is not None and c.last_heartbeat >= online_cutoff
+        avail = (c.availability or "unknown").lower()
+        available_for_payment = (
+            is_online
+            and not c.maintenance_mode
+            and avail in ("available", "preparing")
+        )
+        out.append({
+            "charge_point_id": c.charge_point_id,
+            "display_name": c.charge_point_id,
+            "vendor": c.vendor,
+            "model": c.model,
+            "max_power_kw": float(c.max_power_kw) if c.max_power_kw else None,
+            "is_online": is_online,
+            "availability": avail,
+            "available_for_payment": available_for_payment,
+            "tariff_per_kwh": float(c.tariff_per_kwh) if c.tariff_per_kwh else None,
+            "connector_id": 1,  # default — TODO: per-connector when multi-socket
+        })
+    return {"terminal": {"display_name": term.display_name, "location_label": term.location_label}, "chargers": out}
+
+
+@app.post("/api/terminal/{device_id}/payment/start")
+async def terminal_payment_start(
+    device_id: str,
+    request: Request,
+    x_terminal_key: Optional[str] = Header(None),
+    db = Depends(get_db),
+):
+    """Create a TNG payment session for a charger picked on the terminal.
+    Returns the QR string for the kiosk to render."""
+    term = _terminal_auth(device_id, x_terminal_key, db)
+    body = await request.json()
+    cp_id = (body.get("charge_point_id") or "").strip()
+    amount = float(body.get("amount") or 0)
+    connector_id = int(body.get("connector_id") or 1)
+    if not cp_id:
+        raise HTTPException(status_code=400, detail="charge_point_id required")
+    if amount < 1.0 or amount > 500.0:
+        raise HTTPException(status_code=400, detail="Amount must be RM 1–500")
+    # Confirm charger is assigned to THIS terminal (no cross-terminal abuse)
+    assigned = (
+        db.query(TerminalCharger)
+        .join(Charger, Charger.id == TerminalCharger.charger_id)
+        .filter(TerminalCharger.terminal_id == term.id, Charger.charge_point_id == cp_id)
+        .first()
+    )
+    if not assigned:
+        raise HTTPException(status_code=403, detail=f"Charger {cp_id} not assigned to this terminal")
+
+    # Re-use quick-pay's gateway machinery to keep one source of truth.
+    # Email is the terminal-issued placeholder so receipts route to ops.
+    fake_email = f"terminal-{term.id}@plagsini.local"
+    pay_req = QuickPayRequest(
+        charger_id=cp_id,
+        connector_id=connector_id,
+        amount=amount,
+        email=fake_email,
+        gateway_name="tng",
+    )
+    result = await quick_pay(pay_req, request, db)
+    # quick_pay returns a dict on success
+    if not isinstance(result, dict) or not result.get("success"):
+        # Surface the underlying message rather than swallow it
+        msg = result.get("message") if isinstance(result, dict) else "Payment session creation failed"
+        raise HTTPException(status_code=502, detail=msg)
+    return {
+        "transaction_ref": result.get("transaction_ref"),
+        "qr_code": result.get("qr_code"),
+        "payment_url": result.get("payment_url"),
+        "amount": amount,
+        "expires_in_sec": 600,
+        "charger_id": cp_id,
+    }
+
+
+@app.get("/api/terminal/{device_id}/payment/{txn_ref}/status")
+async def terminal_payment_status(
+    device_id: str,
+    txn_ref: str,
+    x_terminal_key: Optional[str] = Header(None),
+    db = Depends(get_db),
+):
+    """Poll payment status. Terminal polls this every 2–3s while showing QR."""
+    _terminal_auth(device_id, x_terminal_key, db)
+    txn = db.query(PaymentTransaction).filter(PaymentTransaction.transaction_ref == txn_ref).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    # Map internal status → simple kiosk states
+    raw = (txn.status or "pending").lower()
+    if raw in ("completed", "success", "paid"):
+        kiosk = "paid"
+    elif raw in ("expired", "cancelled", "failed"):
+        kiosk = "failed"
+    else:
+        kiosk = "pending"
+    return {
+        "transaction_ref": txn_ref,
+        "status": kiosk,
+        "raw_status": raw,
+        "amount": float(txn.amount) if txn.amount else 0.0,
+        "charger_id": txn.charger_id,
+    }
+
+
+@app.post("/api/terminal/{device_id}/payment/{txn_ref}/cancel")
+async def terminal_payment_cancel(
+    device_id: str,
+    txn_ref: str,
+    x_terminal_key: Optional[str] = Header(None),
+    db = Depends(get_db),
+):
+    """User tapped back / kiosk timed out before payment completed."""
+    _terminal_auth(device_id, x_terminal_key, db)
+    txn = db.query(PaymentTransaction).filter(PaymentTransaction.transaction_ref == txn_ref).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if (txn.status or "").lower() not in ("pending", "processing"):
+        return {"ok": True, "already_terminal": True}
+    txn.status = "cancelled"
+    db.commit()
+    return {"ok": True}
+
+
+# ── Terminal kiosk web page ──────────────────────────────────────────────
+@app.get("/terminal/{device_id}")
+async def terminal_kiosk_page(device_id: str):
+    """Serve the kiosk HTML. The page reads ?key=<api_key> from URL once,
+    stashes it in sessionStorage, then drives the API. Designed for
+    Chrome in kiosk mode on a tablet/POS."""
+    file_path = Path(__file__).parent / "templates" / "terminal_kiosk.html"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Terminal page not found")
+    return HTMLResponse(file_path.read_text(encoding="utf-8"))
+
+
+# ── Admin: manage terminals ──────────────────────────────────────────────
+
+@app.get("/api/admin/terminals")
+async def admin_list_terminals(
+    db = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """List all terminals for the admin dashboard."""
+    rows = db.query(PaymentTerminal).order_by(PaymentTerminal.created_at.desc()).all()
+    out = []
+    for t in rows:
+        n_chargers = db.query(TerminalCharger).filter(TerminalCharger.terminal_id == t.id).count()
+        out.append({
+            "id": t.id,
+            "device_id": t.device_id,
+            "display_name": t.display_name,
+            "location_label": t.location_label,
+            "status": t.status,
+            "last_heartbeat": t.last_heartbeat.isoformat() if t.last_heartbeat else None,
+            "charger_count": n_chargers,
+            "kiosk_url": f"/terminal/{t.device_id}?key={t.api_key}",
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        })
+    return out
+
+
+@app.post("/api/admin/terminals")
+async def admin_create_terminal(
+    request: Request,
+    db = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Create a new terminal. Returns generated device_id + api_key —
+    save them in your records; the kiosk URL embeds the key."""
+    body = await request.json()
+    display_name = (body.get("display_name") or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name required")
+    device_id = f"term_{uuid.uuid4().hex[:12]}"
+    api_key   = secrets.token_urlsafe(32)
+    t = PaymentTerminal(
+        device_id=device_id,
+        api_key=api_key,
+        display_name=display_name,
+        location_label=body.get("location_label"),
+        location_lat=body.get("location_lat"),
+        location_lng=body.get("location_lng"),
+        status="active",
+    )
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return {
+        "id": t.id,
+        "device_id": device_id,
+        "api_key": api_key,
+        "display_name": display_name,
+        "kiosk_url": f"/terminal/{device_id}?key={api_key}",
+    }
+
+
+@app.post("/api/admin/terminals/{terminal_id}/chargers")
+async def admin_set_terminal_chargers(
+    terminal_id: int,
+    request: Request,
+    db = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Replace the charger assignments for a terminal.
+    Body: { charger_ids: [int, ...] } — order = display_order."""
+    t = db.query(PaymentTerminal).filter(PaymentTerminal.id == terminal_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Terminal not found")
+    body = await request.json()
+    charger_ids = body.get("charger_ids") or []
+    db.query(TerminalCharger).filter(TerminalCharger.terminal_id == terminal_id).delete()
+    for idx, cid in enumerate(charger_ids):
+        db.add(TerminalCharger(terminal_id=terminal_id, charger_id=int(cid), display_order=idx))
+    db.commit()
+    return {"ok": True, "count": len(charger_ids)}
+
+
+@app.delete("/api/admin/terminals/{terminal_id}")
+async def admin_delete_terminal(
+    terminal_id: int,
+    db = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    t = db.query(PaymentTerminal).filter(PaymentTerminal.id == terminal_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Terminal not found")
+    db.delete(t)
     db.commit()
     return {"ok": True}

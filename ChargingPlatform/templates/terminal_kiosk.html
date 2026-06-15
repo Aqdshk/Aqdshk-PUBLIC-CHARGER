@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>PlagSini — Terminal</title>
+<link rel="icon" href="/static/logo.png" type="image/png">
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+    :root {
+        --bg: #0a0e1a;
+        --bg-elev: #131a2c;
+        --bg-card: #1a2238;
+        --primary: #00ff88;
+        --primary-dim: #00aa55;
+        --text: #ffffff;
+        --text-dim: #a0aac5;
+        --danger: #ff4466;
+        --warning: #ffa500;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body {
+        height: 100%; width: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+        overflow: hidden;
+        user-select: none;
+        touch-action: manipulation;
+    }
+    body { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── HEADER ── */
+    .topbar {
+        flex-shrink: 0;
+        padding: 16px 20px;
+        background: linear-gradient(180deg, rgba(0,255,136,0.06), transparent);
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-logo {
+        width: 36px; height: 36px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dim));
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 900; color: #000;
+    }
+    .brand-name { font-size: 15px; font-weight: 800; letter-spacing: 0.5px; }
+    .brand-name span { color: var(--primary); }
+    .location { font-size: 11px; color: var(--text-dim); text-align: right; max-width: 50%; }
+
+    /* ── SCREENS ── */
+    .screen { display: none; flex: 1; flex-direction: column; padding: 18px 20px 20px; overflow: hidden; }
+    .screen.active { display: flex; }
+
+    /* idle screen */
+    #screen-idle .hero {
+        flex: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 20px;
+        text-align: center; padding: 20px;
+    }
+    #screen-idle .charge-icon {
+        width: 120px; height: 120px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dim));
+        border-radius: 32px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 64px; color: #000;
+        box-shadow: 0 16px 48px rgba(0,255,136,0.35);
+        animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    #screen-idle h1 { font-size: 32px; font-weight: 900; letter-spacing: -0.5px; }
+    #screen-idle .subtitle { font-size: 15px; color: var(--text-dim); max-width: 320px; line-height: 1.5; }
+    #screen-idle .tap-cta {
+        margin-top: 20px;
+        padding: 18px 36px;
+        background: var(--primary);
+        color: #000;
+        border: none;
+        border-radius: 999px;
+        font-size: 17px; font-weight: 800;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(0,255,136,0.4);
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #screen-idle .tap-cta:active { transform: scale(0.96); }
+
+    /* picker screen */
+    .section-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-bottom: 12px; }
+    .charger-list { flex: 1; overflow-y: auto; padding-bottom: 80px; }
+    .charger-list::-webkit-scrollbar { width: 4px; }
+    .charger-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    .charger-card {
+        background: var(--bg-card);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 10px;
+        display: flex; align-items: center; gap: 14px;
+        cursor: pointer; transition: all 0.15s;
+    }
+    .charger-card:active { transform: scale(0.98); }
+    .charger-card.disabled { opacity: 0.4; pointer-events: none; }
+    .charger-card .icon {
+        width: 48px; height: 48px;
+        background: rgba(0,255,136,0.12);
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 24px; color: var(--primary);
+        flex-shrink: 0;
+    }
+    .charger-card.busy .icon { background: rgba(255,165,0,0.12); color: var(--warning); }
+    .charger-card.offline .icon { background: rgba(255,68,102,0.12); color: var(--danger); }
+    .charger-info { flex: 1; min-width: 0; }
+    .charger-name { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+    .charger-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 8px; flex-wrap: wrap; }
+    .status-pill {
+        font-size: 10px; font-weight: 800; padding: 3px 9px;
+        border-radius: 999px; letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .status-pill.ok { background: rgba(0,255,136,0.16); color: var(--primary); }
+    .status-pill.busy { background: rgba(255,165,0,0.16); color: var(--warning); }
+    .status-pill.off { background: rgba(255,68,102,0.16); color: var(--danger); }
+    .chevron { color: var(--text-dim); font-size: 22px; }
+
+    /* amount screen */
+    .charger-chip {
+        background: var(--bg-card);
+        border: 1px solid rgba(0,255,136,0.25);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 18px;
+        display: flex; align-items: center; gap: 10px;
+    }
+    .charger-chip .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+    .charger-chip .value { font-size: 15px; font-weight: 700; color: var(--primary); }
+    .amount-display {
+        text-align: center; padding: 32px 0 28px;
+    }
+    .amount-display .rm { font-size: 22px; color: var(--text-dim); font-weight: 500; vertical-align: top; }
+    .amount-display .num { font-size: 72px; font-weight: 900; color: var(--primary); letter-spacing: -2px; }
+    .amount-display .est { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+    .amount-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .amount-btn {
+        padding: 18px 0;
+        background: var(--bg-card);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        color: var(--text);
+        font-size: 17px; font-weight: 700;
+        cursor: pointer; transition: all 0.15s;
+    }
+    .amount-btn:active { transform: scale(0.95); }
+    .amount-btn.selected { background: rgba(0,255,136,0.15); border-color: var(--primary); color: var(--primary); }
+
+    /* QR screen */
+    #screen-qr { align-items: center; }
+    #screen-qr .instr {
+        font-size: 15px; color: var(--text-dim);
+        text-align: center; margin-bottom: 16px; line-height: 1.5; max-width: 320px;
+    }
+    .qr-card {
+        background: #fff;
+        padding: 20px;
+        border-radius: 18px;
+        box-shadow: 0 16px 48px rgba(0,255,136,0.2);
+        margin-bottom: 18px;
+    }
+    .qr-card canvas, .qr-card img { display: block; width: 240px; height: 240px; }
+    .pay-amount {
+        font-size: 36px; font-weight: 900; color: var(--primary); margin-bottom: 6px;
+    }
+    .countdown {
+        font-size: 13px; color: var(--text-dim);
+        background: var(--bg-card);
+        padding: 10px 18px; border-radius: 999px;
+        margin-bottom: 16px;
+        display: inline-flex; align-items: center; gap: 8px;
+    }
+    .countdown .pulse {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--primary); box-shadow: 0 0 10px var(--primary);
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* status screens */
+    .status-screen { align-items: center; justify-content: center; text-align: center; gap: 18px; }
+    .status-icon {
+        width: 120px; height: 120px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 64px; font-weight: 900;
+        animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+    .status-icon.success { background: var(--primary); color: #000; box-shadow: 0 12px 36px rgba(0,255,136,0.4); }
+    .status-icon.fail    { background: var(--danger); color: #fff; box-shadow: 0 12px 36px rgba(255,68,102,0.4); }
+    .status-title { font-size: 26px; font-weight: 900; }
+    .status-msg { font-size: 14px; color: var(--text-dim); max-width: 320px; line-height: 1.5; }
+
+    /* footer buttons */
+    .footer {
+        flex-shrink: 0;
+        padding: 14px 20px 18px;
+        border-top: 1px solid rgba(255,255,255,0.04);
+        display: flex; gap: 10px;
+    }
+    .btn {
+        flex: 1;
+        padding: 16px;
+        border: none; border-radius: 14px;
+        font-size: 15px; font-weight: 700; cursor: pointer;
+        transition: transform 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+        background: var(--primary); color: #000;
+        box-shadow: 0 8px 20px rgba(0,255,136,0.3);
+    }
+    .btn-secondary {
+        background: var(--bg-card); color: var(--text);
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+    .empty-state .ico { font-size: 48px; opacity: 0.4; margin-bottom: 12px; }
+    .error-banner {
+        background: rgba(255,68,102,0.12); border: 1px solid rgba(255,68,102,0.3);
+        color: var(--danger); padding: 10px 14px; border-radius: 10px;
+        font-size: 12px; margin-bottom: 12px;
+    }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="brand">
+        <div class="brand-logo">⚡</div>
+        <div>
+            <div class="brand-name">Plag<span>Sini</span></div>
+            <div style="font-size:10px;color:var(--text-dim);">EV Charging</div>
+        </div>
+    </div>
+    <div class="location" id="locationLabel">—</div>
+</div>
+
+<!-- IDLE -->
+<div class="screen active" id="screen-idle">
+    <div class="hero">
+        <div class="charge-icon">⚡</div>
+        <h1>Ready to charge?</h1>
+        <div class="subtitle">Tap below to pick a charger and pay with Touch 'n Go eWallet.</div>
+        <button class="tap-cta" onclick="goToPicker()">Start Charging</button>
+    </div>
+</div>
+
+<!-- PICKER -->
+<div class="screen" id="screen-picker">
+    <div class="section-title">Pick your charger</div>
+    <div class="charger-list" id="chargerList"></div>
+    <div class="footer">
+        <button class="btn btn-secondary" onclick="showScreen('idle')">Cancel</button>
+    </div>
+</div>
+
+<!-- AMOUNT -->
+<div class="screen" id="screen-amount">
+    <div class="charger-chip">
+        <div style="flex:1">
+            <div class="label">Selected charger</div>
+            <div class="value" id="amtChargerName">—</div>
+        </div>
+        <button class="btn-secondary" onclick="showScreen('picker')" style="padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:var(--text-dim);font-size:11px;cursor:pointer;">Change</button>
+    </div>
+    <div class="section-title">How much to top up?</div>
+    <div class="amount-display">
+        <span class="rm">RM</span><span class="num" id="amtNum">10</span>
+        <div class="est" id="amtEst">~ 100 kWh at RM 0.10/kWh</div>
+    </div>
+    <div class="amount-grid">
+        <button class="amount-btn" data-amt="5">RM 5</button>
+        <button class="amount-btn selected" data-amt="10">RM 10</button>
+        <button class="amount-btn" data-amt="20">RM 20</button>
+        <button class="amount-btn" data-amt="30">RM 30</button>
+        <button class="amount-btn" data-amt="50">RM 50</button>
+        <button class="amount-btn" data-amt="100">RM 100</button>
+    </div>
+    <div class="footer">
+        <button class="btn btn-secondary" onclick="showScreen('picker')">Back</button>
+        <button class="btn btn-primary" onclick="startPayment()">Show QR</button>
+    </div>
+</div>
+
+<!-- QR -->
+<div class="screen" id="screen-qr">
+    <div class="pay-amount" id="qrAmount">RM 10.00</div>
+    <div class="instr">Open <b>Touch 'n Go eWallet</b> app on your phone and scan this QR.</div>
+    <div class="qr-card"><canvas id="qrCanvas"></canvas></div>
+    <div class="countdown"><span class="pulse"></span><span id="countdownText">Waiting for payment · 09:59</span></div>
+    <div class="footer">
+        <button class="btn btn-secondary" onclick="cancelPayment()">Cancel</button>
+    </div>
+</div>
+
+<!-- SUCCESS -->
+<div class="screen status-screen" id="screen-success">
+    <div class="status-icon success">✓</div>
+    <div class="status-title">Payment received!</div>
+    <div class="status-msg">Charger is starting. Plug in your EV cable now.</div>
+    <div style="margin-top:8px;font-size:13px;color:var(--text-dim);">Returning to start screen in <b id="successCountdown">10</b>s</div>
+</div>
+
+<!-- FAILED -->
+<div class="screen status-screen" id="screen-failed">
+    <div class="status-icon fail">!</div>
+    <div class="status-title" id="failTitle">Payment failed</div>
+    <div class="status-msg" id="failMsg">Please try again or contact support.</div>
+    <div class="footer" style="width:100%;max-width:400px;">
+        <button class="btn btn-secondary" onclick="showScreen('idle')">Done</button>
+        <button class="btn btn-primary" onclick="showScreen('picker')">Try again</button>
+    </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// PlagSini Terminal Kiosk — public self-service payment flow.
+// ─────────────────────────────────────────────────────────────────────────
+const DEVICE_ID = window.location.pathname.split('/').pop();
+const URL_KEY = new URLSearchParams(window.location.search).get('key');
+
+// One-time: stash the key in sessionStorage so refresh doesn't lose it
+// and we strip it from the URL bar (less leakage).
+const KEY_STORE = 'plagsini_terminal_key_' + DEVICE_ID;
+if (URL_KEY) {
+    sessionStorage.setItem(KEY_STORE, URL_KEY);
+    // Strip ?key= from URL so it doesn't sit in screenshots / browser history.
+    history.replaceState(null, '', window.location.pathname);
+}
+const API_KEY = sessionStorage.getItem(KEY_STORE);
+
+let _state = {
+    chargers: [],
+    selectedCharger: null,
+    selectedAmount: 10,
+    activeTxnRef: null,
+    pollTimer: null,
+    countdownTimer: null,
+    idleTimer: null,
+    expiresAt: null,
+};
+
+async function api(path, opts = {}) {
+    const headers = { 'X-Terminal-Key': API_KEY, ...(opts.headers || {}) };
+    if (opts.body && typeof opts.body !== 'string') {
+        headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(opts.body);
+    }
+    const res = await fetch(`/api/terminal/${DEVICE_ID}${path}`, { ...opts, headers });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+}
+
+function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.add('active');
+    resetIdleTimer();
+}
+
+function resetIdleTimer() {
+    clearTimeout(_state.idleTimer);
+    // Auto-return to idle after 60s of inactivity (except on idle / qr screens)
+    const cur = document.querySelector('.screen.active')?.id;
+    if (cur && cur !== 'screen-idle' && cur !== 'screen-qr' && cur !== 'screen-success') {
+        _state.idleTimer = setTimeout(() => showScreen('idle'), 60000);
+    }
+}
+['touchstart','click'].forEach(ev => document.addEventListener(ev, resetIdleTimer));
+
+// ── Picker ───────────────────────────────────────────────────────────────
+async function goToPicker() {
+    showScreen('picker');
+    const list = document.getElementById('chargerList');
+    list.innerHTML = '<div class="empty-state"><div class="ico">⏳</div><div>Loading chargers…</div></div>';
+    try {
+        const data = await api('/chargers');
+        _state.chargers = data.chargers || [];
+        document.getElementById('locationLabel').textContent =
+            data.terminal?.location_label || data.terminal?.display_name || '';
+        renderChargers();
+    } catch (e) {
+        list.innerHTML = `<div class="error-banner">${e.message}</div>`;
+    }
+}
+
+function renderChargers() {
+    const list = document.getElementById('chargerList');
+    if (!_state.chargers.length) {
+        list.innerHTML = '<div class="empty-state"><div class="ico">🔌</div><div>No chargers assigned to this terminal</div></div>';
+        return;
+    }
+    list.innerHTML = _state.chargers.map(c => {
+        let pill = '<span class="status-pill off">OFFLINE</span>';
+        let cls = 'offline';
+        if (c.available_for_payment) {
+            pill = '<span class="status-pill ok">AVAILABLE</span>';
+            cls = '';
+        } else if (c.is_online && c.availability === 'charging') {
+            pill = '<span class="status-pill busy">IN USE</span>';
+            cls = 'busy disabled';
+        } else if (c.is_online) {
+            pill = `<span class="status-pill busy">${(c.availability||'?').toUpperCase()}</span>`;
+            cls = 'busy disabled';
+        }
+        const power = c.max_power_kw ? `<span>${c.max_power_kw} kW</span>` : '';
+        const tariff = c.tariff_per_kwh ? `<span>RM ${c.tariff_per_kwh.toFixed(2)}/kWh</span>` : '';
+        return `<div class="charger-card ${cls}" onclick="pickCharger('${c.charge_point_id}')">
+            <div class="icon">⚡</div>
+            <div class="charger-info">
+                <div class="charger-name">${c.display_name}</div>
+                <div class="charger-meta">${power}${power && tariff ? '·' : ''}${tariff}</div>
+            </div>
+            ${pill}
+            <div class="chevron">›</div>
+        </div>`;
+    }).join('');
+}
+
+function pickCharger(cpId) {
+    const c = _state.chargers.find(x => x.charge_point_id === cpId);
+    if (!c || !c.available_for_payment) return;
+    _state.selectedCharger = c;
+    document.getElementById('amtChargerName').textContent = c.display_name;
+    setAmount(_state.selectedAmount);
+    showScreen('amount');
+}
+
+// ── Amount picker ────────────────────────────────────────────────────────
+document.querySelectorAll('.amount-btn').forEach(b => {
+    b.addEventListener('click', () => setAmount(parseFloat(b.dataset.amt)));
+});
+
+function setAmount(amt) {
+    _state.selectedAmount = amt;
+    document.getElementById('amtNum').textContent = amt;
+    const tariff = _state.selectedCharger?.tariff_per_kwh || 0.10;
+    const kwh = (amt / tariff).toFixed(0);
+    document.getElementById('amtEst').textContent = `~ ${kwh} kWh at RM ${tariff.toFixed(2)}/kWh`;
+    document.querySelectorAll('.amount-btn').forEach(b => {
+        b.classList.toggle('selected', parseFloat(b.dataset.amt) === amt);
+    });
+}
+
+// ── Payment flow ─────────────────────────────────────────────────────────
+async function startPayment() {
+    if (!_state.selectedCharger) return;
+    showScreen('qr');
+    document.getElementById('qrAmount').textContent = `RM ${_state.selectedAmount.toFixed(2)}`;
+    const canvas = document.getElementById('qrCanvas');
+    canvas.width = 240; canvas.height = 240;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 240, 240);
+    ctx.fillStyle = '#000'; ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Generating QR…', 120, 120);
+
+    try {
+        const data = await api('/payment/start', {
+            method: 'POST',
+            body: {
+                charge_point_id: _state.selectedCharger.charge_point_id,
+                connector_id: _state.selectedCharger.connector_id || 1,
+                amount: _state.selectedAmount,
+            },
+        });
+        _state.activeTxnRef = data.transaction_ref;
+        _state.expiresAt = Date.now() + (data.expires_in_sec || 600) * 1000;
+        // Render QR
+        if (data.qr_code) {
+            QRCode.toCanvas(canvas, data.qr_code, { width: 240, margin: 1, errorCorrectionLevel: 'M' });
+        } else if (data.payment_url) {
+            QRCode.toCanvas(canvas, data.payment_url, { width: 240, margin: 1 });
+        } else {
+            throw new Error('No QR returned from gateway');
+        }
+        startCountdown();
+        startPolling();
+    } catch (e) {
+        showFailure('Cannot start payment', e.message || 'Please try again later.');
+    }
+}
+
+function startCountdown() {
+    clearInterval(_state.countdownTimer);
+    function tick() {
+        const sec = Math.max(0, Math.round((_state.expiresAt - Date.now()) / 1000));
+        const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+        const ss = String(sec % 60).padStart(2, '0');
+        document.getElementById('countdownText').textContent = `Waiting for payment · ${mm}:${ss}`;
+        if (sec <= 0) {
+            clearInterval(_state.countdownTimer);
+            cancelPayment(true);
+        }
+    }
+    tick();
+    _state.countdownTimer = setInterval(tick, 1000);
+}
+
+function startPolling() {
+    clearInterval(_state.pollTimer);
+    _state.pollTimer = setInterval(async () => {
+        if (!_state.activeTxnRef) return clearInterval(_state.pollTimer);
+        try {
+            const data = await api(`/payment/${_state.activeTxnRef}/status`);
+            if (data.status === 'paid') {
+                clearInterval(_state.pollTimer);
+                clearInterval(_state.countdownTimer);
+                showSuccess();
+            } else if (data.status === 'failed') {
+                clearInterval(_state.pollTimer);
+                clearInterval(_state.countdownTimer);
+                showFailure('Payment failed', 'The payment was not completed.');
+            }
+        } catch (e) { /* network blip — keep polling */ }
+    }, 2500);
+}
+
+async function cancelPayment(expired = false) {
+    clearInterval(_state.pollTimer);
+    clearInterval(_state.countdownTimer);
+    if (_state.activeTxnRef) {
+        api(`/payment/${_state.activeTxnRef}/cancel`, { method: 'POST' }).catch(()=>{});
+    }
+    _state.activeTxnRef = null;
+    if (expired) {
+        showFailure('QR expired', 'You did not pay in time. Please try again.');
+    } else {
+        showScreen('picker');
+    }
+}
+
+function showSuccess() {
+    showScreen('success');
+    let n = 10;
+    const el = document.getElementById('successCountdown');
+    el.textContent = n;
+    const t = setInterval(() => {
+        n--;
+        el.textContent = n;
+        if (n <= 0) { clearInterval(t); showScreen('idle'); }
+    }, 1000);
+}
+
+function showFailure(title, msg) {
+    document.getElementById('failTitle').textContent = title;
+    document.getElementById('failMsg').textContent = msg;
+    showScreen('failed');
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────
+if (!API_KEY) {
+    document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#ff4466;font-family:sans-serif;">Terminal not provisioned. Open the kiosk URL with ?key=… once to register this device.</div>';
+}
+
+// Wake lock — keep screen on (best effort, browser permitting)
+if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').catch(()=>{});
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') navigator.wakeLock.request('screen').catch(()=>{});
+    });
+}
+</script>
+</body>
+</html>
