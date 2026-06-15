@@ -8148,9 +8148,75 @@ async def terminal_payment_start(
     if not assigned:
         raise HTTPException(status_code=403, detail=f"Charger {cp_id} not assigned to this terminal")
 
-    # Re-use quick-pay's gateway machinery to keep one source of truth.
-    # Email is the terminal-issued placeholder so receipts route to ops.
     fake_email = f"terminal-{term.id}@plagsini.local"
+
+    # ── TEST MODE ─────────────────────────────────────────────────────────
+    # Skip TNG entirely. Mint a "paid" PaymentTransaction, schedule a 5-sec
+    # delay then fire OCPP RemoteStart for real. The kiosk's status poll
+    # will flip to "paid" after the delay and the charger will start.
+    if term.test_mode:
+        txn_ref = generate_transaction_ref()
+        now = _utcnow()
+        guest_user_id = _get_or_create_guest_user(db)
+        txn = PaymentTransaction(
+            transaction_ref=txn_ref,
+            user_id=guest_user_id,
+            user_email=fake_email,
+            amount=amount,
+            currency="MYR",
+            payment_method="test",
+            gateway_name=f"terminal_test:{term.id}",
+            gateway_status="test_pending",
+            status="pending",
+            purpose="charge_payment",
+            charger_id=cp_id,
+            connector_id=connector_id,
+            customer_email=fake_email,
+            created_at=now,
+        )
+        db.add(txn)
+        db.commit()
+        db.refresh(txn)
+        txn_id = txn.id
+
+        async def _fake_pay_then_start():
+            await asyncio.sleep(5)
+            # Re-open a fresh DB session — the request-scoped one is closed.
+            from database import SessionLocal
+            s = SessionLocal()
+            try:
+                t = s.query(PaymentTransaction).filter(PaymentTransaction.id == txn_id).first()
+                if not t or (t.status or "").lower() not in ("pending", "processing"):
+                    return  # cancelled in the meantime
+                t.status = "success"
+                t.gateway_status = "test_paid"
+                t.paid_at = _utcnow()
+                s.commit()
+                s.refresh(t)
+                try:
+                    await _trigger_remote_start_after_payment(s, t)
+                except Exception as e:
+                    logger.error(f"[terminal test] RemoteStart failed for {txn_ref}: {e}", exc_info=True)
+                    t.gateway_status = "test_paid_remote_start_failed"
+                    s.commit()
+            finally:
+                s.close()
+
+        asyncio.create_task(_fake_pay_then_start())
+        return {
+            "transaction_ref": txn_ref,
+            # Display string — qrcode.js will render this; user won't actually scan,
+            # the test loop auto-completes in 5s.
+            "qr_code": f"TEST MODE — auto-pay in 5s · {txn_ref}",
+            "payment_url": None,
+            "amount": amount,
+            "expires_in_sec": 600,
+            "charger_id": cp_id,
+            "test_mode": True,
+        }
+
+    # ── REAL TNG FLOW ─────────────────────────────────────────────────────
+    # Re-use quick-pay's gateway machinery to keep one source of truth.
     pay_req = QuickPayRequest(
         charger_id=cp_id,
         connector_id=connector_id,
@@ -8159,9 +8225,7 @@ async def terminal_payment_start(
         gateway_name="tng",
     )
     result = await quick_pay(pay_req, request, db)
-    # quick_pay returns a dict on success
     if not isinstance(result, dict) or not result.get("success"):
-        # Surface the underlying message rather than swallow it
         msg = result.get("message") if isinstance(result, dict) else "Payment session creation failed"
         raise HTTPException(status_code=502, detail=msg)
     return {
@@ -8259,6 +8323,7 @@ async def admin_list_terminals(
             "display_name": t.display_name,
             "location_label": t.location_label,
             "status": t.status,
+            "test_mode": bool(t.test_mode),
             "last_heartbeat": t.last_heartbeat.isoformat() if t.last_heartbeat else None,
             "chargers": chargers,
             "charger_count": len(chargers),
@@ -8332,6 +8397,24 @@ async def admin_set_terminal_chargers(
         db.add(TerminalCharger(terminal_id=terminal_id, charger_id=int(cid), display_order=idx))
     db.commit()
     return {"ok": True, "count": len(charger_ids)}
+
+
+@app.patch("/api/admin/terminals/{terminal_id}")
+async def admin_update_terminal(
+    terminal_id: int,
+    request: Request,
+    db = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Patch terminal fields. Currently supports: test_mode (bool)."""
+    t = db.query(PaymentTerminal).filter(PaymentTerminal.id == terminal_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Terminal not found")
+    body = await request.json()
+    if "test_mode" in body:
+        t.test_mode = bool(body["test_mode"])
+    db.commit()
+    return {"ok": True, "test_mode": bool(t.test_mode)}
 
 
 @app.delete("/api/admin/terminals/{terminal_id}")

@@ -236,6 +236,7 @@ class PaymentTerminal(Base):
     location_lat    = Column(Numeric(10, 7), nullable=True)
     location_lng    = Column(Numeric(10, 7), nullable=True)
     status          = Column(String(16), nullable=False, default="active")  # active|offline|disabled
+    test_mode       = Column(Boolean, nullable=False, default=False)         # skip TNG; fake-pay after 5s then RemoteStart
     last_heartbeat  = Column(DateTime, nullable=True)
     notes           = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=_utcnow)

@@ -265,7 +265,10 @@ function render() {
                     <div class="terminal-title">${escapeHtml(t.display_name)}</div>
                     <div class="terminal-meta">${escapeHtml(t.location_label || '— No location —')}</div>
                 </div>
-                <span class="status-pill ${t.status === 'active' ? 'active' : 'disabled'}">${t.status}</span>
+                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+                    <span class="status-pill ${t.status === 'active' ? 'active' : 'disabled'}">${t.status}</span>
+                    ${t.test_mode ? '<span class="status-pill" style="background:rgba(255,165,0,0.18);color:#ffa500;">TEST MODE</span>' : ''}
+                </div>
             </div>
             <div class="grid-2">
                 <div class="field">
@@ -291,6 +294,7 @@ function render() {
             <div class="actions">
                 <a href="${kioskUrl}" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">↗ Open kiosk</a>
                 <button class="btn-secondary" onclick="openAssignModal(${t.id})">⚡ Assign chargers</button>
+                <button class="btn-secondary" onclick="toggleTestMode(${t.id}, ${!t.test_mode})" style="${t.test_mode ? 'background:rgba(255,165,0,0.15);color:#ffa500;border-color:rgba(255,165,0,0.3);' : ''}">${t.test_mode ? '🧪 Disable Test Mode' : '🧪 Enable Test Mode'}</button>
                 <button class="btn-secondary btn-danger" onclick="deleteTerminal(${t.id}, '${safeName}')">🗑 Delete</button>
             </div>
         </div>`;
@@ -381,6 +385,20 @@ async function submitAssign() {
         });
         toast('Chargers updated');
         closeAssignModal();
+        loadAll();
+    } catch (e) { alert(e.message); }
+}
+
+async function toggleTestMode(id, enable) {
+    const msg = enable
+        ? 'Enable TEST MODE? Payments will be auto-faked (no TNG, no money). RemoteStart still fires for real.'
+        : 'Disable TEST MODE? Payments will go through real TNG again.';
+    if (!confirm(msg)) return;
+    try {
+        await api(`/api/admin/terminals/${id}`, {
+            method: 'PATCH', body: { test_mode: enable },
+        });
+        toast(enable ? 'Test mode ON' : 'Test mode OFF');
         loadAll();
     } catch (e) { alert(e.message); }
 }
