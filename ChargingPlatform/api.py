@@ -810,6 +810,15 @@ async def payment_settings_page():
     return FileResponse(file_path, media_type="text/html")
 
 
+@app.get("/admin/terminals")
+async def admin_terminals_page():
+    """Serve the admin terminals management page (self-service kiosks)."""
+    file_path = Path("templates/terminals.html")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Terminals template not found")
+    return FileResponse(file_path, media_type="text/html")
+
+
 def _conn_status_dict(raw):
     """Parse the chargers.connector_status JSON string column into a dict."""
     if not raw:
@@ -8235,7 +8244,14 @@ async def admin_list_terminals(
     rows = db.query(PaymentTerminal).order_by(PaymentTerminal.created_at.desc()).all()
     out = []
     for t in rows:
-        n_chargers = db.query(TerminalCharger).filter(TerminalCharger.terminal_id == t.id).count()
+        assignments = (
+            db.query(TerminalCharger, Charger)
+              .join(Charger, Charger.id == TerminalCharger.charger_id)
+              .filter(TerminalCharger.terminal_id == t.id)
+              .order_by(TerminalCharger.display_order.asc())
+              .all()
+        )
+        chargers = [{"id": c.id, "charge_point_id": c.charge_point_id} for _, c in assignments]
         out.append({
             "id": t.id,
             "device_id": t.device_id,
@@ -8243,11 +8259,12 @@ async def admin_list_terminals(
             "location_label": t.location_label,
             "status": t.status,
             "last_heartbeat": t.last_heartbeat.isoformat() if t.last_heartbeat else None,
-            "charger_count": n_chargers,
+            "chargers": chargers,
+            "charger_count": len(chargers),
             "kiosk_url": f"/terminal/{t.device_id}?key={t.api_key}",
             "created_at": t.created_at.isoformat() if t.created_at else None,
         })
-    return out
+    return {"terminals": out}
 
 
 @app.post("/api/admin/terminals")
@@ -8276,6 +8293,16 @@ async def admin_create_terminal(
     db.add(t)
     db.commit()
     db.refresh(t)
+    # Inline-assign chargers if the request included them, so the admin UI
+    # can create a fully-provisioned terminal in one round-trip.
+    charger_ids = body.get("charger_ids") or []
+    for idx, cid in enumerate(charger_ids):
+        try:
+            db.add(TerminalCharger(terminal_id=t.id, charger_id=int(cid), display_order=idx))
+        except Exception:
+            pass
+    if charger_ids:
+        db.commit()
     return {
         "id": t.id,
         "device_id": device_id,

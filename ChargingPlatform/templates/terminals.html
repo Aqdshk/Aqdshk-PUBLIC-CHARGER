@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment Terminals · PlagSini Admin</title>
+<link rel="icon" href="/static/logo.png" type="image/png">
+<style>
+    * { box-sizing: border-box; }
+    body { background:#0a0e1a; color:#fff; font-family:-apple-system,'Segoe UI',sans-serif; margin:0; min-height:100vh; }
+    .page-wrap { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
+    .top-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+    .top-bar h1 { font-size:24px; margin:0; font-weight:800; }
+    .top-bar h1 span { color:#00ff88; }
+    .back-link { color:#a0aac5; text-decoration:none; font-size:13px; padding:8px 14px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; }
+    .back-link:hover { color:#fff; background:rgba(255,255,255,0.04); }
+    .btn-primary {
+        background:#00ff88; color:#000; border:none; padding:11px 20px;
+        border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;
+        box-shadow:0 6px 18px rgba(0,255,136,0.25);
+    }
+    .btn-primary:hover { transform: translateY(-1px); }
+    .btn-secondary {
+        background:#1a2238; color:#fff; border:1px solid rgba(255,255,255,0.08);
+        padding:8px 14px; border-radius:8px; font-size:12px; cursor:pointer; font-weight:600;
+    }
+    .btn-secondary:hover { background:#1f2843; }
+    .btn-danger { background:rgba(255,68,102,0.12); color:#ff4466; border:1px solid rgba(255,68,102,0.3); }
+    .info-banner {
+        background: rgba(0,255,136,0.06);
+        border:1px solid rgba(0,255,136,0.2);
+        border-radius:12px; padding:16px 18px; margin-bottom:20px;
+        font-size:13px; color:#a0aac5; line-height:1.6;
+    }
+    .info-banner b { color:#00ff88; }
+    .terminal-card {
+        background:#131a2c;
+        border:1px solid rgba(255,255,255,0.06);
+        border-radius:14px;
+        padding:20px;
+        margin-bottom:14px;
+    }
+    .terminal-head {
+        display:flex; align-items:flex-start; justify-content:space-between;
+        gap:14px; flex-wrap:wrap; margin-bottom:14px;
+    }
+    .terminal-title { font-size:17px; font-weight:800; margin-bottom:4px; }
+    .terminal-meta { font-size:12px; color:#a0aac5; }
+    .status-pill {
+        font-size:10px; padding:4px 10px; border-radius:999px; font-weight:800;
+        text-transform:uppercase; letter-spacing:1px;
+    }
+    .status-pill.active { background:rgba(0,255,136,0.18); color:#00ff88; }
+    .status-pill.disabled { background:rgba(255,68,102,0.18); color:#ff4466; }
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+    @media (max-width: 700px) { .grid-2 { grid-template-columns:1fr; } }
+    .field {
+        background:#0a0e1a; padding:10px 12px; border-radius:8px;
+        border:1px solid rgba(255,255,255,0.04);
+    }
+    .field-label { font-size:10px; color:#a0aac5; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; justify-content:space-between; }
+    .field-value { font-size:12px; font-family:'SF Mono', Consolas, monospace; word-break:break-all; }
+    .field-value.kiosk-url { color:#00ff88; }
+    .copy-btn {
+        font-size:10px; padding:3px 9px; background:rgba(0,255,136,0.12); color:#00ff88;
+        border:none; border-radius:5px; cursor:pointer; font-weight:700;
+    }
+    .copy-btn:hover { background:rgba(0,255,136,0.22); }
+    .charger-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .charger-tag {
+        font-size:11px; padding:4px 9px; background:#1a2238; border-radius:6px;
+        border:1px solid rgba(255,255,255,0.06); font-family:'SF Mono',Consolas,monospace;
+    }
+    .charger-tag.empty { color:#ff4466; border-color:rgba(255,68,102,0.3); font-family:inherit; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+
+    .modal-overlay {
+        position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999;
+        display:none; align-items:center; justify-content:center; padding:20px;
+    }
+    .modal-overlay.show { display:flex; }
+    .modal {
+        background:#131a2c !important;
+        border:1px solid rgba(255,255,255,0.08);
+        border-radius:16px; padding:24px; max-width:520px; width:100%;
+        max-height:90vh; overflow-y:auto;
+        display:block !important; position:static !important; inset:auto !important;
+    }
+    .modal h2 { margin:0 0 18px; font-size:19px; }
+    .form-group { margin-bottom:14px; }
+    .form-group label { display:block; font-size:12px; color:#a0aac5; margin-bottom:6px; font-weight:600; }
+    .form-group input, .form-group textarea {
+        width:100%; padding:11px 13px; background:#0a0e1a;
+        border:1px solid rgba(255,255,255,0.08); border-radius:9px;
+        color:#fff; font-size:13px;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+        outline:none; border-color:#00ff88;
+    }
+    .charger-picker {
+        max-height:240px; overflow-y:auto; background:#0a0e1a;
+        border:1px solid rgba(255,255,255,0.08); border-radius:9px; padding:8px;
+    }
+    .charger-opt {
+        display:flex; align-items:center; gap:10px; padding:8px 10px;
+        border-radius:6px; cursor:pointer; font-size:13px;
+    }
+    .charger-opt:hover { background:rgba(255,255,255,0.04); }
+    .charger-opt input { width:auto !important; padding:0 !important; }
+    .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+    .empty-state { text-align:center; padding:60px 20px; color:#a0aac5; }
+    .empty-state .icon { font-size:48px; margin-bottom:12px; opacity:0.4; }
+    .empty-state .ttl { font-size:15px; font-weight:600; color:#fff; margin-bottom:6px; }
+
+    .credential-reveal {
+        background:rgba(255,165,0,0.08); border:1px solid rgba(255,165,0,0.3);
+        border-radius:10px; padding:14px; margin-top:14px; font-size:12px;
+    }
+    .credential-reveal b { color:#ffa500; display:block; margin-bottom:8px; }
+    .credential-reveal code {
+        display:block; background:#0a0e1a; padding:10px; border-radius:7px;
+        margin:8px 0; font-family:'SF Mono',Consolas,monospace; word-break:break-all;
+        color:#00ff88; font-size:11px;
+    }
+    .toast {
+        position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+        background:#00ff88; color:#000; padding:12px 22px; border-radius:999px;
+        font-weight:700; font-size:13px; box-shadow:0 8px 24px rgba(0,255,136,0.3);
+        z-index:99999; opacity:0; pointer-events:none; transition:opacity 0.2s;
+    }
+    .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+    <div class="top-bar">
+        <div>
+            <h1>📟 Payment <span>Terminals</span></h1>
+            <div style="font-size:12px;color:#a0aac5;margin-top:4px;">Self-service walk-up kiosks at charging stations</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+            <a href="/admin" class="back-link">← Admin</a>
+            <button class="btn-primary" onclick="openCreateModal()">+ New Terminal</button>
+        </div>
+    </div>
+
+    <div class="info-banner">
+        <b>How it works</b> — Each terminal is a tablet/phone running a kiosk page. User walks up, picks a charger,
+        scans the TNG QR shown on screen → charger starts automatically. Open the <b>Kiosk URL</b>
+        once on the device → Add to Home Screen → done.
+    </div>
+
+    <div id="terminalsList">
+        <div class="empty-state"><div class="icon">⏳</div><div>Loading…</div></div>
+    </div>
+</div>
+
+<!-- Create Modal -->
+<div class="modal-overlay" id="createModal">
+    <div class="modal">
+        <h2>+ New Payment Terminal</h2>
+        <div class="form-group">
+            <label>Display name *</label>
+            <input type="text" id="newDisplayName" placeholder="e.g. Honor X9d — Office Terminal">
+        </div>
+        <div class="form-group">
+            <label>Location label</label>
+            <input type="text" id="newLocationLabel" placeholder="e.g. PlagSini Office (Test)">
+        </div>
+        <div class="form-group">
+            <label>Assign chargers *</label>
+            <div class="charger-picker" id="chargerPicker">Loading chargers…</div>
+        </div>
+        <div id="createResult"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeCreateModal()">Close</button>
+            <button class="btn-primary" id="createBtn" onclick="submitCreate()">Create Terminal</button>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Modal -->
+<div class="modal-overlay" id="assignModal">
+    <div class="modal">
+        <h2>Assign chargers</h2>
+        <div style="font-size:12px;color:#a0aac5;margin-bottom:12px;">Pick the chargers this terminal can start payments for.</div>
+        <div class="charger-picker" id="assignPicker">Loading…</div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeAssignModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitAssign()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let _terminals = [];
+let _chargers = [];
+let _editingTerminalId = null;
+
+function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function api(path, opts = {}) {
+    if (opts.body && typeof opts.body !== 'string') {
+        opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+        opts.body = JSON.stringify(opts.body);
+    }
+    const res = await fetch(path, { credentials: 'include', ...opts });
+    if (res.status === 401) {
+        window.location.href = '/login?next=' + encodeURIComponent('/admin/terminals');
+        throw new Error('Not logged in');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+}
+
+async function loadAll() {
+    try {
+        const [tData, cData] = await Promise.all([
+            api('/api/admin/terminals'),
+            api('/api/chargers'),
+        ]);
+        _terminals = tData.terminals || [];
+        _chargers = cData;
+        render();
+    } catch (e) {
+        document.getElementById('terminalsList').innerHTML =
+            `<div class="empty-state"><div class="icon">⚠️</div><div>${e.message}</div></div>`;
+    }
+}
+
+function render() {
+    const wrap = document.getElementById('terminalsList');
+    if (!_terminals.length) {
+        wrap.innerHTML = `<div class="empty-state">
+            <div class="icon">📟</div>
+            <div class="ttl">No terminals yet</div>
+            <div>Click <b>+ New Terminal</b> to register your first kiosk device.</div>
+        </div>`;
+        return;
+    }
+    wrap.innerHTML = _terminals.map(t => {
+        const kioskUrl = window.location.origin + t.kiosk_url;
+        const chargers = t.chargers || [];
+        const chargerHtml = chargers.length
+            ? chargers.map(c => `<span class="charger-tag">⚡ ${c.charge_point_id}</span>`).join('')
+            : '<span class="charger-tag empty">No chargers assigned</span>';
+        const lastHb = t.last_heartbeat
+            ? new Date(t.last_heartbeat).toLocaleString()
+            : 'Never';
+        const safeName = t.display_name.replace(/'/g, "\\'");
+        return `<div class="terminal-card">
+            <div class="terminal-head">
+                <div>
+                    <div class="terminal-title">${escapeHtml(t.display_name)}</div>
+                    <div class="terminal-meta">${escapeHtml(t.location_label || '— No location —')}</div>
+                </div>
+                <span class="status-pill ${t.status === 'active' ? 'active' : 'disabled'}">${t.status}</span>
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <div class="field-label">Device ID</div>
+                    <div class="field-value">${t.device_id}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Last heartbeat</div>
+                    <div class="field-value" style="font-family:inherit;">${lastHb}</div>
+                </div>
+            </div>
+            <div class="field" style="margin-bottom:10px;">
+                <div class="field-label">
+                    <span>Kiosk URL — open once on the device, then Add to Home Screen</span>
+                    <button class="copy-btn" onclick="copy('${kioskUrl}')">Copy</button>
+                </div>
+                <div class="field-value kiosk-url">${kioskUrl}</div>
+            </div>
+            <div>
+                <div class="field-label" style="margin-bottom:6px;">Assigned chargers (${chargers.length})</div>
+                <div class="charger-tags">${chargerHtml}</div>
+            </div>
+            <div class="actions">
+                <a href="${kioskUrl}" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">↗ Open kiosk</a>
+                <button class="btn-secondary" onclick="openAssignModal(${t.id})">⚡ Assign chargers</button>
+                <button class="btn-secondary btn-danger" onclick="deleteTerminal(${t.id}, '${safeName}')">🗑 Delete</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
+}
+
+function copy(text) {
+    navigator.clipboard.writeText(text).then(() => toast('Copied!'));
+}
+
+// ── Create modal ─────────────────────────────────────────────────────────
+function openCreateModal() {
+    document.getElementById('newDisplayName').value = '';
+    document.getElementById('newLocationLabel').value = '';
+    document.getElementById('createResult').innerHTML = '';
+    document.getElementById('createBtn').textContent = 'Create Terminal';
+    document.getElementById('createBtn').disabled = false;
+    const picker = document.getElementById('chargerPicker');
+    picker.innerHTML = _chargers.map(c => `
+        <label class="charger-opt">
+            <input type="checkbox" value="${c.id}">
+            <span><b>${escapeHtml(c.charge_point_id)}</b> · ${escapeHtml(c.vendor || '—')} ${escapeHtml(c.model || '')}</span>
+        </label>`).join('');
+    document.getElementById('createModal').classList.add('show');
+}
+function closeCreateModal() {
+    document.getElementById('createModal').classList.remove('show');
+    if (document.getElementById('createResult').innerHTML) loadAll();
+}
+
+async function submitCreate() {
+    const name = document.getElementById('newDisplayName').value.trim();
+    if (!name) return alert('Display name required');
+    const ids = [...document.querySelectorAll('#chargerPicker input:checked')].map(x => parseInt(x.value));
+    if (!ids.length) return alert('Pick at least one charger');
+    const btn = document.getElementById('createBtn');
+    btn.disabled = true; btn.textContent = 'Creating…';
+    try {
+        const res = await api('/api/admin/terminals', {
+            method: 'POST',
+            body: {
+                display_name: name,
+                location_label: document.getElementById('newLocationLabel').value.trim() || null,
+                charger_ids: ids,
+            },
+        });
+        const url = window.location.origin + res.kiosk_url;
+        document.getElementById('createResult').innerHTML = `
+            <div class="credential-reveal">
+                <b>✓ Terminal created</b>
+                Open this URL on the device, then Add to Home Screen:
+                <code>${url}</code>
+                <button class="copy-btn" onclick="copy('${url}')">Copy URL</button>
+            </div>`;
+        btn.textContent = 'Done';
+    } catch (e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false; btn.textContent = 'Create Terminal';
+    }
+}
+
+// ── Assign modal ─────────────────────────────────────────────────────────
+function openAssignModal(termId) {
+    _editingTerminalId = termId;
+    const t = _terminals.find(x => x.id === termId);
+    const assigned = new Set((t?.chargers || []).map(c => c.id));
+    const picker = document.getElementById('assignPicker');
+    picker.innerHTML = _chargers.map(c => `
+        <label class="charger-opt">
+            <input type="checkbox" value="${c.id}" ${assigned.has(c.id) ? 'checked' : ''}>
+            <span><b>${escapeHtml(c.charge_point_id)}</b> · ${escapeHtml(c.vendor || '—')} ${escapeHtml(c.model || '')}</span>
+        </label>`).join('');
+    document.getElementById('assignModal').classList.add('show');
+}
+function closeAssignModal() {
+    document.getElementById('assignModal').classList.remove('show');
+    _editingTerminalId = null;
+}
+async function submitAssign() {
+    const ids = [...document.querySelectorAll('#assignPicker input:checked')].map(x => parseInt(x.value));
+    try {
+        await api(`/api/admin/terminals/${_editingTerminalId}/chargers`, {
+            method: 'POST', body: { charger_ids: ids },
+        });
+        toast('Chargers updated');
+        closeAssignModal();
+        loadAll();
+    } catch (e) { alert(e.message); }
+}
+
+async function deleteTerminal(id, name) {
+    if (!confirm(`Delete terminal "${name}"? This cannot be undone.`)) return;
+    try {
+        await api(`/api/admin/terminals/${id}`, { method: 'DELETE' });
+        toast('Terminal deleted');
+        loadAll();
+    } catch (e) { alert(e.message); }
+}
+
+loadAll();
+</script>
+</body>
+</html>
