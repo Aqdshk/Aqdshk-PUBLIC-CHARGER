@@ -97,10 +97,20 @@
     .form-group input:focus, .form-group textarea:focus {
         outline:none; border-color:#00ff88;
     }
+    .picker-search {
+        width:100%; padding:9px 12px; background:#0a0e1a;
+        border:1px solid rgba(255,255,255,0.08); border-radius:9px;
+        color:#fff; font-size:12px; margin-bottom:8px; box-sizing:border-box;
+    }
+    .picker-search:focus { outline:none; border-color:#00ff88; }
     .charger-picker {
-        max-height:240px; overflow-y:auto; background:#0a0e1a;
+        max-height:260px; overflow-y:auto; background:#0a0e1a;
         border:1px solid rgba(255,255,255,0.08); border-radius:9px; padding:8px;
     }
+    .picker-group { font-size:10px; color:#a0aac5; text-transform:uppercase; letter-spacing:1.2px; padding:8px 10px 4px; font-weight:700; }
+    .picker-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px; vertical-align:middle; }
+    .picker-dot.on { background:#00ff88; box-shadow:0 0 6px rgba(0,255,136,0.6); }
+    .picker-dot.off { background:#555; }
     .charger-opt {
         display:flex; align-items:center; gap:10px; padding:8px 10px;
         border-radius:6px; cursor:pointer; font-size:13px;
@@ -162,7 +172,7 @@
         <h2>+ New Payment Terminal</h2>
         <div class="form-group">
             <label>Display name *</label>
-            <input type="text" id="newDisplayName" placeholder="e.g. Honor X9d — Office Terminal">
+            <input type="text" id="newDisplayName" placeholder="Device name">
         </div>
         <div class="form-group">
             <label>Location label</label>
@@ -170,6 +180,7 @@
         </div>
         <div class="form-group">
             <label>Assign chargers *</label>
+            <input type="text" class="picker-search" oninput="filterPicker('chargerPicker', this.value)" placeholder="🔍 Search charger ID…">
             <div class="charger-picker" id="chargerPicker">Loading chargers…</div>
         </div>
         <div id="createResult"></div>
@@ -185,6 +196,7 @@
     <div class="modal">
         <h2>Assign chargers</h2>
         <div style="font-size:12px;color:#a0aac5;margin-bottom:12px;">Pick the chargers this terminal can start payments for.</div>
+        <input type="text" class="picker-search" oninput="filterPicker('assignPicker', this.value)" placeholder="🔍 Search charger ID…">
         <div class="charger-picker" id="assignPicker">Loading…</div>
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeAssignModal()">Cancel</button>
@@ -301,6 +313,36 @@ function render() {
     }).join('');
 }
 
+function renderPicker(pickerId, assignedSet, mode) {
+    const picker = document.getElementById(pickerId);
+    // Sort: online first (by charge_point_id), offline after.
+    const sorted = [..._chargers].sort((a, b) => {
+        const ao = (a.status === 'online') ? 0 : 1;
+        const bo = (b.status === 'online') ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        return (a.charge_point_id || '').localeCompare(b.charge_point_id || '');
+    });
+    const online  = sorted.filter(c => c.status === 'online');
+    const offline = sorted.filter(c => c.status !== 'online');
+    const row = c => `
+        <label class="charger-opt" data-cpid="${(c.charge_point_id || '').toLowerCase()}">
+            <input type="checkbox" value="${c.id}" ${assignedSet.has(c.id) ? 'checked' : ''}>
+            <span><span class="picker-dot ${c.status === 'online' ? 'on' : 'off'}"></span><b>${escapeHtml(c.charge_point_id)}</b> · ${escapeHtml(c.vendor || '—')} ${escapeHtml(c.model || '')}</span>
+        </label>`;
+    let html = '';
+    if (online.length)  html += `<div class="picker-group">Online (${online.length})</div>`  + online.map(row).join('');
+    if (offline.length) html += `<div class="picker-group">Offline (${offline.length})</div>` + offline.map(row).join('');
+    picker.innerHTML = html || '<div style="padding:14px;color:#a0aac5;text-align:center;">No chargers</div>';
+}
+
+function filterPicker(pickerId, query) {
+    const q = (query || '').trim().toLowerCase();
+    document.querySelectorAll(`#${pickerId} .charger-opt`).forEach(el => {
+        const cpid = el.dataset.cpid || '';
+        el.style.display = (!q || cpid.includes(q)) ? '' : 'none';
+    });
+}
+
 function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
 }
@@ -316,12 +358,7 @@ function openCreateModal() {
     document.getElementById('createResult').innerHTML = '';
     document.getElementById('createBtn').textContent = 'Create Terminal';
     document.getElementById('createBtn').disabled = false;
-    const picker = document.getElementById('chargerPicker');
-    picker.innerHTML = _chargers.map(c => `
-        <label class="charger-opt">
-            <input type="checkbox" value="${c.id}">
-            <span><b>${escapeHtml(c.charge_point_id)}</b> · ${escapeHtml(c.vendor || '—')} ${escapeHtml(c.model || '')}</span>
-        </label>`).join('');
+    renderPicker('chargerPicker', new Set(), 'create');
     document.getElementById('createModal').classList.add('show');
 }
 function closeCreateModal() {
@@ -365,12 +402,7 @@ function openAssignModal(termId) {
     _editingTerminalId = termId;
     const t = _terminals.find(x => x.id === termId);
     const assigned = new Set((t?.chargers || []).map(c => c.id));
-    const picker = document.getElementById('assignPicker');
-    picker.innerHTML = _chargers.map(c => `
-        <label class="charger-opt">
-            <input type="checkbox" value="${c.id}" ${assigned.has(c.id) ? 'checked' : ''}>
-            <span><b>${escapeHtml(c.charge_point_id)}</b> · ${escapeHtml(c.vendor || '—')} ${escapeHtml(c.model || '')}</span>
-        </label>`).join('');
+    renderPicker('assignPicker', assigned, 'assign');
     document.getElementById('assignModal').classList.add('show');
 }
 function closeAssignModal() {
