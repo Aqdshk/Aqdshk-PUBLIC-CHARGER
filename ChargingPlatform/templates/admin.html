@@ -22,6 +22,9 @@
         .table-container { overflow-x:auto; }
         .stat-sub { color:var(--text-muted); font-size: clamp(8px, 0.5vw, 10px); margin-top:2px; }
         @media (max-width:768px) { .form-row { grid-template-columns:1fr; } .table-container { overflow-x:auto; } .search-box { flex-direction:column; } .search-box input { width:100%; max-width:none; } }
+        .sub-tab { background:transparent; border:none; color:var(--text-muted); padding:10px 14px; cursor:pointer; font-size:12px; font-weight:600; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; transition:color .15s; }
+        .sub-tab:hover { color:var(--text); }
+        .sub-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
     </style>
 </head>
 <body>
@@ -37,24 +40,26 @@
         </div>
         <nav class="sidebar-nav">
             <div class="nav-section">
-                <div class="nav-section-title">Management</div>
-                <div class="nav-item active" onclick="showTab('users')" id="navUsers"><span class="nav-item-icon">👥</span><span class="nav-item-text">Users</span></div>
-                <div class="nav-item" onclick="showTab('tickets')" id="navTickets"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></div>
-                <div class="nav-item" onclick="showTab('staff')" id="navStaff"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff</span></div>
-                <a href="/my-tickets" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">My Tickets</span></a>
+                <div class="nav-section-title">Main Menu</div>
+                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+                <a href="/settings" class="nav-item"><span class="nav-item-icon">⚙️</span><span class="nav-item-text">Configuration</span></a>
+                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
-                <div class="nav-section-title">Operations</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Live Dashboard</span></a>
-                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Ops</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
-                </div>
-            <div class="nav-section">
-                <div class="nav-section-title">Analytics</div>
-                <div class="nav-item" onclick="showTab('userStats')" id="navUserStats"><span class="nav-item-icon">📊</span><span class="nav-item-text">User Stats</span></div>
-                <div class="nav-item" onclick="showTab('walletReport')" id="navWalletReport"><span class="nav-item-icon">💰</span><span class="nav-item-text">Wallet Report</span></div>
-                <div class="nav-item" onclick="showTab('activityLog')" id="navActivityLog"><span class="nav-item-icon">📈</span><span class="nav-item-text">Activity Log</span></div>
+                <div class="nav-section-title">Administration</div>
+                <a href="/admin" class="nav-item active"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+                <a href="#" onclick="showTab('tickets'); return false;" class="nav-item"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="#" onclick="showTab('staff'); return false;" class="nav-item"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -86,6 +91,13 @@
                 <a href="/" class="btn btn-secondary btn-xs">← Dashboard</a>
             </div>
         </header>
+        <div class="admin-subtabs" style="display:flex;gap:6px;padding:12px 24px 0;border-bottom:1px solid rgba(255,255,255,0.06);overflow-x:auto;">
+            <button class="sub-tab" data-tab="users" onclick="showTab('users')">👥 Users</button>
+            <button class="sub-tab" data-tab="userStats" onclick="showTab('userStats')">📊 User Stats</button>
+            <button class="sub-tab" data-tab="walletReport" onclick="showTab('walletReport')">💰 Wallet Report</button>
+            <button class="sub-tab" data-tab="activityLog" onclick="showTab('activityLog')">📈 Activity Log</button>
+        </div>
+
         <div class="admin-container">
             <div class="stats-grid" id="statsGrid">
                 <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" id="statTotalUsers">-</div><div class="stat-label">Total Users</div></div>
@@ -188,6 +200,13 @@
             </div>
             <div class="header-right"><span class="header-user">Welcome, <strong id="adminName4">Admin</strong></span><a href="/" class="btn btn-secondary btn-xs">← Dashboard</a></div>
         </header>
+        <div class="admin-subtabs" style="display:flex;gap:6px;padding:12px 24px 0;border-bottom:1px solid rgba(255,255,255,0.06);overflow-x:auto;">
+            <button class="sub-tab" data-tab="users" onclick="showTab('users')">👥 Users</button>
+            <button class="sub-tab" data-tab="userStats" onclick="showTab('userStats')">📊 User Stats</button>
+            <button class="sub-tab" data-tab="walletReport" onclick="showTab('walletReport')">💰 Wallet Report</button>
+            <button class="sub-tab" data-tab="activityLog" onclick="showTab('activityLog')">📈 Activity Log</button>
+        </div>
+
         <div class="admin-container">
             <div class="stats-grid" id="userReportStats"></div>
             <div class="card" style="margin-bottom:16px;">
@@ -210,6 +229,13 @@
                     </div>
             <div class="header-right"><span class="header-user">Welcome, <strong id="adminName5">Admin</strong></span><a href="/" class="btn btn-secondary btn-xs">← Dashboard</a></div>
         </header>
+        <div class="admin-subtabs" style="display:flex;gap:6px;padding:12px 24px 0;border-bottom:1px solid rgba(255,255,255,0.06);overflow-x:auto;">
+            <button class="sub-tab" data-tab="users" onclick="showTab('users')">👥 Users</button>
+            <button class="sub-tab" data-tab="userStats" onclick="showTab('userStats')">📊 User Stats</button>
+            <button class="sub-tab" data-tab="walletReport" onclick="showTab('walletReport')">💰 Wallet Report</button>
+            <button class="sub-tab" data-tab="activityLog" onclick="showTab('activityLog')">📈 Activity Log</button>
+        </div>
+
         <div class="admin-container">
             <div class="stats-grid" id="walletSummaryStats"></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
@@ -234,6 +260,13 @@
             </div>
             <div class="header-right"><span class="header-user">Welcome, <strong id="adminName6">Admin</strong></span><a href="/" class="btn btn-secondary btn-xs">← Dashboard</a></div>
         </header>
+        <div class="admin-subtabs" style="display:flex;gap:6px;padding:12px 24px 0;border-bottom:1px solid rgba(255,255,255,0.06);overflow-x:auto;">
+            <button class="sub-tab" data-tab="users" onclick="showTab('users')">👥 Users</button>
+            <button class="sub-tab" data-tab="userStats" onclick="showTab('userStats')">📊 User Stats</button>
+            <button class="sub-tab" data-tab="walletReport" onclick="showTab('walletReport')">💰 Wallet Report</button>
+            <button class="sub-tab" data-tab="activityLog" onclick="showTab('activityLog')">📈 Activity Log</button>
+        </div>
+
         <div class="admin-container">
             <div class="user-controls">
                 <div class="search-box">
@@ -637,6 +670,11 @@
                 const el = document.getElementById(selected.content); if(el) el.style.display = 'block';
                 const nv = document.getElementById(selected.nav);     if(nv) nv.classList.add('active');
             }
+
+            // Highlight matching sub-tab buttons across all sub-tab strips
+            document.querySelectorAll('.sub-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
 
             // Update admin name in new tabs
             ['adminName2','adminName3','adminName4','adminName5','adminName6'].forEach(id => {
