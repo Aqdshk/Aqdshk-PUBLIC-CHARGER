@@ -3007,24 +3007,12 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message="No response from charger for RemoteStopTransaction.",
             )
         logger.error(f"RemoteStopTransaction failed: {status}")
-        # Fallback for chargers that never sent a StartTransaction (their
-        # internal txn registry doesn't have ours, so they Reject). Send
-        # UnlockConnector to force the charger to release the connector +
-        # send a StopTransaction for whatever it thinks is running. Without
-        # this, charger stays in Finishing state forever and rejects the
-        # next RemoteStart — that's the regression that started showing up
-        # on DC3001 after we added test mode.
+        # Fallback for chargers that never sent a StartTransaction (their internal
+        # txn registry doesn't have ours, so they Reject). Force-close the DB
+        # session + flip the charger back to Available so ops isn't stuck — the
+        # charger will physically stop the next time the plug is removed.
         forced = False
         if status == "Rejected" and session:
-            connector_for_unlock = int(session.connector_id or 1)
-            try:
-                unlock_resp = await charge_point.unlock_connector(connector_id=connector_for_unlock)
-                logger.warning(
-                    f"[stop-recovery] {charger.charge_point_id}: "
-                    f"UnlockConnector({connector_for_unlock}) → {getattr(unlock_resp, 'status', None)}"
-                )
-            except Exception as e:
-                logger.warning(f"[stop-recovery] {charger.charge_point_id}: UnlockConnector raised {e}")
             session.status = "stopped"
             session.stop_time = _utcnow()
             session.stop_reason = "remote_stop_rejected_force_closed"
@@ -3033,14 +3021,14 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             forced = True
             logger.warning(
                 f"RemoteStop rejected by {charger.charge_point_id}; force-closed "
-                f"session {session.id} in DB and sent UnlockConnector."
+                f"session {session.id} in DB. Charger may keep delivering power "
+                f"until plug is removed."
             )
         return ChargingResponse(
             success=forced,
             message=(
-                "Charger rejected RemoteStop. Sent UnlockConnector and closed "
-                "session in dashboard — charger should release on its own. If "
-                "power still flowing, unplug at the charger."
+                "Charger rejected RemoteStop (likely never registered our transaction). "
+                "Session closed in dashboard; please unplug at the charger to fully stop power flow."
                 if forced
                 else f"Failed to stop charging: {status}"
             ),
