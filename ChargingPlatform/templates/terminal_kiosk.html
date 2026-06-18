@@ -329,15 +329,16 @@
 const DEVICE_ID = window.location.pathname.split('/').pop();
 const URL_KEY = new URLSearchParams(window.location.search).get('key');
 
-// One-time: stash the key in sessionStorage so refresh doesn't lose it
-// and we strip it from the URL bar (less leakage).
+// One-time: stash the key in localStorage so it survives tab close +
+// Add to Home Screen relaunch. sessionStorage was wrong — it clears
+// the moment the user closes the tab, breaking the kiosk on next launch.
 const KEY_STORE = 'plagsini_terminal_key_' + DEVICE_ID;
 if (URL_KEY) {
-    sessionStorage.setItem(KEY_STORE, URL_KEY);
+    localStorage.setItem(KEY_STORE, URL_KEY);
     // Strip ?key= from URL so it doesn't sit in screenshots / browser history.
     history.replaceState(null, '', window.location.pathname);
 }
-const API_KEY = sessionStorage.getItem(KEY_STORE);
+const API_KEY = localStorage.getItem(KEY_STORE);
 
 let _state = {
     chargers: [],
