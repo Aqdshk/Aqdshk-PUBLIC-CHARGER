@@ -6906,40 +6906,6 @@ def _credit_wallet(db: Session, txn: PaymentTransaction):
     audit_log("payment_credited", txn.user_id, f"Credited RM{txn_amount} via {txn.gateway_name}", amount=float(txn_amount))
 
 
-async def _try_stop_ghost_txn(cp, charger_id: str):
-    """Some chargers (DC3001) park in Finishing because they think a previous
-    transaction is still alive in their internal registry. We don't know its
-    exact id, so try the last few charger-side transaction_ids from DB +
-    a sentinel 0. Whichever one the charger recognises, it'll Accept and
-    send a StopTransaction, freeing the connector."""
-    from database import SessionLocal
-    s = SessionLocal()
-    try:
-        charger_row = s.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-        if not charger_row:
-            return
-        rows = (
-            s.query(ChargingSession.transaction_id)
-            .filter(ChargingSession.charger_id == charger_row.id, ChargingSession.transaction_id > 0)
-            .order_by(ChargingSession.id.desc())
-            .limit(3)
-            .all()
-        )
-        candidates = [r[0] for r in rows]
-    finally:
-        s.close()
-    for tid in candidates:
-        try:
-            resp = await cp.remote_stop_transaction(transaction_id=int(tid))
-            st = getattr(resp, "status", None)
-            logger.info(f"[ghost-stop] {charger_id}: RemoteStop({tid}) → {st}")
-            if st == "Accepted":
-                await asyncio.sleep(2)
-                return
-        except Exception as e:
-            logger.warning(f"[ghost-stop] {charger_id}: RemoteStop({tid}) raised {e}")
-
-
 async def _remote_start_with_recovery(cp, charger_id: str, connector_id: int, id_tag: str):
     """RemoteStartTransaction with auto-recovery for chargers stuck in
     Finishing/Preparing leftover from a prior session that wasn't physically
@@ -6983,10 +6949,6 @@ async def _remote_start_with_recovery(cp, charger_id: str, connector_id: int, id
             logger.info(f"[remote-start-recovery] {charger_id}: ChangeAvailability(Operative) → {getattr(op, 'status', None)}")
         except Exception as e:
             logger.warning(f"[remote-start-recovery] {charger_id}: ChangeAvailability raised {e}")
-
-    # Step 3 — try to RemoteStop any ghost transaction the charger still
-    # thinks is alive (DC3001 parks in Finishing because of this).
-    await _try_stop_ghost_txn(cp, charger_id)
 
     await asyncio.sleep(2)
 
