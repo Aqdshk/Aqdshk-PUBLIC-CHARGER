@@ -6925,10 +6925,14 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         )
 
     # 3) id_tag — RFID-like identifier OCPP uses to attribute the transaction.
-    #    Use a short deterministic tag derived from the payment so we can
-    #    correlate the StartTransaction callback back to this txn later.
-    #    Max length 20 chars per OCPP 1.6 spec.
-    id_tag = f"PAY{txn.id}"[:20]
+    #    Must be a tag the charger will recognise. Some firmwares (e.g.
+    #    Gresgying DC3001) keep a LocalAuthList and reject any RemoteStart
+    #    whose idTag isn't already cached — that wipes out dynamic per-txn
+    #    tags like "PAY42". We use the same DASHBOARD_USER tag the manual
+    #    Start button uses (known to be whitelisted everywhere) and rely on
+    #    charger_id + paid_at recency to correlate the incoming
+    #    StartTransaction back to a PaymentTransaction.
+    id_tag = "DASHBOARD_USER"
 
     logger.info(
         f"[quick-pay] RemoteStartTransaction → {txn.charger_id} "
