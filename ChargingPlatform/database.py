@@ -237,6 +237,14 @@ class PaymentTerminal(Base):
     location_lng    = Column(Numeric(10, 7), nullable=True)
     status          = Column(String(16), nullable=False, default="active")  # active|offline|disabled
     test_mode       = Column(Boolean, nullable=False, default=False)         # skip TNG; fake-pay after 5s then RemoteStart
+    # TNG extendInfo fields — sent to TNGD with every OrderCode Create request.
+    shop_name       = Column(String(128), nullable=True)
+    brand           = Column(String(128), nullable=True)
+    street          = Column(String(256), nullable=True)
+    city            = Column(String(64),  nullable=True)
+    state           = Column(String(64),  nullable=True)
+    postcode        = Column(String(16),  nullable=True)
+    mcc             = Column(String(8),   nullable=True)
     last_heartbeat  = Column(DateTime, nullable=True)
     notes           = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=_utcnow)

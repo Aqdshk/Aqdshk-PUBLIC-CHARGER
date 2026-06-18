@@ -630,11 +630,40 @@ class TngGateway(BasePaymentGateway):
             or os.getenv("PAYMENT_TNG_PRODUCT_CODE", TNG_PRODUCT_CODE_TNGD)
         ).strip() or TNG_PRODUCT_CODE_TNGD
 
+        # extendInfo — TNGD requires merchant location, shop, brand, MCC etc.
+        # per TPA v1.6 spec. Pull from per-request overrides if provided
+        # (terminal kiosk flow), fall back to extra_config defaults.
+        merchant_info = self.extra_config.get("merchant_info") or {}
+        sub_merchant_name = (
+            merchant_info.get("display_name")
+            or merchant_info.get("shop_name")
+            or self.extra_config.get("sub_merchant_name")
+            or "PlagSini EV"
+        )
+        ext_mcc = str(merchant_info.get("mcc") or mcc)
+        ext = {
+            "submerchantId": str(merchant_id),
+            "submerchantName": sub_merchant_name,
+            "Tid": str(merchant_info.get("terminal_id") or "PLAGSINI-DEFAULT"),
+            "shopName": merchant_info.get("shop_name") or sub_merchant_name,
+            "MCC": ext_mcc,
+            "brand": merchant_info.get("brand") or "PlagSini",
+            "PARTNER_TRANSACTION_ID": transaction_ref,
+        }
+        for k in ("street", "state", "city", "postcode"):
+            v = merchant_info.get(k)
+            if v:
+                ext[f"merchant{k.capitalize()}"] = str(v)
+        if merchant_info.get("latitude") is not None:
+            ext["latitude"] = str(merchant_info["latitude"])
+        if merchant_info.get("longitude") is not None:
+            ext["longitude"] = str(merchant_info["longitude"])
+
         # Build request per TNG OrderCode API spec (head + body)
         body = {
             "merchantId": merchant_id,
-            "subMerchantName": self.extra_config.get("sub_merchant_name") or "PlagSini EV",
-            "mcc": mcc,
+            "subMerchantName": sub_merchant_name,
+            "mcc": ext_mcc,
             "orderTitle": (description or "PlagSini EV Top-Up")[:256],
             "orderAmount": {"value": value_cents, "currency": (currency or "MYR")},
             "merchantTransId": transaction_ref,
@@ -642,7 +671,7 @@ class TngGateway(BasePaymentGateway):
             "envInfo": {"terminalType": "SYSTEM", "orderTerminalType": "WEB"},
             "effectiveSeconds": "600",
             "notifyUrl": self.callback_url or "",
-            "extendInfo": json.dumps({"PARTNER_TRANSACTION_ID": transaction_ref}),
+            "extendInfo": json.dumps(ext),
         }
         if self.extra_config.get("sub_merchant_id"):
             body["subMerchantId"] = self.extra_config["sub_merchant_id"]

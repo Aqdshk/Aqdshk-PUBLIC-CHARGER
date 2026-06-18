@@ -90,6 +90,9 @@
         display:block !important; position:static !important; inset:auto !important;
     }
     .modal h2 { margin:0 0 18px; font-size:19px; }
+    .form-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .form-grid-2 .form-group { margin-bottom:0; }
+    @media (max-width:520px) { .form-grid-2 { grid-template-columns:1fr; } }
     .form-group { margin-bottom:14px; }
     .form-group label { display:block; font-size:12px; color:#a0aac5; margin-bottom:6px; font-weight:600; }
     .form-group input, .form-group textarea {
@@ -217,7 +220,50 @@
             <label>Location label</label>
             <input type="text" id="newLocationLabel" placeholder="e.g. PlagSini Office (Test)">
         </div>
-        <div class="form-group">
+
+        <div style="font-size:11px;color:#a0aac5;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin:18px 0 8px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px;">
+            TNG Merchant info (required for TNG QR)
+        </div>
+        <div class="form-grid-2">
+            <div class="form-group">
+                <label>Shop name</label>
+                <input type="text" id="newShopName" placeholder="Plag Sini">
+            </div>
+            <div class="form-group">
+                <label>Brand</label>
+                <input type="text" id="newBrand" placeholder="Plag Sini">
+            </div>
+            <div class="form-group" style="grid-column:1/-1;">
+                <label>Street</label>
+                <input type="text" id="newStreet" placeholder="Jalan Gergaji 15/14">
+            </div>
+            <div class="form-group">
+                <label>City</label>
+                <input type="text" id="newCity" placeholder="Shah Alam">
+            </div>
+            <div class="form-group">
+                <label>State</label>
+                <input type="text" id="newState" placeholder="Selangor">
+            </div>
+            <div class="form-group">
+                <label>Postcode</label>
+                <input type="text" id="newPostcode" placeholder="40200">
+            </div>
+            <div class="form-group">
+                <label>MCC <span style="color:#a0aac5;font-size:10px;">(EV: 5552)</span></label>
+                <input type="text" id="newMcc" placeholder="5552" value="5552">
+            </div>
+            <div class="form-group">
+                <label>Latitude</label>
+                <input type="text" id="newLat" placeholder="3.065624">
+            </div>
+            <div class="form-group">
+                <label>Longitude</label>
+                <input type="text" id="newLng" placeholder="101.533122">
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
             <label>Assign chargers *</label>
             <input type="text" class="picker-search" oninput="filterPicker('chargerPicker', this.value)" placeholder="🔍 Search charger ID…">
             <div class="charger-picker" id="chargerPicker">Loading chargers…</div>
@@ -226,6 +272,39 @@
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeCreateModal()">Close</button>
             <button class="btn-primary" id="createBtn" onclick="submitCreate()">Create Terminal</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit details Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <h2>Edit terminal details</h2>
+        <div class="form-group">
+            <label>Display name *</label>
+            <input type="text" id="editDisplayName">
+        </div>
+        <div class="form-group">
+            <label>Location label</label>
+            <input type="text" id="editLocationLabel">
+        </div>
+        <div style="font-size:11px;color:#a0aac5;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin:18px 0 8px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px;">
+            TNG Merchant info
+        </div>
+        <div class="form-grid-2">
+            <div class="form-group"><label>Shop name</label><input type="text" id="editShopName"></div>
+            <div class="form-group"><label>Brand</label><input type="text" id="editBrand"></div>
+            <div class="form-group" style="grid-column:1/-1;"><label>Street</label><input type="text" id="editStreet"></div>
+            <div class="form-group"><label>City</label><input type="text" id="editCity"></div>
+            <div class="form-group"><label>State</label><input type="text" id="editState"></div>
+            <div class="form-group"><label>Postcode</label><input type="text" id="editPostcode"></div>
+            <div class="form-group"><label>MCC <span style="color:#a0aac5;font-size:10px;">(EV: 5552)</span></label><input type="text" id="editMcc"></div>
+            <div class="form-group"><label>Latitude</label><input type="text" id="editLat"></div>
+            <div class="form-group"><label>Longitude</label><input type="text" id="editLng"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeEditModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitEdit()">Save</button>
         </div>
     </div>
 </div>
@@ -344,6 +423,7 @@ function render() {
             </div>
             <div class="actions">
                 <a href="${kioskUrl}" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">↗ Open kiosk</a>
+                <button class="btn-secondary" onclick="openEditModal(${t.id})">✏️ Edit details</button>
                 <button class="btn-secondary" onclick="openAssignModal(${t.id})">⚡ Assign chargers</button>
                 <button class="btn-secondary" onclick="toggleTestMode(${t.id}, ${!t.test_mode})" style="${t.test_mode ? 'background:rgba(255,165,0,0.15);color:#ffa500;border-color:rgba(255,165,0,0.3);' : ''}">${t.test_mode ? '🧪 Disable Test Mode' : '🧪 Enable Test Mode'}</button>
                 <button class="btn-secondary btn-danger" onclick="deleteTerminal(${t.id}, '${safeName}')">🗑 Delete</button>
@@ -392,8 +472,11 @@ function copy(text) {
 
 // ── Create modal ─────────────────────────────────────────────────────────
 function openCreateModal() {
-    document.getElementById('newDisplayName').value = '';
-    document.getElementById('newLocationLabel').value = '';
+    ['newDisplayName','newLocationLabel','newShopName','newBrand','newStreet',
+     'newCity','newState','newPostcode','newLat','newLng'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('newMcc').value = '5552';
     document.getElementById('createResult').innerHTML = '';
     document.getElementById('createBtn').textContent = 'Create Terminal';
     document.getElementById('createBtn').disabled = false;
@@ -413,11 +496,22 @@ async function submitCreate() {
     const btn = document.getElementById('createBtn');
     btn.disabled = true; btn.textContent = 'Creating…';
     try {
+        const val = id => (document.getElementById(id)?.value || '').trim() || null;
+        const num = id => { const v = val(id); return v ? parseFloat(v) : null; };
         const res = await api('/api/admin/terminals', {
             method: 'POST',
             body: {
                 display_name: name,
-                location_label: document.getElementById('newLocationLabel').value.trim() || null,
+                location_label: val('newLocationLabel'),
+                shop_name: val('newShopName'),
+                brand: val('newBrand'),
+                street: val('newStreet'),
+                city: val('newCity'),
+                state: val('newState'),
+                postcode: val('newPostcode'),
+                mcc: val('newMcc'),
+                location_lat: num('newLat'),
+                location_lng: num('newLng'),
                 charger_ids: ids,
             },
         });
@@ -456,6 +550,46 @@ async function submitAssign() {
         });
         toast('Chargers updated');
         closeAssignModal();
+        loadAll();
+    } catch (e) { alert(e.message); }
+}
+
+let _editingDetailsId = null;
+const EDIT_FIELDS = [
+    ['editDisplayName','display_name'],['editLocationLabel','location_label'],
+    ['editShopName','shop_name'],['editBrand','brand'],['editStreet','street'],
+    ['editCity','city'],['editState','state'],['editPostcode','postcode'],['editMcc','mcc'],
+    ['editLat','location_lat'],['editLng','location_lng'],
+];
+function openEditModal(termId) {
+    const t = _terminals.find(x => x.id === termId);
+    if (!t) return;
+    _editingDetailsId = termId;
+    EDIT_FIELDS.forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = (t[key] === null || t[key] === undefined) ? '' : t[key];
+    });
+    document.getElementById('editModal').classList.add('show');
+}
+function closeEditModal() {
+    document.getElementById('editModal').classList.remove('show');
+    _editingDetailsId = null;
+}
+async function submitEdit() {
+    if (!_editingDetailsId) return;
+    const body = {};
+    EDIT_FIELDS.forEach(([id, key]) => {
+        const v = (document.getElementById(id)?.value || '').trim();
+        if (key === 'location_lat' || key === 'location_lng') {
+            body[key] = v ? parseFloat(v) : null;
+        } else {
+            body[key] = v || null;
+        }
+    });
+    try {
+        await api(`/api/admin/terminals/${_editingDetailsId}`, { method:'PATCH', body });
+        toast('Saved');
+        closeEditModal();
         loadAll();
     } catch (e) { alert(e.message); }
 }

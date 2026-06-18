@@ -6506,6 +6506,10 @@ class QuickPayRequest(BaseModel):
     amount: float  # MYR
     email: str
     gateway_name: Optional[str] = "tng"
+    # Optional per-request merchant overrides — used by terminal kiosk flow
+    # to pass the terminal's shop_name/brand/MCC/address into TNG extendInfo
+    # without touching the global PaymentGatewayConfig row.
+    merchant_info: Optional[dict] = None
 
 
 @app.post("/api/charging/quick-pay")
@@ -6602,6 +6606,10 @@ async def quick_pay(
 
     # Call gateway
     gateway = get_gateway(gw_config_dict)
+    # Inject per-request merchant overrides (used by terminal kiosk flow so the
+    # terminal's shop/brand/address fields land in TNG extendInfo).
+    if req.merchant_info and hasattr(gateway, "extra_config"):
+        gateway.extra_config = {**(gateway.extra_config or {}), "merchant_info": req.merchant_info}
     result = await gateway.create_payment(
         transaction_ref=txn_ref,
         amount=req.amount,
@@ -8222,12 +8230,27 @@ async def terminal_payment_start(
 
     # ── REAL TNG FLOW ─────────────────────────────────────────────────────
     # Re-use quick-pay's gateway machinery to keep one source of truth.
+    # Forward terminal location/brand/MCC into TNG extendInfo per TPA v1.6.
+    merchant_info = {
+        "terminal_id": term.device_id,
+        "display_name": term.display_name,
+        "shop_name": term.shop_name,
+        "brand": term.brand,
+        "street": term.street,
+        "city": term.city,
+        "state": term.state,
+        "postcode": term.postcode,
+        "mcc": term.mcc,
+        "latitude": float(term.location_lat) if term.location_lat is not None else None,
+        "longitude": float(term.location_lng) if term.location_lng is not None else None,
+    }
     pay_req = QuickPayRequest(
         charger_id=cp_id,
         connector_id=connector_id,
         amount=amount,
         email=fake_email,
         gateway_name="tng",
+        merchant_info={k: v for k, v in merchant_info.items() if v is not None},
     )
     result = await quick_pay(pay_req, request, db)
     if not isinstance(result, dict) or not result.get("success"):
@@ -8334,6 +8357,15 @@ async def admin_list_terminals(
             "charger_count": len(chargers),
             "kiosk_url": f"/terminal/{t.device_id}?key={t.api_key}",
             "created_at": t.created_at.isoformat() if t.created_at else None,
+            "shop_name": t.shop_name,
+            "brand": t.brand,
+            "street": t.street,
+            "city": t.city,
+            "state": t.state,
+            "postcode": t.postcode,
+            "mcc": t.mcc,
+            "location_lat": float(t.location_lat) if t.location_lat is not None else None,
+            "location_lng": float(t.location_lng) if t.location_lng is not None else None,
         })
     return {"terminals": out}
 
@@ -8359,6 +8391,13 @@ async def admin_create_terminal(
         location_label=body.get("location_label"),
         location_lat=body.get("location_lat"),
         location_lng=body.get("location_lng"),
+        shop_name=body.get("shop_name"),
+        brand=body.get("brand"),
+        street=body.get("street"),
+        city=body.get("city"),
+        state=body.get("state"),
+        postcode=body.get("postcode"),
+        mcc=body.get("mcc"),
         status="active",
     )
     db.add(t)
@@ -8418,6 +8457,11 @@ async def admin_update_terminal(
     body = await request.json()
     if "test_mode" in body:
         t.test_mode = bool(body["test_mode"])
+    for field in ("display_name", "location_label", "shop_name", "brand",
+                  "street", "city", "state", "postcode", "mcc",
+                  "location_lat", "location_lng"):
+        if field in body:
+            setattr(t, field, body[field])
     db.commit()
     return {"ok": True, "test_mode": bool(t.test_mode)}
 
