@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Payment Terminals · PlagSini Admin</title>
 <link rel="icon" href="/static/logo.png" type="image/png">
+<link rel="stylesheet" href="/static/styles.css?v=18">
+<script src="/static/theme.js?v=2"></script>
+<script src="/static/auth.js"></script>
 <style>
     * { box-sizing: border-box; }
     body { background:#0a0e1a; color:#fff; font-family:-apple-system,'Segoe UI',sans-serif; margin:0; min-height:100vh; }
@@ -143,14 +146,50 @@
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+<nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <div class="sidebar-logo"><img src="/static/logo.png" alt="Logo"></div>
+        <div>
+            <div class="sidebar-title">Plag Sini</div>
+            <div class="sidebar-subtitle">Charging Platform</div>
+        </div>
+    </div>
+    <div class="sidebar-nav">
+        <div class="nav-section">
+            <div class="nav-section-title">Main Menu</div>
+            <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
+            <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
+            <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
+            <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
+            <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
+            <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
+            <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
+            <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>
+            <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
+            <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
+            <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
+            <a href="/admin/terminals" class="nav-item active"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+        </div>
+        <div class="nav-section">
+            <div class="nav-section-title">Administration</div>
+            <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
+            <a href="/admin#tickets" class="nav-item"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
+            <a href="/admin?tab=staff" class="nav-item"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+        </div>
+    </div>
+</nav>
+
 <div class="page-wrap">
     <div class="top-bar">
-        <div>
-            <h1>📟 Payment <span>Terminals</span></h1>
-            <div style="font-size:12px;color:#a0aac5;margin-top:4px;">Self-service walk-up kiosks at charging stations</div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button class="hamburger" id="hamburger" style="background:none;border:1px solid rgba(255,255,255,0.1);padding:8px 10px;border-radius:8px;cursor:pointer;color:#fff;font-size:18px;">☰</button>
+            <div>
+                <h1>📟 Payment <span>Terminals</span></h1>
+                <div style="font-size:12px;color:#a0aac5;margin-top:4px;">Self-service walk-up kiosks at charging stations</div>
+            </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;">
-            <a href="/admin" class="back-link">← Admin</a>
             <button class="btn-primary" onclick="openCreateModal()">+ New Terminal</button>
         </div>
     </div>
@@ -445,6 +484,21 @@ async function deleteTerminal(id, name) {
 }
 
 loadAll();
+
+// Sidebar toggle
+(function(){
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const ham = document.getElementById('hamburger');
+    if (ham) ham.addEventListener('click', () => {
+        sidebar.classList.toggle('active');
+        overlay.classList.toggle('active');
+    });
+    if (overlay) overlay.addEventListener('click', () => {
+        sidebar.classList.remove('active');
+        overlay.classList.remove('active');
+    });
+})();
 </script>
 </body>
 </html>
