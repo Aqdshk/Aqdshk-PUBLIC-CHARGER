@@ -6925,13 +6925,30 @@ async def _remote_start_with_recovery(cp, charger_id: str, connector_id: int, id
 
     logger.warning(
         f"[remote-start-recovery] {charger_id}: first RemoteStart rejected — "
-        f"sending UnlockConnector({connector_id}) and retrying once"
+        f"trying recovery sequence"
     )
+
+    # Step 1 — UnlockConnector (lightweight). Works on most AION-style chargers.
     try:
         unlock_resp = await cp.unlock_connector(connector_id=connector_id)
-        logger.info(f"[remote-start-recovery] {charger_id}: UnlockConnector → {getattr(unlock_resp, 'status', None)}")
+        unlock_status = getattr(unlock_resp, "status", None)
+        logger.info(f"[remote-start-recovery] {charger_id}: UnlockConnector → {unlock_status}")
     except Exception as e:
+        unlock_status = None
         logger.warning(f"[remote-start-recovery] {charger_id}: UnlockConnector raised {e}")
+
+    # Step 2 — if UnlockConnector wasn't honoured (NotSupported / failed),
+    # fall back to ChangeAvailability(Inoperative→Operative) which is mandatory
+    # in OCPP 1.6 and forces the connector to re-initialise.
+    if unlock_status != "Accepted":
+        try:
+            inop = await cp.change_availability(connector_id=connector_id, type="Inoperative")
+            logger.info(f"[remote-start-recovery] {charger_id}: ChangeAvailability(Inoperative) → {getattr(inop, 'status', None)}")
+            await asyncio.sleep(2)
+            op = await cp.change_availability(connector_id=connector_id, type="Operative")
+            logger.info(f"[remote-start-recovery] {charger_id}: ChangeAvailability(Operative) → {getattr(op, 'status', None)}")
+        except Exception as e:
+            logger.warning(f"[remote-start-recovery] {charger_id}: ChangeAvailability raised {e}")
 
     await asyncio.sleep(2)
 
