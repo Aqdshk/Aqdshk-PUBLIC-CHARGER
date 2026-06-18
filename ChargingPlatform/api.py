@@ -4480,12 +4480,15 @@ async def admin_list_users(
     if not admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    query = db.query(User)
-    
+    # Hide system users (guest placeholder for terminal/partner walk-up flows)
+    # from the User Management UI — they aren't real accounts and shouldn't
+    # be edited or deleted from there.
+    query = db.query(User).filter(User.email != "guest@plagsini.local")
+
     # Search by email or name
     if search:
         query = query.filter(
-            (User.email.ilike(f"%{search}%")) | 
+            (User.email.ilike(f"%{search}%")) |
             (User.name.ilike(f"%{search}%")) |
             (User.phone.ilike(f"%{search}%"))
         )
@@ -4723,9 +4726,11 @@ async def admin_get_stats(
     if not admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    total_users = db.query(User).count()
-    active_users = db.query(User).filter(User.is_active == True).count()
-    admin_users = db.query(User).filter(User.is_admin == True).count()
+    # Exclude system guest user from counts so the dashboard reflects real signups.
+    real_users = db.query(User).filter(User.email != "guest@plagsini.local")
+    total_users = real_users.count()
+    active_users = real_users.filter(User.is_active == True).count()
+    admin_users = real_users.filter(User.is_admin == True).count()
     
     total_balance = float(db.query(func.sum(Wallet.balance)).scalar() or 0)
     
