@@ -2798,11 +2798,12 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 message=f"Charger {request.charger_id} is not connected. Please ensure charger is connected to OCPP server."
             )
         
-        # Send RemoteStartTransaction to charger via OCPP
+        # Send RemoteStartTransaction to charger via OCPP — with auto-recovery
+        # if the charger is stuck in Finishing/Preparing leftover from a prior
+        # session that wasn't physically unplugged (common on Gresgying DC3001).
         logger.info(f"Sending RemoteStartTransaction to charger {request.charger_id}")
-        response = await charge_point.remote_start_transaction(
-            connector_id=request.connector_id,
-            id_tag=request.id_tag
+        response = await _remote_start_with_recovery(
+            charge_point, request.charger_id, request.connector_id, request.id_tag
         )
         
         if response and response.status == "Accepted":
@@ -6893,6 +6894,41 @@ def _credit_wallet(db: Session, txn: PaymentTransaction):
     audit_log("payment_credited", txn.user_id, f"Credited RM{txn_amount} via {txn.gateway_name}", amount=float(txn_amount))
 
 
+async def _remote_start_with_recovery(cp, charger_id: str, connector_id: int, id_tag: str):
+    """RemoteStartTransaction with auto-recovery for chargers stuck in
+    Finishing/Preparing leftover from a prior session that wasn't physically
+    unplugged. Common on Gresgying DC3001 firmware.
+
+    Flow:
+      1. Try RemoteStart. If Accepted/NotSupported/no-response → return as-is.
+      2. If Rejected, send UnlockConnector(connectorId) + wait 2s so the
+         charger has time to send a StopTransaction for the dead txn and
+         transition the connector back to Available.
+      3. Retry RemoteStart once. Return whatever comes back.
+    """
+    resp = await cp.remote_start_transaction(connector_id=connector_id, id_tag=id_tag)
+    status = getattr(resp, "status", None) if resp else None
+    if status != "Rejected":
+        return resp
+
+    logger.warning(
+        f"[remote-start-recovery] {charger_id}: first RemoteStart rejected — "
+        f"sending UnlockConnector({connector_id}) and retrying once"
+    )
+    try:
+        unlock_resp = await cp.unlock_connector(connector_id=connector_id)
+        logger.info(f"[remote-start-recovery] {charger_id}: UnlockConnector → {getattr(unlock_resp, 'status', None)}")
+    except Exception as e:
+        logger.warning(f"[remote-start-recovery] {charger_id}: UnlockConnector raised {e}")
+
+    await asyncio.sleep(2)
+
+    resp2 = await cp.remote_start_transaction(connector_id=connector_id, id_tag=id_tag)
+    status2 = getattr(resp2, "status", None) if resp2 else None
+    logger.info(f"[remote-start-recovery] {charger_id}: retry RemoteStart → {status2}")
+    return resp2
+
+
 async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransaction):
     """
     Quick-pay flow: after payment success, fire OCPP RemoteStartTransaction
@@ -6939,10 +6975,7 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         f"connector {connector_id} id_tag={id_tag} (txn {txn.transaction_ref})"
     )
 
-    response = await cp.remote_start_transaction(
-        connector_id=connector_id,
-        id_tag=id_tag,
-    )
+    response = await _remote_start_with_recovery(cp, txn.charger_id, connector_id, id_tag)
 
     status = getattr(response, "status", None) if response else None
 
