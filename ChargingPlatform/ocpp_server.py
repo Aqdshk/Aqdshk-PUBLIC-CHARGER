@@ -277,6 +277,20 @@ class ChargePoint(cp):
             if id_tag in ("APP_USER", "DASHBOARD_USER", "LOCAL_CHARGING", ""):
                 return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
 
+            # quick-pay / terminal-kiosk id_tag format is "PAY{txn.id}".
+            # Accept it only if there's a matching successful PaymentTransaction
+            # for THIS charger — so a leaked tag from another site can't be reused.
+            if id_tag and id_tag.startswith("PAY") and id_tag[3:].isdigit():
+                pay_id = int(id_tag[3:])
+                txn = self.db.query(PaymentTransaction).filter(
+                    PaymentTransaction.id == pay_id,
+                    PaymentTransaction.status == "success",
+                    PaymentTransaction.charger_id == self.id,
+                ).first()
+                if txn:
+                    return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+                logger.warning(f"Authorize: id_tag={id_tag!r} has no matching paid txn for {self.id}")
+
             # Numeric id_tag may be user_id from app
             if id_tag and id_tag.isdigit():
                 user = self.db.query(User).filter(User.id == int(id_tag), User.is_active == True).first()
