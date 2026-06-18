@@ -3006,32 +3006,9 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message="No response from charger for RemoteStopTransaction.",
             )
         logger.error(f"RemoteStopTransaction failed: {status}")
-        # Fallback for chargers that never sent a StartTransaction (their internal
-        # txn registry doesn't have ours, so they Reject). Force-close the DB
-        # session + flip the charger back to Available so ops isn't stuck — the
-        # charger will physically stop the next time the plug is removed.
-        forced = False
-        if status == "Rejected" and session:
-            session.status = "stopped"
-            session.stop_time = _utcnow()
-            session.stop_reason = "remote_stop_rejected_force_closed"
-            charger.availability = "available"
-            db.commit()
-            forced = True
-            logger.warning(
-                f"RemoteStop rejected by {charger.charge_point_id}; force-closed "
-                f"session {session.id} in DB. Charger may keep delivering power "
-                f"until plug is removed."
-            )
         return ChargingResponse(
-            success=forced,
-            message=(
-                "Charger rejected RemoteStop (likely never registered our transaction). "
-                "Session closed in dashboard; please unplug at the charger to fully stop power flow."
-                if forced
-                else f"Failed to stop charging: {status}"
-            ),
-            transaction_id=txn_id_for_stop if forced else None,
+            success=False,
+            message=f"Failed to stop charging: {status}",
         )
     except Exception as e:
         logger.error(f"Error stopping charging: {e}", exc_info=True)
