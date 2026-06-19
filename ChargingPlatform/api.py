@@ -48,6 +48,7 @@ from payment_gateway import (
     generate_transaction_ref,
     GATEWAY_REGISTRY,
     is_callback_already_processed,
+    build_tng_spi_ack,
 )
 from security import (
     create_tokens,
@@ -6745,6 +6746,12 @@ async def payment_callback(gateway_name: str, request: Request, db: Session = De
             f"Replay callback ignored for {txn.transaction_ref} ({gateway_name})",
             amount=float(txn.amount or 0),
         )
+        # TNG needs a signed SPI ACK or it will retry forever. Even on replay,
+        # respond with success so it stops re-sending.
+        if gateway_name.lower() == "tng":
+            req_head = verification.get("_tng_request_head") or {}
+            priv = (gw_config.extra_config or {}).get("merchant_private_key") or os.getenv("PAYMENT_TNG_PRIVATE_KEY", "")
+            return build_tng_spi_ack(req_head, priv, success=True)
         return {"success": True, "message": "Already processed"}
 
     # Update transaction
@@ -6802,6 +6809,13 @@ async def payment_callback(gateway_name: str, request: Request, db: Session = De
         amount=float(txn.amount or 0),
     )
     db.commit()
+    if gateway_name.lower() == "tng":
+        # TNG SPI requires a signed response in their schema. Without it,
+        # TNG retries the notification per their idempotence rules until
+        # we either ACK or give up after N attempts.
+        req_head = verification.get("_tng_request_head") or {}
+        priv = (gw_config.extra_config or {}).get("merchant_private_key") or os.getenv("PAYMENT_TNG_PRIVATE_KEY", "")
+        return build_tng_spi_ack(req_head, priv, success=(txn.status == "success"))
     return {"success": True, "status": txn.status}
 
 

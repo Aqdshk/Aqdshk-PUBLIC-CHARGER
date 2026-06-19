@@ -558,6 +558,38 @@ def _tng_verify_signature(msg_obj: dict, signature_b64: str, public_key_pem: str
         return False
 
 
+def build_tng_spi_ack(request_head: dict, private_key_pem: str, success: bool = True) -> dict:
+    """Build a signed SPI ACK in the format TNG expects in response to
+    alipayplus.acquiring.notify.orderFinish. Without this, TNG retries
+    the notification indefinitely per their idempotence rules."""
+    resp = {
+        "response": {
+            "head": {
+                "version": request_head.get("version", "2.0"),
+                "function": request_head.get("function", "alipayplus.acquiring.notify.orderFinish"),
+                "clientId": request_head.get("clientId", ""),
+                "respTime": (_utcnow() + timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+                "reqMsgId": request_head.get("reqMsgId", ""),
+            },
+            "body": {
+                "resultInfo": {
+                    "resultStatus": "S" if success else "F",
+                    "resultCodeId": "00000000" if success else "00000900",
+                    "resultCode": "SUCCESS" if success else "SYSTEM_ERROR",
+                    "resultMsg": "success" if success else "system error",
+                }
+            },
+        }
+    }
+    try:
+        sig = _tng_sign_message(resp["response"], private_key_pem)
+        resp["signature"] = sig
+    except Exception as e:
+        logger.error(f"build_tng_spi_ack: sign failed {e}")
+        resp["signature"] = ""
+    return resp
+
+
 class TngGateway(BasePaymentGateway):
     """
     Touch 'n Go OrderCode API — Create QR for payment.
@@ -750,9 +782,18 @@ class TngGateway(BasePaymentGateway):
 
     def verify_callback(self, payload: dict, headers: dict = None) -> dict:
         """
-        Verify TNG payment notification callback.
-        Payload format per spec: {"response":{"head":{...},"body":{...}},"signature":"..."}
-        TNG signs the "response" object (head + body) with SHA256-RSA. Verify using TNGD public key.
+        Verify TNG SPI notification (alipayplus.acquiring.notify.orderFinish).
+
+        Per the official TPA spec, TNG sends:
+          {"request": {"head": {...v2.0...}, "body": {
+              "acquirementId", "merchantTransId", "finishedTime",
+              "createdTime", "merchantId", "orderAmount",
+              "acquirementStatus": "SUCCESS" | "CLOSED", "extendInfo"
+          }}, "signature": "..."}
+
+        TNG signs the "request" object (head + body) with SHA256-RSA.
+        We verify using TNGD public key. Status is in body.acquirementStatus,
+        NOT body.resultInfo (resultInfo is in our RESPONSE, not their request).
         """
         cfg = self.extra_config or {}
         provided_sig = _as_str(payload.get("signature", ""))
@@ -767,19 +808,23 @@ class TngGateway(BasePaymentGateway):
             logger.warning("TNG callback: PUBLIC_KEY not configured — cannot verify. Get from TNGD.")
             return {"valid": False, "message": "TNG public key not configured for callback verification"}
 
-        # Per spec: TNG signs "the value of the response object" = {"head":{...},"body":{...}}
-        # Message must match exactly (plaintext, no whitespace)
-        response_obj = payload.get("response")
-        if not isinstance(response_obj, dict) or "body" not in response_obj:
-            return {"valid": False, "message": "Invalid TNG callback: missing response.head/body"}
+        # SPI notification from TNG arrives as {"request": {...}}, not {"response": {...}}.
+        # Older field name supported as fallback for backwards-compat with manual test posts.
+        request_obj = payload.get("request") or payload.get("response")
+        if not isinstance(request_obj, dict) or "body" not in request_obj:
+            return {"valid": False, "message": "Invalid TNG callback: missing request.head/body"}
 
-        valid_sig = _tng_verify_signature(response_obj, provided_sig, tng_public_key)
+        valid_sig = _tng_verify_signature(request_obj, provided_sig, tng_public_key)
         if not valid_sig:
             return {"valid": False, "message": "Invalid TNG callback signature"}
 
-        body = response_obj.get("body", {})
-        result_info = body.get("resultInfo", {})
-        result_status = result_info.get("resultStatus", "")
+        body = request_obj.get("body", {})
+        # SPI notify uses `acquirementStatus` ("SUCCESS" | "CLOSED").
+        # Fall back to resultInfo.resultStatus only if older format reused.
+        acq_status = body.get("acquirementStatus", "")
+        if not acq_status:
+            acq_status = body.get("resultInfo", {}).get("resultStatus", "")
+        is_success = acq_status in ("SUCCESS", "S")
         order_amount = body.get("orderAmount", {})
         value_cents = order_amount.get("value", 0) if isinstance(order_amount, dict) else 0
         try:
@@ -791,10 +836,13 @@ class TngGateway(BasePaymentGateway):
             "valid": True,
             "transaction_ref": body.get("merchantTransId", ""),
             "gateway_transaction_id": body.get("acquirementId", ""),
-            "status": "success" if result_status == "S" else "pending",
+            "status": "success" if is_success else "pending",
             "amount": amount_rm,
             "payment_method": "tng",
             "raw_response": payload,
+            # Pass head back so the route can build a properly-formatted
+            # signed response (TNG retries forever if it doesn't get one).
+            "_tng_request_head": request_obj.get("head", {}),
         }
 
     async def check_status(self, gateway_transaction_id: str) -> dict:
