@@ -86,42 +86,66 @@
     #screen-idle .tap-cta:active { transform: scale(0.96); }
 
     /* picker screen */
-    .section-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-bottom: 12px; }
-    .charger-list { flex: 1; overflow-y: auto; padding-bottom: 80px; }
+    .section-title { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin-bottom: 18px; padding-left: 4px; }
+    .charger-list { flex: 1; overflow-y: auto; padding-bottom: 100px; display: flex; flex-direction: column; gap: 14px; }
     .charger-list::-webkit-scrollbar { width: 4px; }
     .charger-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
     .charger-card {
-        background: var(--bg-card);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 14px;
-        padding: 16px;
-        margin-bottom: 10px;
-        display: flex; align-items: center; gap: 14px;
-        cursor: pointer; transition: all 0.15s;
+        position: relative;
+        background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        padding: 18px 18px 18px 22px;
+        display: flex; align-items: center; gap: 16px;
+        cursor: pointer; transition: all 0.18s ease;
+        overflow: hidden;
     }
-    .charger-card:active { transform: scale(0.98); }
-    .charger-card.disabled { opacity: 0.4; pointer-events: none; }
+    /* Left status accent bar — subtle, only on hover/available */
+    .charger-card::before {
+        content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px;
+        background: var(--primary); border-radius: 0 3px 3px 0;
+        opacity: 0; transition: opacity 0.18s;
+    }
+    .charger-card:not(.disabled):hover { border-color: rgba(0,255,136,0.3); background: linear-gradient(135deg, rgba(0,255,136,0.05) 0%, rgba(255,255,255,0.02) 100%); }
+    .charger-card:not(.disabled):hover::before { opacity: 1; }
+    .charger-card:active { transform: scale(0.985); }
+    .charger-card.disabled { opacity: 0.45; pointer-events: none; }
     .charger-card .icon {
-        width: 48px; height: 48px;
-        background: rgba(0,255,136,0.12);
-        border-radius: 12px;
+        width: 56px; height: 56px;
+        background: linear-gradient(135deg, rgba(0,255,136,0.2), rgba(0,255,136,0.05));
+        border: 1px solid rgba(0,255,136,0.25);
+        border-radius: 16px;
         display: flex; align-items: center; justify-content: center;
-        font-size: 24px; color: var(--primary);
+        font-size: 26px; color: var(--primary);
         flex-shrink: 0;
+        box-shadow: 0 4px 14px rgba(0,255,136,0.12), inset 0 1px 0 rgba(255,255,255,0.08);
     }
-    .charger-card.busy .icon { background: rgba(255,165,0,0.12); color: var(--warning); }
-    .charger-card.offline .icon { background: rgba(255,68,102,0.12); color: var(--danger); }
+    .charger-card.busy .icon { background: linear-gradient(135deg, rgba(255,165,0,0.18), rgba(255,165,0,0.04)); border-color: rgba(255,165,0,0.25); color: var(--warning); box-shadow: 0 4px 14px rgba(255,165,0,0.1); }
+    .charger-card.offline .icon { background: linear-gradient(135deg, rgba(255,68,102,0.15), rgba(255,68,102,0.04)); border-color: rgba(255,68,102,0.25); color: var(--danger); box-shadow: none; }
     .charger-info { flex: 1; min-width: 0; }
-    .charger-name { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
-    .charger-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 8px; flex-wrap: wrap; }
+    .charger-name { font-size: 17px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.2px; }
+    .charger-meta { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .charger-meta .meta-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: rgba(255,255,255,0.05); border-radius: 6px; font-weight: 600; font-size: 11px; }
+    .charger-meta .meta-chip .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-dim); }
+    .charger-meta .meta-chip.power .dot { background: var(--primary); box-shadow: 0 0 6px var(--primary); }
     .status-pill {
-        font-size: 10px; font-weight: 800; padding: 3px 9px;
-        border-radius: 999px; letter-spacing: 0.5px; text-transform: uppercase;
+        font-size: 10px; font-weight: 800; padding: 5px 11px;
+        border-radius: 999px; letter-spacing: 1px; text-transform: uppercase;
+        display: inline-flex; align-items: center; gap: 6px;
     }
-    .status-pill.ok { background: rgba(0,255,136,0.16); color: var(--primary); }
-    .status-pill.busy { background: rgba(255,165,0,0.16); color: var(--warning); }
-    .status-pill.off { background: rgba(255,68,102,0.16); color: var(--danger); }
-    .chevron { color: var(--text-dim); font-size: 22px; }
+    .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status-pill.ok { background: rgba(0,255,136,0.14); color: var(--primary); box-shadow: 0 0 0 1px rgba(0,255,136,0.2) inset; }
+    .status-pill.ok::before { box-shadow: 0 0 8px currentColor; animation: blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .status-pill.busy { background: rgba(255,165,0,0.14); color: var(--warning); box-shadow: 0 0 0 1px rgba(255,165,0,0.2) inset; }
+    .status-pill.off { background: rgba(255,68,102,0.12); color: var(--danger); box-shadow: 0 0 0 1px rgba(255,68,102,0.2) inset; }
+    .chevron {
+        color: var(--text-dim); font-size: 28px; font-weight: 200;
+        width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+        border-radius: 10px; background: rgba(255,255,255,0.03);
+        transition: all 0.18s; flex-shrink: 0;
+    }
+    .charger-card:not(.disabled):hover .chevron { background: rgba(0,255,136,0.12); color: var(--primary); transform: translateX(3px); }
 
     /* amount screen */
     .charger-chip {
@@ -414,13 +438,13 @@ function renderChargers() {
             pill = `<span class="status-pill busy">${(c.availability||'?').toUpperCase()}</span>`;
             cls = 'busy disabled';
         }
-        const power = c.max_power_kw ? `<span>${c.max_power_kw} kW</span>` : '';
-        const tariff = c.tariff_per_kwh ? `<span>RM ${c.tariff_per_kwh.toFixed(2)}/kWh</span>` : '';
+        const power  = c.max_power_kw   ? `<span class="meta-chip power"><span class="dot"></span>${c.max_power_kw} kW</span>` : '';
+        const tariff = c.tariff_per_kwh ? `<span class="meta-chip">RM ${c.tariff_per_kwh.toFixed(2)}/kWh</span>` : '';
         return `<div class="charger-card ${cls}" onclick="pickCharger('${c.charge_point_id}')">
             <div class="icon">⚡</div>
             <div class="charger-info">
                 <div class="charger-name">${c.display_name}</div>
-                <div class="charger-meta">${power}${power && tariff ? '·' : ''}${tariff}</div>
+                <div class="charger-meta">${power}${tariff}</div>
             </div>
             ${pill}
             <div class="chevron">›</div>
