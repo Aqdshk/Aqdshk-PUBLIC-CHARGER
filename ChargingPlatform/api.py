@@ -8165,10 +8165,15 @@ async def terminal_payment_start(
     cp_id = (body.get("charge_point_id") or "").strip()
     amount = float(body.get("amount") or 0)
     connector_id = int(body.get("connector_id") or 1)
+    user_email = (body.get("email") or "").strip().lower()
     if not cp_id:
         raise HTTPException(status_code=400, detail="charge_point_id required")
     if amount < 1.0 or amount > 500.0:
         raise HTTPException(status_code=400, detail="Amount must be RM 1–500")
+    # Email is optional — if supplied it gets used for the receipt; if blank
+    # we fall back to the per-terminal placeholder so receipts still route to ops.
+    if user_email and ("@" not in user_email or len(user_email) > 255):
+        raise HTTPException(status_code=400, detail="Invalid email address")
     # Confirm charger is assigned to THIS terminal (no cross-terminal abuse)
     assigned = (
         db.query(TerminalCharger)
@@ -8179,7 +8184,10 @@ async def terminal_payment_start(
     if not assigned:
         raise HTTPException(status_code=403, detail=f"Charger {cp_id} not assigned to this terminal")
 
+    # The customer's real email (if they typed it) gets used for the receipt;
+    # the terminal placeholder is the fallback so receipts still go somewhere.
     fake_email = f"terminal-{term.id}@plagsini.local"
+    receipt_email = user_email or fake_email
 
     # ── TEST MODE ─────────────────────────────────────────────────────────
     # Skip TNG entirely. Mint a "paid" PaymentTransaction, schedule a 5-sec
@@ -8192,7 +8200,7 @@ async def terminal_payment_start(
         txn = PaymentTransaction(
             transaction_ref=txn_ref,
             user_id=guest_user_id,
-            user_email=fake_email,
+            user_email=receipt_email,
             amount=amount,
             currency="MYR",
             payment_method="test",
@@ -8202,7 +8210,7 @@ async def terminal_payment_start(
             purpose="charge_payment",
             charger_id=cp_id,
             connector_id=connector_id,
-            customer_email=fake_email,
+            customer_email=receipt_email,
             created_at=now,
         )
         db.add(txn)
@@ -8266,7 +8274,7 @@ async def terminal_payment_start(
         charger_id=cp_id,
         connector_id=connector_id,
         amount=amount,
-        email=fake_email,
+        email=receipt_email,
         gateway_name="tng",
         merchant_info={k: v for k, v in merchant_info.items() if v is not None},
     )
