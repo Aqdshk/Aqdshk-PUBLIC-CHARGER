@@ -354,6 +354,14 @@ class Charger(Base):
     maintenance_started_at = Column(DateTime, nullable=True)
     maintenance_started_by = Column(String(100), nullable=True)  # admin username/email
 
+    # Idle-fee config (post-charge penalty for occupying bay after charging done).
+    # Disabled by default so new chargers don't surprise customers; ops opts in
+    # per charger via /admin. Rate = RM/min, grace = minutes after charge complete
+    # before the meter starts.
+    idle_fee_enabled = Column(Boolean, nullable=False, default=False)
+    idle_fee_per_min = Column(Numeric(6, 2), nullable=False, default=Decimal("0.40"))
+    idle_grace_minutes = Column(Integer, nullable=False, default=15)
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")
@@ -385,9 +393,41 @@ class ChargingSession(Base):
     auto_stopped = Column(Boolean, default=False)  # True once RemoteStop sent on quota hit
     user_id = Column(String(255), nullable=True)  # User identifier (phone, email, etc)
     payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)
-    
+
+    # Hold/refund flow (terminal kiosk):
+    #   - energy_budget_rm = what the customer picked (e.g. RM 10) — auto-stop here
+    #   - hold_amount_rm   = full deposit captured up-front (default RM 150, ops-tunable)
+    #   - charge_complete_at = first time charger transitions to SuspendedEV/Finishing
+    #   - idle_started_at  = same instant; we count idle minutes from this point
+    #   - idle_minutes / idle_fee_amount = accrual after grace ends
+    #   - refund_amount   = hold - actual_energy_cost - idle_fee, capped at >= 0
+    #   - refund_status   = pending|sent|failed (TNG order.refund response)
+    #   - refund_txn_ref  = our requestId for the TNG refund call (idempotency key)
+    energy_budget_rm = Column(Numeric(8, 2), nullable=True)
+    hold_amount_rm   = Column(Numeric(8, 2), nullable=True)
+    charge_complete_at = Column(DateTime, nullable=True)
+    idle_started_at  = Column(DateTime, nullable=True)
+    idle_minutes     = Column(Integer, nullable=False, default=0)
+    idle_fee_amount  = Column(Numeric(8, 2), nullable=False, default=Decimal("0"))
+    refund_amount    = Column(Numeric(8, 2), nullable=True)
+    refund_status    = Column(String(32), nullable=True)
+    refund_txn_ref   = Column(String(64), nullable=True)
+    refund_at        = Column(DateTime, nullable=True)
+
     charger = relationship("Charger", back_populates="sessions")
     payment = relationship("Payment", back_populates="session")
+
+
+class SystemSetting(Base):
+    """Generic key/value store for ops-tunable knobs that shouldn't require
+    a redeploy. Read via get_setting(); write via /admin endpoints."""
+    __tablename__ = "system_settings"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    key         = Column(String(64), nullable=False, unique=True, index=True)
+    value       = Column(Text, nullable=True)
+    description = Column(String(256), nullable=True)
+    updated_at  = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class Payment(Base):
