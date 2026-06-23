@@ -36,6 +36,60 @@
         font-size:13px; color:var(--text-muted); line-height:1.6;
     }
     .info-banner b { color:var(--accent); }
+    .settings-card {
+        background:var(--bg-card);
+        border:1px solid var(--border);
+        border-radius:14px;
+        padding:18px 20px;
+        margin-bottom:20px;
+    }
+    .settings-card-head {
+        display:flex; align-items:center; justify-content:space-between;
+        gap:16px; flex-wrap:wrap;
+    }
+    .settings-title { font-size:14px; font-weight:700; margin-bottom:4px; color:var(--text-primary); }
+    .settings-sub { font-size:12px; color:var(--text-muted); line-height:1.5; max-width:520px; }
+    .deposit-edit { display:flex; align-items:center; gap:8px; }
+    .rm-prefix { font-size:13px; color:var(--text-muted); font-weight:700; }
+    .deposit-edit input {
+        width:80px; padding:8px 10px;
+        background:var(--bg-base); border:1px solid var(--border); border-radius:8px;
+        color:var(--text-primary); font-size:14px; font-weight:700; text-align:center;
+    }
+    .deposit-edit input:focus { outline:none; border-color:var(--accent); }
+
+    /* Idle-fee modal — per-charger toggles */
+    .idle-charger-row {
+        display:grid;
+        grid-template-columns: 1fr 70px 80px 60px;
+        gap:10px; align-items:center;
+        padding:10px 12px;
+        background:var(--bg-base);
+        border:1px solid var(--border);
+        border-radius:8px;
+        margin-bottom:6px;
+        font-size:12px;
+    }
+    .idle-charger-row .cp { font-family:'SF Mono',Consolas,monospace; font-weight:600; }
+    .idle-charger-row input {
+        width:100%; padding:6px 8px;
+        background:var(--bg-surface); border:1px solid var(--border); border-radius:6px;
+        color:var(--text-primary); font-size:12px; text-align:center;
+    }
+    .idle-charger-row input:focus { outline:none; border-color:var(--accent); }
+    .switch {
+        position:relative; width:42px; height:22px; flex-shrink:0;
+        background:var(--bg-surface); border:1px solid var(--border); border-radius:999px;
+        cursor:pointer; transition:background 0.15s;
+    }
+    .switch::after {
+        content:''; position:absolute; top:2px; left:2px;
+        width:16px; height:16px; border-radius:50%;
+        background:var(--text-muted); transition:all 0.15s;
+    }
+    .switch.on { background:var(--accent); border-color:var(--accent); }
+    .switch.on::after { left:22px; background:#000; }
+    .idle-row-head { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; font-weight:700; padding:0 12px; }
     .terminal-card {
         background:var(--bg-card);
         border:1px solid var(--border);
@@ -203,6 +257,21 @@
         once on the device → Add to Home Screen → done.
     </div>
 
+    <!-- Global deposit setting -->
+    <div class="settings-card">
+        <div class="settings-card-head">
+            <div>
+                <div class="settings-title">💰 Deposit per session</div>
+                <div class="settings-sub">Amount held on TNG for every kiosk transaction. Unused balance + idle fee buffer is refunded after the user unplugs.</div>
+            </div>
+            <div class="deposit-edit">
+                <span class="rm-prefix">RM</span>
+                <input type="number" id="holdAmountInput" step="1" min="1" max="1000" value="150">
+                <button class="btn-secondary" onclick="saveHoldAmount()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <div id="terminalsList">
         <div class="empty-state"><div class="icon">⏳</div><div>Loading…</div></div>
     </div>
@@ -305,6 +374,23 @@
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeEditModal()">Cancel</button>
             <button class="btn-primary" onclick="submitEdit()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Idle-fee Modal -->
+<div class="modal-overlay" id="idleModal">
+    <div class="modal">
+        <h2>🧊 Idle fee settings</h2>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">
+            Charge customers a penalty fee per minute if they leave the plug connected after charging completes. Encourages drivers to free up the bay.
+        </div>
+        <div class="idle-charger-row idle-row-head" style="background:none;border:none;">
+            <span>Charger</span><span>Enabled</span><span>RM/min</span><span>Grace</span>
+        </div>
+        <div id="idleChargersList">Loading…</div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeIdleModal()">Close</button>
         </div>
     </div>
 </div>
@@ -425,6 +511,7 @@ function render() {
                 <a href="${kioskUrl}" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">↗ Open kiosk</a>
                 <button class="btn-secondary" onclick="openEditModal(${t.id})">✏️ Edit details</button>
                 <button class="btn-secondary" onclick="openAssignModal(${t.id})">⚡ Assign chargers</button>
+                <button class="btn-secondary" onclick="openIdleModal(${t.id})">🧊 Idle fees</button>
                 <button class="btn-secondary" onclick="toggleTestMode(${t.id}, ${!t.test_mode})" style="${t.test_mode ? 'background:rgba(255,165,0,0.15);color:#ffa500;border-color:rgba(255,165,0,0.3);' : ''}">${t.test_mode ? '🧪 Disable Test Mode' : '🧪 Enable Test Mode'}</button>
                 <button class="btn-secondary btn-danger" onclick="deleteTerminal(${t.id}, '${safeName}')">🗑 Delete</button>
             </div>
@@ -594,6 +681,77 @@ async function submitEdit() {
     } catch (e) { alert(e.message); }
 }
 
+// ── Global deposit setting ──────────────────────────────────────────
+async function loadHoldAmount() {
+    try {
+        const rows = await api('/api/admin/system-settings');
+        const r = (rows || []).find(x => x.key === 'payment_hold_amount_rm');
+        if (r && r.value != null) document.getElementById('holdAmountInput').value = r.value;
+    } catch (e) { /* silent — leave default */ }
+}
+async function saveHoldAmount() {
+    const v = document.getElementById('holdAmountInput').value;
+    try {
+        await api('/api/admin/system-settings/payment_hold_amount_rm', {
+            method: 'PATCH', body: { value: v },
+        });
+        toast('Deposit saved · RM ' + v);
+    } catch (e) { alert(e.message); }
+}
+
+// ── Per-charger idle fee modal ─────────────────────────────────────
+let _idleTerminalId = null;
+async function openIdleModal(termId) {
+    _idleTerminalId = termId;
+    const t = _terminals.find(x => x.id === termId);
+    if (!t) return;
+    document.getElementById('idleModal').classList.add('show');
+    const list = document.getElementById('idleChargersList');
+    list.innerHTML = 'Loading…';
+    // Pull live charger config (idle fields) from the global /api/chargers list
+    try {
+        const allChargers = await api('/api/chargers');
+        const assignedIds = new Set((t.chargers || []).map(c => c.id));
+        const subset = (allChargers || []).filter(c => assignedIds.has(c.id));
+        if (!subset.length) {
+            list.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text-muted);font-size:12px;">No chargers assigned to this terminal.</div>';
+            return;
+        }
+        list.innerHTML = subset.map(c => `
+            <div class="idle-charger-row" data-cp="${c.charge_point_id}">
+                <span class="cp">⚡ ${c.charge_point_id}</span>
+                <span class="switch ${c.idle_fee_enabled ? 'on' : ''}" onclick="toggleIdleSwitch(this)"></span>
+                <input type="number" step="0.05" min="0" max="10" value="${c.idle_fee_per_min ?? 0.40}" data-field="per_min">
+                <input type="number" step="1" min="0" max="240" value="${c.idle_grace_minutes ?? 15}" data-field="grace">
+            </div>
+        `).join('');
+        // Save on any change
+        list.querySelectorAll('.idle-charger-row').forEach(row => {
+            row.querySelector('.switch').addEventListener('click', () => saveIdleRow(row));
+            row.querySelectorAll('input').forEach(i => i.addEventListener('change', () => saveIdleRow(row)));
+        });
+    } catch (e) {
+        list.innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px;">${e.message}</div>`;
+    }
+}
+function toggleIdleSwitch(el) { el.classList.toggle('on'); }
+function closeIdleModal() {
+    document.getElementById('idleModal').classList.remove('show');
+    _idleTerminalId = null;
+}
+async function saveIdleRow(row) {
+    const cp = row.dataset.cp;
+    const enabled = row.querySelector('.switch').classList.contains('on');
+    const per_min = parseFloat(row.querySelector('[data-field="per_min"]').value);
+    const grace = parseInt(row.querySelector('[data-field="grace"]').value, 10);
+    try {
+        await api(`/api/admin/chargers/${encodeURIComponent(cp)}/idle-fee`, {
+            method: 'PATCH', body: { enabled, per_min, grace_minutes: grace },
+        });
+        toast(`${cp} updated`);
+    } catch (e) { alert(e.message); }
+}
+
 async function toggleTestMode(id, enable) {
     const msg = enable
         ? 'Enable TEST MODE? Payments will be auto-faked (no TNG, no money). RemoteStart still fires for real.'
@@ -618,6 +776,7 @@ async function deleteTerminal(id, name) {
 }
 
 loadAll();
+loadHoldAmount();
 
 // Sidebar toggle
 (function(){

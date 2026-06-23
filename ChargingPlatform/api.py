@@ -569,6 +569,10 @@ class ChargerStatus(BaseModel):
     max_power_kw: Optional[float] = None
     # Pricing (filled at query time)
     price_per_kwh: Optional[float] = None
+    # Idle-fee config (terminal kiosk feature) — surfaced so admin UI can edit
+    idle_fee_enabled: Optional[bool] = None
+    idle_fee_per_min: Optional[float] = None
+    idle_grace_minutes: Optional[int] = None
 
     @field_serializer("last_heartbeat")
     def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
@@ -1091,6 +1095,95 @@ async def update_charger_info(
         "connector_type": eff_connector,
         "max_power_kw": eff_power,
     }
+
+
+@app.patch("/api/admin/chargers/{charge_point_id}/idle-fee")
+async def update_charger_idle_fee(
+    charge_point_id: str,
+    request: Request,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Toggle / configure the post-charge idle fee on a single charger.
+
+    Body: { enabled?: bool, per_min?: float, grace_minutes?: int }
+    Only fields supplied are updated.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+    body = await request.json()
+    if "enabled" in body:
+        charger.idle_fee_enabled = bool(body["enabled"])
+    if "per_min" in body:
+        try:
+            v = float(body["per_min"])
+            if v < 0 or v > 10:
+                raise HTTPException(status_code=400, detail="per_min must be 0-10 RM")
+            charger.idle_fee_per_min = Decimal(str(round(v, 2)))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="per_min must be a number")
+    if "grace_minutes" in body:
+        try:
+            v = int(body["grace_minutes"])
+            if v < 0 or v > 240:
+                raise HTTPException(status_code=400, detail="grace_minutes must be 0-240")
+            charger.idle_grace_minutes = v
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="grace_minutes must be an integer")
+    db.commit()
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "idle_fee_enabled": bool(charger.idle_fee_enabled),
+        "idle_fee_per_min": float(charger.idle_fee_per_min or 0),
+        "idle_grace_minutes": int(charger.idle_grace_minutes or 0),
+    }
+
+
+@app.get("/api/admin/system-settings")
+async def list_system_settings(
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """List all system_settings rows for the admin panel."""
+    rows = db.query(SystemSetting).order_by(SystemSetting.key.asc()).all()
+    return [
+        {"key": r.key, "value": r.value, "description": r.description,
+         "updated_at": r.updated_at.isoformat() if r.updated_at else None}
+        for r in rows
+    ]
+
+
+@app.patch("/api/admin/system-settings/{key}")
+async def update_system_setting(
+    key: str,
+    request: Request,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Update one system_settings key. Body: { value: string }.
+    Whitelisted keys only so admin can't break unrelated settings."""
+    ALLOWED = {"payment_hold_amount_rm"}
+    if key not in ALLOWED:
+        raise HTTPException(status_code=403, detail=f"Key '{key}' is not admin-editable")
+    body = await request.json()
+    value = str(body.get("value", "")).strip()
+    if key == "payment_hold_amount_rm":
+        try:
+            v = float(value)
+            if v < 1 or v > 1000:
+                raise HTTPException(status_code=400, detail="Hold amount must be RM 1-1000")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Hold amount must be a number")
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if not row:
+        row = SystemSetting(key=key, value=value)
+        db.add(row)
+    else:
+        row.value = value
+    db.commit()
+    return {"success": True, "key": key, "value": value}
 
 
 @app.post("/api/admin/chargers/{charge_point_id}/auto-detect")
