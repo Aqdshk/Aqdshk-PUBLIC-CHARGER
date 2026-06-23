@@ -430,6 +430,26 @@ class SystemSetting(Base):
     updated_at  = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
+def get_setting(db, key: str, default=None):
+    """Fetch a system_settings value. Always returns the raw string (or
+    `default`) — callers cast as needed."""
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if row is None or row.value is None:
+        return default
+    return row.value
+
+
+def get_hold_amount_rm(db) -> float:
+    """Convenience: deposit-per-session in RM. Defaults to 150.00 if the
+    setting is missing or unparseable so the kiosk never breaks on a
+    fresh deploy."""
+    raw = get_setting(db, "payment_hold_amount_rm", "150")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 150.0
+
+
 class Payment(Base):
     __tablename__ = "payments"
     

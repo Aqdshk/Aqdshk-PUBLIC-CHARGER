@@ -37,9 +37,9 @@ from database import (
     Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
     OTPVerification, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
-    Pricing, StaffSession, SupportStaff, SupportTicket, TicketMessage,
+    Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
-    SessionLocal, get_db, init_db,
+    SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_charging_receipt
 from ocpp_server import get_active_charge_point, active_charge_points, firmware_events
@@ -6884,6 +6884,23 @@ def _credit_wallet(db: Session, txn: PaymentTransaction):
     audit_log("payment_credited", txn.user_id, f"Credited RM{txn_amount} via {txn.gateway_name}", amount=float(txn_amount))
 
 
+def _energy_budget_for_txn(txn: PaymentTransaction) -> float:
+    """Look up the customer's picked energy budget for a paid txn. With the
+    deposit/refund flow, txn.amount is the DEPOSIT (e.g. RM 150), NOT the
+    energy budget — that's stashed as JSON metadata on gateway_response.
+    Falls back to txn.amount for the legacy single-amount flow."""
+    raw = txn.gateway_response or ""
+    if raw:
+        try:
+            meta = json.loads(raw)
+            v = meta.get("_meta", {}).get("energy_budget_rm")
+            if v is not None:
+                return float(v)
+        except Exception:
+            pass
+    return float(txn.amount or 0)
+
+
 async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransaction):
     """
     Quick-pay flow: after payment success, fire OCPP RemoteStartTransaction
@@ -6953,14 +6970,16 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
             )
             .first()
         )
-        # Compute kWh quota: amount_paid / tariff_per_kwh.
-        # OCPP server uses this in on_meter_values to auto-stop at the quota.
+        # Compute kWh quota from the customer's PICKED energy budget (not the
+        # full deposit). OCPP server uses this in on_meter_values to auto-stop
+        # the moment delivered energy matches what they paid for.
         try:
             tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
-            paid_amount = float(txn.amount or 0)
-            kwh_limit = round(paid_amount / tariff, 4) if tariff > 0 else None
+            budget_amount = _energy_budget_for_txn(txn)
+            kwh_limit = round(budget_amount / tariff, 4) if tariff > 0 else None
         except Exception:
             kwh_limit = None
+        hold_amount = float(txn.amount or 0)
 
         if not existing_pending:
             session = ChargingSession(
@@ -6970,6 +6989,8 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
                 status="pending",
                 user_id=0,  # guest pay — not tied to an account
                 energy_kwh_limit=kwh_limit,
+                energy_budget_rm=Decimal(str(budget_amount)) if 'budget_amount' in locals() else None,
+                hold_amount_rm=Decimal(str(hold_amount)),
                 auto_stopped=False,
             )
             db.add(session)
@@ -6978,6 +6999,9 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         else:
             # Refresh quota in case user re-paid
             existing_pending.energy_kwh_limit = kwh_limit
+            if 'budget_amount' in locals() and budget_amount:
+                existing_pending.energy_budget_rm = Decimal(str(budget_amount))
+            existing_pending.hold_amount_rm = Decimal(str(hold_amount))
             existing_pending.auto_stopped = False
 
         charger.availability = "charging"
@@ -8148,7 +8172,13 @@ async def terminal_list_chargers(
             "tariff_per_kwh": float(c.tariff_per_kwh) if c.tariff_per_kwh else None,
             "connector_id": 1,  # default — TODO: per-connector when multi-socket
         })
-    return {"terminal": {"display_name": term.display_name, "location_label": term.location_label}, "chargers": out}
+    return {
+        "terminal": {"display_name": term.display_name, "location_label": term.location_label},
+        "chargers": out,
+        # Surface the global deposit so the kiosk's amount-picker disclosure
+        # always shows the live figure (admin can tune it without redeploy).
+        "hold_amount_rm": get_hold_amount_rm(db),
+    }
 
 
 @app.post("/api/terminal/{device_id}/payment/start")
@@ -8163,17 +8193,26 @@ async def terminal_payment_start(
     term = _terminal_auth(device_id, x_terminal_key, db)
     body = await request.json()
     cp_id = (body.get("charge_point_id") or "").strip()
-    amount = float(body.get("amount") or 0)
+    energy_budget = float(body.get("amount") or 0)  # what the customer picked — auto-stop at this RM of energy
     connector_id = int(body.get("connector_id") or 1)
     user_email = (body.get("email") or "").strip().lower()
     if not cp_id:
         raise HTTPException(status_code=400, detail="charge_point_id required")
-    if amount < 1.0 or amount > 500.0:
+    if energy_budget < 1.0 or energy_budget > 500.0:
         raise HTTPException(status_code=400, detail="Amount must be RM 1–500")
     # Email is optional — if supplied it gets used for the receipt; if blank
     # we fall back to the per-terminal placeholder so receipts still route to ops.
     if user_email and ("@" not in user_email or len(user_email) > 255):
         raise HTTPException(status_code=400, detail="Invalid email address")
+
+    # The TNG charge is always the DEPOSIT (system_settings.payment_hold_amount_rm),
+    # NOT what the customer picked. The picked figure is the energy budget — the
+    # OCPP server auto-stops charging when energy delivered reaches that RM
+    # value. After the user unplugs we refund hold − (energy used + idle fee)
+    # back to their TNG wallet. This way one TNG transaction covers both
+    # the energy and any post-charge idle penalty without a second user prompt.
+    hold_amount = get_hold_amount_rm(db)
+    amount = hold_amount  # what we actually capture from TNG
     # Confirm charger is assigned to THIS terminal (no cross-terminal abuse)
     assigned = (
         db.query(TerminalCharger)
@@ -8197,6 +8236,13 @@ async def terminal_payment_start(
         txn_ref = generate_transaction_ref()
         now = _utcnow()
         guest_user_id = _get_or_create_guest_user(db)
+        # Stash the picked energy budget alongside the deposit so the OCPP
+        # auto-stop helper knows when to cut power. See _energy_budget_for_txn.
+        meta_json = json.dumps({"_meta": {
+            "energy_budget_rm": energy_budget,
+            "hold_amount_rm": hold_amount,
+            "deposit_flow": True,
+        }})
         txn = PaymentTransaction(
             transaction_ref=txn_ref,
             user_id=guest_user_id,
@@ -8206,6 +8252,7 @@ async def terminal_payment_start(
             payment_method="test",
             gateway_name=f"terminal_test:{term.id}",
             gateway_status="test_pending",
+            gateway_response=meta_json,
             status="pending",
             purpose="charge_payment",
             charger_id=cp_id,
@@ -8248,7 +8295,9 @@ async def terminal_payment_start(
             # the test loop auto-completes in 5s.
             "qr_code": f"TEST MODE — auto-pay in 5s · {txn_ref}",
             "payment_url": None,
-            "amount": amount,
+            "amount": amount,                  # deposit (what TNG captures)
+            "hold_amount": hold_amount,        # alias used by the kiosk UI
+            "energy_budget": energy_budget,    # picked amount, energy auto-stop target
             "expires_in_sec": 600,
             "charger_id": cp_id,
             "test_mode": True,
@@ -8282,11 +8331,35 @@ async def terminal_payment_start(
     if not isinstance(result, dict) or not result.get("success"):
         msg = result.get("message") if isinstance(result, dict) else "Payment session creation failed"
         raise HTTPException(status_code=502, detail=msg)
+
+    # After quick_pay creates the PaymentTransaction, stash the energy budget
+    # + deposit flag in gateway_response so the OCPP-trigger helper later
+    # finds the right kWh limit (deposit/refund flow, not single-amount).
+    txn_ref = result.get("transaction_ref")
+    if txn_ref:
+        created = db.query(PaymentTransaction).filter(
+            PaymentTransaction.transaction_ref == txn_ref
+        ).first()
+        if created:
+            try:
+                existing = json.loads(created.gateway_response or "{}")
+            except Exception:
+                existing = {}
+            existing["_meta"] = {
+                "energy_budget_rm": energy_budget,
+                "hold_amount_rm": hold_amount,
+                "deposit_flow": True,
+            }
+            created.gateway_response = json.dumps(existing)
+            db.commit()
+
     return {
-        "transaction_ref": result.get("transaction_ref"),
+        "transaction_ref": txn_ref,
         "qr_code": result.get("qr_code"),
         "payment_url": result.get("payment_url"),
-        "amount": amount,
+        "amount": amount,                  # deposit (TNG capture)
+        "hold_amount": hold_amount,
+        "energy_budget": energy_budget,
         "expires_in_sec": 600,
         "charger_id": cp_id,
     }

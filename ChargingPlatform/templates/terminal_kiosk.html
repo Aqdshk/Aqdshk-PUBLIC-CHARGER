@@ -466,6 +466,11 @@ async function goToPicker() {
     try {
         const data = await api('/chargers');
         _state.chargers = data.chargers || [];
+        if (data.hold_amount_rm != null) {
+            _state.holdAmount = data.hold_amount_rm;
+            const depAmt = document.getElementById('depositAmt');
+            if (depAmt) depAmt.textContent = `RM ${Number(data.hold_amount_rm).toFixed(0)}`;
+        }
         document.getElementById('locationLabel').textContent =
             data.terminal?.location_label || data.terminal?.display_name || '';
         renderChargers();
@@ -568,6 +573,14 @@ async function startPayment() {
         });
         _state.activeTxnRef = data.transaction_ref;
         _state.expiresAt = Date.now() + (data.expires_in_sec || 600) * 1000;
+        // Sync display to the deposit the server actually captured.
+        if (data.hold_amount != null) {
+            _state.holdAmount = data.hold_amount;
+            const qrAmt = document.getElementById('qrAmount');
+            if (qrAmt) qrAmt.textContent = `RM ${Number(data.hold_amount).toFixed(2)}`;
+            const depAmt = document.getElementById('depositAmt');
+            if (depAmt) depAmt.textContent = `RM ${Number(data.hold_amount).toFixed(0)}`;
+        }
         // Render QR
         if (data.qr_code) {
             QRCode.toCanvas(canvas, data.qr_code, { width: 240, margin: 1, errorCorrectionLevel: 'M' });
