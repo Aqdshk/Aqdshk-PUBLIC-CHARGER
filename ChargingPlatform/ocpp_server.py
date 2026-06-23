@@ -18,6 +18,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
@@ -345,6 +346,37 @@ class ChargePoint(cp):
                 'Faulted': 'faulted'
             }
             
+            # ── Idle-fee detection ────────────────────────────────────────
+            # When the connector leaves "Charging" but the plug is still in
+            # (Suspended* / Finishing), the EV has finished drawing power —
+            # mark the active session's charge_complete_at + idle_started_at
+            # so settlement can later compute the post-grace idle penalty.
+            # When the plug is physically removed (Available), stamp it too
+            # in case we missed the in-between state.
+            if status in ('SuspendedEV', 'SuspendedEVSE', 'Finishing', 'Available'):
+                try:
+                    open_session = (
+                        self.db.query(ChargingSession)
+                        .filter(
+                            ChargingSession.charger_id == charger.id,
+                            ChargingSession.status == 'active',
+                            ChargingSession.transaction_id > 0,
+                            ChargingSession.charge_complete_at.is_(None),
+                        )
+                        .first()
+                    )
+                    if open_session:
+                        now = _utcnow()
+                        open_session.charge_complete_at = now
+                        open_session.idle_started_at = now
+                        logger.info(
+                            f"[idle-fee] {self.id}: charge complete "
+                            f"(status={status}) — session {open_session.transaction_id}, "
+                            f"idle timer started"
+                        )
+                except Exception as e:
+                    logger.error(f"[idle-fee] failed to mark charge_complete_at for {self.id}: {e}")
+
             # Update availability based on actual connector status
             # Only set to "charging" if connector status is actually "Charging"
             if status == 'Charging':
@@ -635,6 +667,49 @@ class ChargePoint(cp):
                 if charger:
                     charger.availability = "available"
                     self.db.commit()
+
+                # ── Idle-fee + refund settlement ──────────────────────────
+                # If charger has idle_fee enabled and we have a hold_amount on
+                # this session, compute energy cost + idle fee, then mark the
+                # refund as pending. Actual TNG refund call happens in Phase 5.
+                try:
+                    if charger and charger.idle_fee_enabled and session.hold_amount_rm:
+                        tariff = float(charger.tariff_per_kwh or 0.10)
+                        kwh = float(session.energy_consumed or 0)
+                        energy_cost = round(kwh * tariff, 2)
+
+                        # Idle minutes accrued past grace
+                        idle_min = 0
+                        idle_fee = 0.0
+                        if session.idle_started_at and session.stop_time:
+                            elapsed = (session.stop_time - session.idle_started_at).total_seconds() / 60.0
+                            past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
+                            idle_min = int(past_grace)
+                            idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+
+                        hold = float(session.hold_amount_rm)
+                        total = energy_cost + idle_fee
+                        # Cap actual at hold (auto-stop should have prevented overrun)
+                        if total > hold:
+                            logger.warning(
+                                f"[idle-fee] session {transaction_id}: total {total} > hold {hold}, "
+                                f"capping refund at 0"
+                            )
+                            total = hold
+                        refund = round(hold - total, 2)
+
+                        session.idle_minutes = idle_min
+                        session.idle_fee_amount = Decimal(str(idle_fee))
+                        session.refund_amount = Decimal(str(refund))
+                        session.refund_status = "pending" if refund > 0 else "not_required"
+                        logger.info(
+                            f"[idle-fee] session {transaction_id} settled: "
+                            f"energy={energy_cost} idle={idle_fee} ({idle_min}min) "
+                            f"refund={refund} of hold={hold}"
+                        )
+                        self.db.commit()
+                except Exception as e:
+                    logger.error(f"[idle-fee] settlement failed for session {transaction_id}: {e}", exc_info=True)
 
                 # Quick-pay post-charge invoice email.
                 # _trigger_remote_start_after_payment sets id_tag = f"PAY{txn.id}" so
