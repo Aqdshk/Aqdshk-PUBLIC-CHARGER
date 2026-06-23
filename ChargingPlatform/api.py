@@ -3088,6 +3088,19 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 session.status = "stopping"
                 db.commit()
             logger.info(f"Charging stop requested successfully for charger {charger.charge_point_id} (txn_id={txn_id_for_stop}, status={status})")
+
+            # Fallback: some chargers ACK the RemoteStop but never send a
+            # follow-up StopTransaction (DC3001 in test scenarios). That
+            # leaves the session 'stopping' forever and the post-charge
+            # email never fires. After 30s, if no StopTransaction has
+            # arrived, force-close in DB + fire the invoice + settle.
+            session_id = session.id if session else None
+            charger_id_str = charger.charge_point_id
+            if session_id:
+                asyncio.create_task(
+                    _fallback_close_if_charger_silent(session_id, charger_id_str, 30)
+                )
+
             return ChargingResponse(
                 success=True,
                 message="Charging stop request sent to charger. It may take a few seconds to stop.",
@@ -7903,6 +7916,108 @@ async def _check_and_send_reminders():
         if sent_count > 0:
             db.commit()
             logger.info(f"Sent {sent_count} ticket SLA reminders")
+    finally:
+        db.close()
+
+
+async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, delay_s: int):
+    """Some chargers ACK RemoteStop but never send StopTransaction back.
+    After a grace period, force-close the session in DB and run the same
+    settlement + invoice email path the StopTransaction handler would have."""
+    await asyncio.sleep(delay_s)
+    db = SessionLocal()
+    try:
+        sess = db.query(ChargingSession).filter(ChargingSession.id == session_id).first()
+        if not sess or sess.status not in ("stopping", "active") or sess.stop_time:
+            return  # charger followed up, or session already settled
+        logger.warning(
+            f"[stop-fallback] session {session_id} on {charger_id}: charger "
+            f"did not send StopTransaction within {delay_s}s — force-closing"
+        )
+        sess.stop_time = _utcnow()
+        sess.status = "completed"
+        sess.stop_reason = sess.stop_reason or "Local"
+        charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
+        if charger:
+            charger.availability = "available"
+
+        # Settlement math (same as ocpp_server on_stop_transaction)
+        try:
+            if charger and charger.idle_fee_enabled and sess.hold_amount_rm:
+                tariff = float(charger.tariff_per_kwh or 0.10)
+                kwh = float(sess.energy_consumed or 0)
+                energy_cost = round(kwh * tariff, 2)
+                idle_min = 0
+                idle_fee = 0.0
+                if sess.idle_started_at and sess.stop_time:
+                    elapsed = (sess.stop_time - sess.idle_started_at).total_seconds() / 60.0
+                    past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
+                    idle_min = int(past_grace)
+                    idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+                hold = float(sess.hold_amount_rm)
+                total = min(hold, energy_cost + idle_fee)
+                refund = round(hold - total, 2)
+                sess.idle_minutes = idle_min
+                sess.idle_fee_amount = Decimal(str(idle_fee))
+                sess.refund_amount = Decimal(str(refund))
+                sess.refund_status = "pending" if refund > 0 else "not_required"
+        except Exception as e:
+            logger.error(f"[stop-fallback] settlement failed for {session_id}: {e}")
+        db.commit()
+
+        # Fire invoice email — same logic as on_stop_transaction's recency lookup
+        try:
+            cutoff = (sess.start_time or _utcnow()) - timedelta(hours=6)
+            txn = (
+                db.query(PaymentTransaction)
+                .filter(
+                    PaymentTransaction.charger_id == charger_id,
+                    PaymentTransaction.status == "success",
+                    PaymentTransaction.purpose == "charge_payment",
+                    PaymentTransaction.paid_at >= cutoff,
+                )
+                .order_by(PaymentTransaction.id.desc())
+                .first()
+            )
+            recipient = (txn.customer_email or txn.user_email) if txn else None
+            if txn and recipient and charger:
+                if sess.start_time and sess.stop_time:
+                    delta = sess.stop_time - sess.start_time
+                    total_s = int(delta.total_seconds())
+                    hh, rem = divmod(total_s, 3600)
+                    mm, ss = divmod(rem, 60)
+                    dur_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
+                else:
+                    dur_str = "—"
+                hold_amt = float(sess.hold_amount_rm) if sess.hold_amount_rm else None
+                energy_cost_v = None
+                if hold_amt is not None:
+                    tariff = float(charger.tariff_per_kwh or 0.10)
+                    energy_cost_v = round(float(sess.energy_consumed or 0) * tariff, 2)
+                idle_min_v = int(sess.idle_minutes or 0)
+                idle_fee_v = float(sess.idle_fee_amount or 0)
+                refund_amt = float(sess.refund_amount) if sess.refund_amount is not None else None
+                from email_service import send_charging_invoice
+                await send_charging_invoice(
+                    to_email=recipient,
+                    transaction_ref=txn.transaction_ref,
+                    charger_id=charger.charge_point_id,
+                    connector_id=int(sess.connector_id or txn.connector_id or 1),
+                    started_at_str=sess.start_time.strftime("%Y-%m-%d %H:%M:%S") if sess.start_time else "—",
+                    stopped_at_str=sess.stop_time.strftime("%Y-%m-%d %H:%M:%S") if sess.stop_time else "—",
+                    duration_str=dur_str,
+                    energy_kwh=float(sess.energy_consumed or 0),
+                    amount_paid=float(txn.amount or 0),
+                    stop_reason="Local (fallback)",
+                    hold_amount=hold_amt,
+                    energy_cost=energy_cost_v,
+                    idle_minutes=idle_min_v if idle_min_v > 0 else None,
+                    idle_fee=idle_fee_v if idle_fee_v > 0 else None,
+                    refund_amount=refund_amt,
+                )
+                logger.info(f"[stop-fallback] invoice email sent to {recipient}")
+        except Exception as e:
+            logger.error(f"[stop-fallback] invoice email failed: {e}", exc_info=True)
     finally:
         db.close()
 

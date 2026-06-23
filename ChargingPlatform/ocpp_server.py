@@ -711,15 +711,35 @@ class ChargePoint(cp):
                 except Exception as e:
                     logger.error(f"[idle-fee] settlement failed for session {transaction_id}: {e}", exc_info=True)
 
-                # Quick-pay post-charge invoice email.
-                # _trigger_remote_start_after_payment sets id_tag = f"PAY{txn.id}" so
-                # we can correlate the StopTransaction back to the originating payment.
+                # Quick-pay / terminal-kiosk post-charge invoice email.
+                # Used to correlate via id_tag="PAY{txn.id}", but the kiosk now
+                # uses the whitelisted "DASHBOARD_USER" tag (to satisfy chargers
+                # like DC3001 that gate on LocalAuthList). Fall back to charger_id
+                # + recency to find the originating payment.
                 try:
-                    if id_tag and id_tag.startswith("PAY"):
-                        pay_id = int(id_tag[3:])
+                    txn = None
+                    if id_tag and id_tag.startswith("PAY") and id_tag[3:].isdigit():
+                        # Legacy path — still supported for any charger that
+                        # accepts dynamic tags.
                         txn = self.db.query(PaymentTransaction).filter(
-                            PaymentTransaction.id == pay_id
+                            PaymentTransaction.id == int(id_tag[3:])
                         ).first()
+                    if not txn and charger:
+                        # Recency-based lookup: most recent paid charge_payment
+                        # txn for this charger, made close to this session's start.
+                        cutoff = (session.start_time or _utcnow()) - timedelta(hours=6)
+                        txn = (
+                            self.db.query(PaymentTransaction)
+                            .filter(
+                                PaymentTransaction.charger_id == charger.charge_point_id,
+                                PaymentTransaction.status == "success",
+                                PaymentTransaction.purpose == "charge_payment",
+                                PaymentTransaction.paid_at >= cutoff,
+                            )
+                            .order_by(PaymentTransaction.id.desc())
+                            .first()
+                        )
+                    if True:
                         recipient = (txn.customer_email or txn.user_email) if txn else None
                         if txn and recipient and charger:
                             # Compute duration string
