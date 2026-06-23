@@ -397,57 +397,108 @@ async def send_charging_invoice(
     # Pre-format energy + amount summary line for header
     summary_amt = refund_amount if has_deposit_flow else amount_paid
 
+    # Compact session stats line for the hero stat block
+    avg_kw = None
+    try:
+        # Derive average power if we can pull total seconds out of duration_str (HH:MM:SS)
+        h, m, s = (int(x) for x in (duration_str or "00:00:00").split(":"))
+        hours = (h + m/60 + s/3600) or 1
+        avg_kw = round(energy_kwh / hours, 1)
+    except Exception:
+        avg_kw = None
+    avg_kw_str = f"{avg_kw:.1f} kW" if avg_kw is not None else "—"
+    co2_kg = round(energy_kwh * 0.585, 2)  # MY grid avg ≈ 0.585 kg CO2 / kWh
+
     full_html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Receipt {transaction_ref}</title></head>
-<body style="margin:0;padding:0;background:#F4F6F8;font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F8;padding:24px 16px;">
+<body style="margin:0;padding:0;background:#EEF2F6;font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#0F172A;-webkit-text-size-adjust:100%;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#EEF2F6;padding:28px 16px;">
     <tr><td align="center">
 
-      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,0.06);">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,0.06);max-width:600px;">
 
-        <!-- Header band with logo + tagline -->
-        <tr><td style="background:linear-gradient(135deg,#00C266 0%,#00A852 100%);padding:22px 28px;text-align:center;">
-          <img src="https://charger.czeros.tech/static/logo.png" alt="PlagSini" width="56" height="56" style="display:block;margin:0 auto 8px;border-radius:12px;background:#fff;padding:6px;">
-          <div style="color:#ffffff;font-size:22px;font-weight:900;letter-spacing:-0.3px;">Plag<span style="color:#0a2a18;">Sini</span></div>
-          <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-top:3px;">Charge Your Journey</div>
+        <!-- Hero band: dark, big logo (no white box), tagline -->
+        <tr><td style="background:linear-gradient(135deg,#0A2A18 0%,#00A852 100%);padding:32px 28px 28px;text-align:center;">
+          <img src="https://charger.czeros.tech/static/logo.png" alt="PlagSini" width="110" style="display:block;margin:0 auto 14px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;">
+          <div style="color:#FFFFFF;font-size:24px;font-weight:900;letter-spacing:-0.3px;line-height:1;">Plag<span style="color:#A8FFD3;">Sini</span></div>
+          <div style="color:rgba(255,255,255,0.7);font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-top:8px;">Charge Your Journey</div>
         </td></tr>
 
-        <!-- Title + summary -->
-        <tr><td style="padding:22px 28px 14px;text-align:center;border-bottom:1px solid #EAEEF2;">
-          <div style="font-size:13px;color:#666;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:6px;">Charging Receipt</div>
-          <div style="font-size:24px;color:#00A852;font-weight:800;margin:4px 0;">{energy_kwh:.2f} kWh delivered</div>
-          <div style="font-size:12px;color:#888;">Transaction <b style="color:#1a1a1a;">{transaction_ref}</b></div>
+        <!-- Receipt title -->
+        <tr><td style="padding:26px 32px 0;text-align:center;">
+          <div style="font-size:11px;color:#94A3B8;letter-spacing:2px;text-transform:uppercase;font-weight:700;">Charging Receipt</div>
+          <div style="font-size:42px;color:#0F172A;font-weight:900;margin:10px 0 4px;letter-spacing:-1.5px;">{energy_kwh:.2f} <span style="font-size:20px;font-weight:600;color:#64748B;">kWh</span></div>
+          <div style="font-size:11px;color:#64748B;font-family:'SF Mono',Consolas,monospace;">{transaction_ref}</div>
         </td></tr>
 
-        <!-- Details table -->
-        <tr><td style="padding:18px 28px 4px;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#1a1a1a;">
-            <tr><td style="padding:5px 0;color:#666;width:50%;">Charger</td><td style="text-align:right;font-family:'SF Mono',Consolas,monospace;font-weight:600;">{charger_id}</td></tr>
-            <tr><td style="padding:5px 0;color:#666;">Connector</td><td style="text-align:right;font-weight:600;">{connector_id}</td></tr>
-            <tr><td style="padding:5px 0;color:#666;">Started</td><td style="text-align:right;">{started_at_str}</td></tr>
-            <tr><td style="padding:5px 0;color:#666;">Stopped</td><td style="text-align:right;">{stopped_at_str}</td></tr>
-            <tr><td style="padding:5px 0;color:#666;">Duration</td><td style="text-align:right;font-weight:600;">{duration_str}</td></tr>
-            <tr><td style="padding:5px 0;color:#666;">Stop reason</td><td style="text-align:right;color:#999;font-size:11px;">{stop_reason or "—"}</td></tr>
+        <!-- Stat strip: 3 columns -->
+        <tr><td style="padding:24px 32px 8px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border-radius:14px;border:1px solid #E2E8F0;">
+            <tr>
+              <td style="padding:18px 8px;text-align:center;border-right:1px solid #E2E8F0;">
+                <div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-bottom:6px;">Duration</div>
+                <div style="font-size:18px;color:#0F172A;font-weight:800;font-family:'SF Mono',Consolas,monospace;">{duration_str}</div>
+              </td>
+              <td style="padding:18px 8px;text-align:center;border-right:1px solid #E2E8F0;">
+                <div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-bottom:6px;">Avg Power</div>
+                <div style="font-size:18px;color:#0F172A;font-weight:800;">{avg_kw_str}</div>
+              </td>
+              <td style="padding:18px 8px;text-align:center;">
+                <div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-bottom:6px;">CO₂ saved</div>
+                <div style="font-size:18px;color:#00A852;font-weight:800;">{co2_kg} kg</div>
+              </td>
+            </tr>
           </table>
         </td></tr>
 
-        <!-- Cost breakdown -->
-        <tr><td style="padding:8px 28px 18px;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
-            <tr><td colspan="2" style="border-top:1px solid #EAEEF2;padding-top:10px;"></td></tr>
-            {cost_rows}
+        <!-- Session details -->
+        <tr><td style="padding:18px 32px 0;">
+          <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;margin-bottom:10px;">Session Details</div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#0F172A;">
+            <tr>
+              <td style="padding:7px 0;color:#64748B;width:42%;">📍 Charger</td>
+              <td style="text-align:right;font-family:'SF Mono',Consolas,monospace;font-weight:600;color:#0F172A;">{charger_id}</td>
+            </tr>
+            <tr>
+              <td style="padding:7px 0;color:#64748B;border-top:1px solid #F1F5F9;">🔌 Connector</td>
+              <td style="text-align:right;font-weight:600;border-top:1px solid #F1F5F9;">{connector_id}</td>
+            </tr>
+            <tr>
+              <td style="padding:7px 0;color:#64748B;border-top:1px solid #F1F5F9;">▶ Started</td>
+              <td style="text-align:right;color:#0F172A;border-top:1px solid #F1F5F9;">{started_at_str}</td>
+            </tr>
+            <tr>
+              <td style="padding:7px 0;color:#64748B;border-top:1px solid #F1F5F9;">■ Stopped</td>
+              <td style="text-align:right;color:#0F172A;border-top:1px solid #F1F5F9;">{stopped_at_str}</td>
+            </tr>
+            <tr>
+              <td style="padding:7px 0;color:#64748B;border-top:1px solid #F1F5F9;">↺ Stop reason</td>
+              <td style="text-align:right;color:#94A3B8;font-size:12px;border-top:1px solid #F1F5F9;">{stop_reason or "—"}</td>
+            </tr>
           </table>
         </td></tr>
 
-        <!-- Footer (single, branded, compact) -->
-        <tr><td style="background:#FAFBFC;padding:14px 28px;text-align:center;border-top:1px solid #EAEEF2;">
-          <div style="font-size:11px;color:#666;line-height:1.55;">
-            This invoice is your official receipt — please keep it for your records.<br>
-            Need help? Reply to this email or contact <a href="mailto:noreply@plagsini.com" style="color:#00A852;text-decoration:none;">noreply@plagsini.com</a>.
+        <!-- Payment breakdown -->
+        <tr><td style="padding:22px 32px 8px;">
+          <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;margin-bottom:10px;">Payment</div>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border-radius:12px;padding:0;">
+            <tr><td style="padding:14px 16px 4px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+                {cost_rows}
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="padding:22px 32px 28px;text-align:center;">
+          <div style="font-size:11px;color:#64748B;line-height:1.6;">
+            This receipt is auto-generated and serves as your official invoice.<br>
+            Questions? Reply to this email or visit <a href="https://charger.czeros.tech" style="color:#00A852;text-decoration:none;font-weight:600;">charger.czeros.tech</a>.
           </div>
-          <div style="font-size:10px;color:#999;margin-top:10px;letter-spacing:0.5px;">
-            © 2026 PlagSini EV Charging Platform · <a href="https://charger.czeros.tech" style="color:#999;text-decoration:none;">charger.czeros.tech</a>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid #E2E8F0;font-size:10px;color:#94A3B8;letter-spacing:0.5px;">
+            © 2026 <b style="color:#64748B;">PlagSini EV</b> Charging Platform · <i style="color:#94A3B8;">Charge Your Journey</i>
           </div>
         </td></tr>
 
