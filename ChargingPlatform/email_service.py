@@ -198,6 +198,32 @@ def _build_ticket_email(to_email: str, subject: str, body_html: str) -> MIMEMult
     return msg
 
 
+def _send_raw_html_email(to_email: str, subject: str, full_html: str) -> bool:
+    """Send a complete HTML email without the shared ticket-style wrapper.
+    Used for branded standalone templates (invoices, receipts) that need
+    full control over layout and want to fit cleanly in one print page."""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        logger.warning(f"📧 [DEV MODE] Raw email to {to_email}: {subject}")
+        return True
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+        msg["To"] = to_email
+        msg.attach(MIMEText(full_html, "html"))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        logger.info(f"📧 Raw HTML email sent to {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"📧 Error sending raw email to {to_email}: {e}")
+        return False
+
+
 def _send_generic_email(to_email: str, subject: str, body_html: str) -> bool:
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         logger.warning(f"📧 [DEV MODE] Email to {to_email}: {subject}")
@@ -337,66 +363,104 @@ async def send_charging_invoice(
     refund_amount: Optional[float] = None,
 ) -> bool:
     """Send post-charge invoice (session summary) to the user.
-    Fired from on_stop_transaction once the OCPP session closes — gives the
-    user a final breakdown of energy delivered, duration, and cost."""
-    # Build the cost breakdown block. For deposit/refund flow (terminal kiosk)
-    # we show: deposit captured → energy used → idle fee (if any) → refunded.
-    # For legacy single-amount flow, just show 'Amount paid'.
+
+    Standalone branded HTML — uses _send_raw_html_email (NOT the generic
+    ticket wrapper) so we control the full layout and the receipt fits
+    cleanly in a single print page."""
+
     has_deposit_flow = hold_amount is not None and refund_amount is not None
+
+    # Cost-breakdown rows
     if has_deposit_flow:
         idle_row = ""
         if idle_minutes and idle_minutes > 0 and idle_fee:
             idle_row = (
-                f'<tr><td style="padding:6px 0;color:#888;">Idle fee</td>'
-                f'<td style="text-align:right;color:#FFA500;">− RM {idle_fee:.2f} '
-                f'<span style="color:#888;font-size:11px;">({idle_minutes} min)</span></td></tr>'
+                '<tr><td style="padding:5px 0;color:#666;">Idle fee</td>'
+                f'<td style="text-align:right;color:#E67E22;font-weight:600;">− RM {idle_fee:.2f} '
+                f'<span style="color:#999;font-weight:400;font-size:11px;">({idle_minutes} min)</span></td></tr>'
             )
-        cost_block = f"""
-        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:10px;"></td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Deposit captured</td><td style="text-align:right;color:#ddd;">RM {hold_amount:.2f}</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Energy used</td><td style="text-align:right;color:#ddd;">− RM {(energy_cost or 0):.2f}</td></tr>
-        {idle_row}
-        <tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>
-        <tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Refunded to TNG</td><td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {refund_amount:.2f}</td></tr>
+        cost_rows = f"""
+            <tr><td style="padding:5px 0;color:#666;">Deposit captured</td><td style="text-align:right;color:#1a1a1a;font-weight:600;">RM {hold_amount:.2f}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Energy used</td><td style="text-align:right;color:#1a1a1a;font-weight:600;">− RM {(energy_cost or 0):.2f}</td></tr>
+            {idle_row}
+            <tr><td colspan="2" style="border-top:2px solid #00C266;padding-top:10px;"></td></tr>
+            <tr><td style="padding:8px 0;color:#1a1a1a;font-size:15px;font-weight:700;">Refunded to TNG</td>
+                <td style="text-align:right;color:#00A852;font-size:20px;font-weight:800;">RM {refund_amount:.2f}</td></tr>
         """
     else:
-        cost_block = (
-            '<tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>'
-            f'<tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Amount paid</td>'
-            f'<td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {amount_paid:.2f}</td></tr>'
+        cost_rows = (
+            '<tr><td colspan="2" style="border-top:2px solid #00C266;padding-top:10px;"></td></tr>'
+            f'<tr><td style="padding:8px 0;color:#1a1a1a;font-size:15px;font-weight:700;">Amount paid</td>'
+            f'<td style="text-align:right;color:#00A852;font-size:20px;font-weight:800;">RM {amount_paid:.2f}</td></tr>'
         )
 
-    body = f"""
-    <h2 style="color:#00FF88;margin:0 0 15px;">⚡ Charging Complete</h2>
-    <p>Your charging session has ended. Thank you for using PlagSini!</p>
+    # Pre-format energy + amount summary line for header
+    summary_amt = refund_amount if has_deposit_flow else amount_paid
 
-    <div style="background:#0A0A1A;border:1px solid #00FF88;border-radius:10px;padding:18px;margin:16px 0;">
-      <table style="width:100%;border-collapse:collapse;color:#ddd;font-size:13px;">
-        <tr><td style="padding:6px 0;color:#888;">Invoice #</td><td style="text-align:right;font-weight:600;">{transaction_ref}</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Charger</td><td style="text-align:right;font-weight:600;">{charger_id}</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Connector</td><td style="text-align:right;">{connector_id}</td></tr>
-        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:8px;"></td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Started</td><td style="text-align:right;">{started_at_str}</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Stopped</td><td style="text-align:right;">{stopped_at_str}</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Duration</td><td style="text-align:right;font-weight:600;">{duration_str}</td></tr>
-        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:8px;"></td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Energy delivered</td><td style="text-align:right;font-weight:600;color:#00FF88;">{energy_kwh:.3f} kWh</td></tr>
-        <tr><td style="padding:6px 0;color:#888;">Stop reason</td><td style="text-align:right;font-size:11px;color:#888;">{stop_reason or "—"}</td></tr>
-        {cost_block}
+    full_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Receipt {transaction_ref}</title></head>
+<body style="margin:0;padding:0;background:#F4F6F8;font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F8;padding:24px 16px;">
+    <tr><td align="center">
+
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,0.06);">
+
+        <!-- Header band with logo + tagline -->
+        <tr><td style="background:linear-gradient(135deg,#00C266 0%,#00A852 100%);padding:22px 28px;text-align:center;">
+          <img src="https://charger.czeros.tech/static/logo.png" alt="PlagSini" width="56" height="56" style="display:block;margin:0 auto 8px;border-radius:12px;background:#fff;padding:6px;">
+          <div style="color:#ffffff;font-size:22px;font-weight:900;letter-spacing:-0.3px;">Plag<span style="color:#0a2a18;">Sini</span></div>
+          <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-top:3px;">Charge Your Journey</div>
+        </td></tr>
+
+        <!-- Title + summary -->
+        <tr><td style="padding:22px 28px 14px;text-align:center;border-bottom:1px solid #EAEEF2;">
+          <div style="font-size:13px;color:#666;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:6px;">Charging Receipt</div>
+          <div style="font-size:24px;color:#00A852;font-weight:800;margin:4px 0;">{energy_kwh:.2f} kWh delivered</div>
+          <div style="font-size:12px;color:#888;">Transaction <b style="color:#1a1a1a;">{transaction_ref}</b></div>
+        </td></tr>
+
+        <!-- Details table -->
+        <tr><td style="padding:18px 28px 4px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#1a1a1a;">
+            <tr><td style="padding:5px 0;color:#666;width:50%;">Charger</td><td style="text-align:right;font-family:'SF Mono',Consolas,monospace;font-weight:600;">{charger_id}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Connector</td><td style="text-align:right;font-weight:600;">{connector_id}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Started</td><td style="text-align:right;">{started_at_str}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Stopped</td><td style="text-align:right;">{stopped_at_str}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Duration</td><td style="text-align:right;font-weight:600;">{duration_str}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Stop reason</td><td style="text-align:right;color:#999;font-size:11px;">{stop_reason or "—"}</td></tr>
+          </table>
+        </td></tr>
+
+        <!-- Cost breakdown -->
+        <tr><td style="padding:8px 28px 18px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+            <tr><td colspan="2" style="border-top:1px solid #EAEEF2;padding-top:10px;"></td></tr>
+            {cost_rows}
+          </table>
+        </td></tr>
+
+        <!-- Footer (single, branded, compact) -->
+        <tr><td style="background:#FAFBFC;padding:14px 28px;text-align:center;border-top:1px solid #EAEEF2;">
+          <div style="font-size:11px;color:#666;line-height:1.55;">
+            This invoice is your official receipt — please keep it for your records.<br>
+            Need help? Reply to this email or contact <a href="mailto:noreply@plagsini.com" style="color:#00A852;text-decoration:none;">noreply@plagsini.com</a>.
+          </div>
+          <div style="font-size:10px;color:#999;margin-top:10px;letter-spacing:0.5px;">
+            © 2026 PlagSini EV Charging Platform · <a href="https://charger.czeros.tech" style="color:#999;text-decoration:none;">charger.czeros.tech</a>
+          </div>
+        </td></tr>
+
       </table>
-    </div>
 
-    <p style="color:#888;font-size:12px;margin-top:18px;">
-      This invoice serves as your official receipt for this charging session.<br>
-      Keep it for your records. Need help? Reply to this email.
-    </p>
-    <p style="color:#555;font-size:11px;text-align:center;margin-top:20px;">
-      © 2026 PlagSini EV Charging Platform · charger.czeros.tech
-    </p>
-    """
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
     return await asyncio.to_thread(
-        _send_generic_email,
+        _send_raw_html_email,
         to_email,
-        f"[Invoice {transaction_ref}] PlagSini Charging Complete — {energy_kwh:.2f} kWh",
-        body,
+        f"[Receipt {transaction_ref}] PlagSini — {energy_kwh:.2f} kWh · RM {summary_amt:.2f}",
+        full_html,
     )
