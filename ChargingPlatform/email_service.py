@@ -432,22 +432,29 @@ async def send_charging_invoice(
     .foot-pad {{ padding:16px 18px 22px !important; }}
   }}
   /* Print: force everything tighter so 1 page on A4/Letter */
+  @page {{ size:A4; margin:8mm; }}
   @media print {{
-    body, .body-bg {{ background:#FFFFFF !important; padding:0 !important; }}
-    .card {{ width:100% !important; max-width:none !important; box-shadow:none !important; border-radius:0 !important; }}
-    .hero {{ padding:14px 20px 12px !important; }}
-    .hero-logo {{ width:64px !important; margin-bottom:6px !important; }}
-    .hero-name {{ font-size:18px !important; }}
-    .hero-tag {{ font-size:8px !important; margin-top:4px !important; }}
-    .title-pad {{ padding:12px 20px 0 !important; }}
-    .kwh-hero {{ font-size:28px !important; margin:4px 0 2px !important; }}
-    .stat-pad {{ padding:10px 20px 4px !important; }}
-    .stat-cell {{ padding:10px 4px !important; }}
-    .stat-val {{ font-size:14px !important; }}
-    .sect-pad {{ padding:10px 20px 0 !important; }}
-    .pay-pad {{ padding:10px 20px 0 !important; }}
-    .foot-pad {{ padding:10px 20px 12px !important; }}
-    .row-td {{ padding:4px 0 !important; }}
+    html, body {{ height:auto !important; }}
+    body, .body-bg {{ background:#FFFFFF !important; padding:0 !important; margin:0 !important; }}
+    .card {{
+      width:100% !important; max-width:none !important;
+      box-shadow:none !important; border-radius:0 !important;
+      page-break-inside:avoid !important; break-inside:avoid !important;
+      page-break-after:avoid !important; break-after:avoid !important;
+    }}
+    .hero {{ padding:10px 18px 8px !important; }}
+    .hero-logo {{ width:54px !important; margin-bottom:4px !important; }}
+    .hero-name {{ font-size:16px !important; }}
+    .hero-tag {{ font-size:7px !important; margin-top:2px !important; letter-spacing:1.8px !important; }}
+    .title-pad {{ padding:8px 18px 0 !important; }}
+    .kwh-hero {{ font-size:24px !important; margin:2px 0 0 !important; }}
+    .stat-pad {{ padding:8px 18px 2px !important; }}
+    .stat-cell {{ padding:8px 4px !important; }}
+    .stat-val {{ font-size:13px !important; }}
+    .sect-pad {{ padding:8px 18px 0 !important; }}
+    .pay-pad {{ padding:8px 18px 0 !important; }}
+    .foot-pad {{ padding:8px 18px 6px !important; }}
+    .row-td {{ padding:3px 0 !important; }}
   }}
 </style>
 </head>
