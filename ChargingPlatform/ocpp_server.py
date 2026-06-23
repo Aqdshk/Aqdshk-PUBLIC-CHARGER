@@ -726,8 +726,11 @@ class ChargePoint(cp):
                         ).first()
                     if not txn and charger:
                         # Recency-based lookup: most recent paid charge_payment
-                        # txn for this charger, made close to this session's start.
-                        cutoff = (session.start_time or _utcnow()) - timedelta(hours=6)
+                        # txn for this charger. session.start_time is MYT-naive
+                        # but paid_at is UTC-naive — to avoid an 8-hour drift
+                        # we just take the latest txn in the last 12 hours
+                        # using UTC (paid_at's native reference) as the anchor.
+                        cutoff = _utcnow() - timedelta(hours=12)
                         txn = (
                             self.db.query(PaymentTransaction)
                             .filter(

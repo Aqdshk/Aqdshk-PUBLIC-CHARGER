@@ -7965,9 +7965,10 @@ async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, de
             logger.error(f"[stop-fallback] settlement failed for {session_id}: {e}")
         db.commit()
 
-        # Fire invoice email — same logic as on_stop_transaction's recency lookup
+        # Fire invoice email — recency lookup against UTC paid_at (sess.start_time
+        # is MYT-naive, so anchoring on it would drift 8 hours and miss the txn).
         try:
-            cutoff = (sess.start_time or _utcnow()) - timedelta(hours=6)
+            cutoff = _utcnow() - timedelta(hours=12)
             txn = (
                 db.query(PaymentTransaction)
                 .filter(
