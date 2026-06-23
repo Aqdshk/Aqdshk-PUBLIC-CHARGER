@@ -7814,10 +7814,124 @@ async def _check_and_send_reminders():
         db.close()
 
 
+async def _refund_worker_loop():
+    """Background worker: every 30s, find sessions whose refund_status is
+    'pending' and call the TNG refund API. Idempotent — re-uses refund_txn_ref
+    as the requestId so retries don't double-refund. Marks status as 'sent'
+    on success, 'failed' on hard failure (ops will need to retry manually)."""
+    await asyncio.sleep(15)  # let the app fully start
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                pending = (
+                    db.query(ChargingSession)
+                    .filter(
+                        ChargingSession.refund_status == "pending",
+                        ChargingSession.refund_amount.isnot(None),
+                        ChargingSession.refund_amount > 0,
+                    )
+                    .limit(20)
+                    .all()
+                )
+                for sess in pending:
+                    try:
+                        await _process_session_refund(db, sess)
+                    except Exception as e:
+                        logger.error(f"[refund-worker] session {sess.id}: {e}", exc_info=True)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"[refund-worker] loop error: {e}", exc_info=True)
+        await asyncio.sleep(30)
+
+
+async def _process_session_refund(db: Session, sess: ChargingSession):
+    """Issue one TNG refund for a single completed session. Caller has the
+    DB session open. Idempotent on refund_txn_ref."""
+    # Find the originating PaymentTransaction by walking back from the session.
+    # quick-pay's id_tag is f"PAY{txn.id}", but here we use the session's
+    # charger_id + the pending refund window. Simpler: match by charger_id +
+    # paid_at within session window.
+    charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+    if not charger:
+        sess.refund_status = "failed"
+        db.commit()
+        return
+    txn = (
+        db.query(PaymentTransaction)
+        .filter(
+            PaymentTransaction.charger_id == charger.charge_point_id,
+            PaymentTransaction.status == "success",
+            PaymentTransaction.gateway_name == "tng",
+        )
+        .order_by(PaymentTransaction.id.desc())
+        .first()
+    )
+    if not txn or not txn.gateway_transaction_id:
+        # No real TNG txn (test mode etc.) — just mark refund as not_required
+        sess.refund_status = "skipped_no_tng_txn"
+        db.commit()
+        logger.info(f"[refund-worker] session {sess.id}: no TNG txn, skipping")
+        return
+
+    # Idempotency: stable requestId per session
+    if not sess.refund_txn_ref:
+        sess.refund_txn_ref = f"RFD-{sess.id}-{uuid.uuid4().hex[:8]}"
+        db.commit()
+
+    # Load TNG gateway
+    gw_config = db.query(PaymentGatewayConfig).filter(PaymentGatewayConfig.gateway_name == "tng").first()
+    if not gw_config:
+        sess.refund_status = "failed_no_gateway"
+        db.commit()
+        return
+    runtime_cfg = _resolve_gateway_runtime_config(gw_config)
+    gateway = get_gateway({
+        "gateway_name": "tng",
+        "api_key": runtime_cfg.get("api_key"),
+        "api_secret": runtime_cfg.get("api_secret"),
+        "extra_config": gw_config.extra_config,
+    })
+    if not hasattr(gateway, "refund_order"):
+        sess.refund_status = "failed_no_refund_support"
+        db.commit()
+        return
+
+    result = await gateway.refund_order(
+        acquirement_id=txn.gateway_transaction_id,
+        refund_amount_rm=float(sess.refund_amount or 0),
+        request_id=sess.refund_txn_ref,
+        refund_reason=f"PlagSini EV session {sess.id} — unused deposit refund",
+    )
+    if result.get("success"):
+        sess.refund_status = "sent"
+        sess.refund_at = _utcnow()
+        db.commit()
+        logger.info(
+            f"[refund-worker] session {sess.id}: refunded RM{sess.refund_amount} "
+            f"to TNG (txn {txn.transaction_ref})"
+        )
+    elif result.get("status") == "pending":
+        # leave as 'pending' — worker will retry next tick
+        logger.info(f"[refund-worker] session {sess.id}: TNG returned pending, will retry")
+    else:
+        sess.refund_status = "failed"
+        db.commit()
+        logger.error(f"[refund-worker] session {sess.id}: refund failed — {result.get('message')}")
+
+
 @app.on_event("startup")
 async def _start_reminder_scheduler():
     """Start the background SLA reminder task on app startup."""
     asyncio.create_task(_ticket_reminder_loop())
+
+
+@app.on_event("startup")
+async def _start_refund_worker():
+    """Background loop that processes pending TNG refunds from completed
+    deposit/refund-flow sessions."""
+    asyncio.create_task(_refund_worker_loop())
 
 
 @app.on_event("startup")

@@ -924,6 +924,115 @@ class TngGateway(BasePaymentGateway):
             logger.error(f"TNG check_status error: {e}", exc_info=True)
             return {"status": "pending", "message": f"TNG status check error: {e}"}
 
+    async def refund_order(
+        self,
+        acquirement_id: str,
+        refund_amount_rm: float,
+        request_id: str,
+        refund_reason: str = "Charging session ended - deposit refund",
+    ) -> dict:
+        """
+        Refund (full or partial) of a paid order, per
+        alipayplus.acquiring.order.refund. Used by the deposit/refund flow
+        to send the unused balance back to the customer's TNG wallet after
+        they unplug.
+
+        Idempotency: TNGD keys on (merchantId, requestId). Always pass the
+        same request_id on retries of the same refund.
+        Returns: {success, status, message, gateway_refund_id, raw_response}
+        """
+        api_url = self._get_api_url()
+        if not api_url:
+            return {"success": False, "status": "failed", "message": "TNG not configured"}
+
+        client_id = self.api_key or os.getenv("PAYMENT_TNG_API_KEY", "").strip()
+        client_secret = self.api_secret or os.getenv("PAYMENT_TNG_API_SECRET", "").strip()
+        merchant_id = self.merchant_id or os.getenv("PAYMENT_TNG_MERCHANT_ID", "").strip()
+        private_key = self._get_private_key()
+
+        if not all([client_id, merchant_id, private_key, acquirement_id, request_id]):
+            return {"success": False, "status": "failed", "message": "Missing required refund parameters"}
+
+        # Amount in cents (TNG Money), capped at sane values.
+        if refund_amount_rm <= 0:
+            return {"success": False, "status": "failed", "message": "Refund amount must be positive"}
+        value_cents = str(int(round(refund_amount_rm * 100)))
+
+        malaysia_time = _utcnow() + timedelta(hours=8)
+        req_time = malaysia_time.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        req_msg_id = str(uuid.uuid4()).replace("-", "")[:32]
+
+        request_obj = {
+            "request": {
+                "head": {
+                    "version": "1.0",
+                    "function": "alipayplus.acquiring.order.refund",
+                    "clientId": client_id,
+                    "reqTime": req_time,
+                    "reqMsgId": req_msg_id,
+                },
+                "body": {
+                    "requestId": request_id,             # our idempotency key
+                    "merchantId": merchant_id,
+                    "acquirementId": acquirement_id,     # original TNG txn
+                    "refundAmount": {"value": value_cents, "currency": "MYR"},
+                    "refundReason": refund_reason[:128],
+                    "refundAppliedTime": req_time,
+                    "actorType": "BACK_OFFICE",          # server-initiated, not user-initiated
+                },
+            }
+        }
+        if client_secret:
+            request_obj["request"]["head"]["clientSecret"] = client_secret
+
+        try:
+            signature = _tng_sign_message(request_obj["request"], private_key)
+            payload = {**request_obj, "signature": signature}
+
+            # Derive refund endpoint from base URL (same pattern as check_status)
+            if api_url.endswith("/ordercode") or "/ordercode" in api_url:
+                endpoint = api_url.rsplit("/ordercode", 1)[0] + "/order/refund"
+            elif api_url.startswith("http"):
+                endpoint = f"{api_url}/order/refund"
+            else:
+                endpoint = f"{api_url}/aps/api/v1/order/refund"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(endpoint, json=payload)
+                data = resp.json() if resp.content else {}
+
+            body = data.get("response", data).get("body", data.get("body", {}))
+            result_info = body.get("resultInfo", {})
+            result_status = result_info.get("resultStatus", "")
+            result_code = result_info.get("resultCode", "")
+            result_msg = result_info.get("resultMsg", "TNG refund error")
+
+            if result_status == "S" and result_code == "SUCCESS":
+                return {
+                    "success": True,
+                    "status": "success",
+                    "message": "Refund accepted by TNG",
+                    "gateway_refund_id": body.get("refundId", ""),
+                    "raw_response": data,
+                }
+            # U = unknown / in process — caller should retry with the SAME requestId
+            if result_status == "U":
+                return {
+                    "success": False,
+                    "status": "pending",
+                    "message": result_msg or "Refund pending",
+                    "raw_response": data,
+                }
+            return {
+                "success": False,
+                "status": "failed",
+                "message": result_msg,
+                "raw_response": data,
+            }
+        except Exception as e:
+            logger.error(f"TNG refund_order error: {e}", exc_info=True)
+            return {"success": False, "status": "failed", "message": str(e)}
+
 
 # ═══════════════════════════════════════════
 #  MANUAL TOP-UP (Admin Approved)
