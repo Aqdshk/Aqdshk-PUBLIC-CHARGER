@@ -734,6 +734,18 @@ class ChargePoint(cp):
 
                             # Local import so module load order doesn't matter
                             from email_service import send_charging_invoice
+                            # Deposit/refund flow extras (terminal kiosk).
+                            # Only set when this session went through the
+                            # hold/refund flow; legacy quick-pay sessions
+                            # leave these None → email shows 'Amount paid'.
+                            hold_amt = float(session.hold_amount_rm) if session.hold_amount_rm else None
+                            energy_cost = None
+                            idle_min = int(session.idle_minutes or 0)
+                            idle_fee = float(session.idle_fee_amount or 0)
+                            refund_amt = float(session.refund_amount) if session.refund_amount is not None else None
+                            if hold_amt is not None:
+                                tariff = float(charger.tariff_per_kwh or 0.10) if charger else 0.10
+                                energy_cost = round(float(session.energy_consumed or 0) * tariff, 2)
                             asyncio.create_task(send_charging_invoice(
                                 to_email=recipient,
                                 transaction_ref=txn.transaction_ref,
@@ -745,6 +757,11 @@ class ChargePoint(cp):
                                 energy_kwh=float(session.energy_consumed or 0),
                                 amount_paid=float(txn.amount or 0),
                                 stop_reason=kwargs.get("reason") or "Local",
+                                hold_amount=hold_amt,
+                                energy_cost=energy_cost,
+                                idle_minutes=idle_min if idle_min > 0 else None,
+                                idle_fee=idle_fee if idle_fee > 0 else None,
+                                refund_amount=refund_amt,
                             ))
                             logger.info(
                                 f"[invoice] queued post-charge email → {recipient} "

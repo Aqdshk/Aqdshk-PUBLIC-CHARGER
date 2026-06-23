@@ -19,6 +19,7 @@ import os
 import secrets
 import smtplib
 import asyncio
+from typing import Optional
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -328,10 +329,43 @@ async def send_charging_invoice(
     energy_kwh: float,
     amount_paid: float,
     stop_reason: str = "Local",
+    # Deposit/refund flow extras (terminal kiosk) — set when applicable
+    hold_amount: Optional[float] = None,
+    energy_cost: Optional[float] = None,
+    idle_minutes: Optional[int] = None,
+    idle_fee: Optional[float] = None,
+    refund_amount: Optional[float] = None,
 ) -> bool:
     """Send post-charge invoice (session summary) to the user.
     Fired from on_stop_transaction once the OCPP session closes — gives the
     user a final breakdown of energy delivered, duration, and cost."""
+    # Build the cost breakdown block. For deposit/refund flow (terminal kiosk)
+    # we show: deposit captured → energy used → idle fee (if any) → refunded.
+    # For legacy single-amount flow, just show 'Amount paid'.
+    has_deposit_flow = hold_amount is not None and refund_amount is not None
+    if has_deposit_flow:
+        idle_row = ""
+        if idle_minutes and idle_minutes > 0 and idle_fee:
+            idle_row = (
+                f'<tr><td style="padding:6px 0;color:#888;">Idle fee</td>'
+                f'<td style="text-align:right;color:#FFA500;">− RM {idle_fee:.2f} '
+                f'<span style="color:#888;font-size:11px;">({idle_minutes} min)</span></td></tr>'
+            )
+        cost_block = f"""
+        <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:10px;"></td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Deposit captured</td><td style="text-align:right;color:#ddd;">RM {hold_amount:.2f}</td></tr>
+        <tr><td style="padding:6px 0;color:#888;">Energy used</td><td style="text-align:right;color:#ddd;">− RM {(energy_cost or 0):.2f}</td></tr>
+        {idle_row}
+        <tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>
+        <tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Refunded to TNG</td><td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {refund_amount:.2f}</td></tr>
+        """
+    else:
+        cost_block = (
+            '<tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>'
+            f'<tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Amount paid</td>'
+            f'<td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {amount_paid:.2f}</td></tr>'
+        )
+
     body = f"""
     <h2 style="color:#00FF88;margin:0 0 15px;">⚡ Charging Complete</h2>
     <p>Your charging session has ended. Thank you for using PlagSini!</p>
@@ -348,8 +382,7 @@ async def send_charging_invoice(
         <tr><td colspan="2" style="border-top:1px solid #1E2D42;padding-top:8px;"></td></tr>
         <tr><td style="padding:6px 0;color:#888;">Energy delivered</td><td style="text-align:right;font-weight:600;color:#00FF88;">{energy_kwh:.3f} kWh</td></tr>
         <tr><td style="padding:6px 0;color:#888;">Stop reason</td><td style="text-align:right;font-size:11px;color:#888;">{stop_reason or "—"}</td></tr>
-        <tr><td colspan="2" style="border-top:1px solid #00FF88;padding-top:10px;"></td></tr>
-        <tr><td style="padding:8px 0;color:#fff;font-size:15px;font-weight:700;">Amount paid</td><td style="text-align:right;color:#00FF88;font-size:18px;font-weight:800;">RM {amount_paid:.2f}</td></tr>
+        {cost_block}
       </table>
     </div>
 
