@@ -1562,6 +1562,102 @@ def get_active_charge_point(charge_point_id: str) -> ChargePoint:
     return active_charge_points.get(charge_point_id)
 
 
+async def force_close_charge_point(charge_point_id: str) -> dict:
+    """Drop the server-side WebSocket for a charger so it reconnects fresh.
+
+    Used by /api/admin/chargers/{id}/force-reconnect to clear stale state
+    where DB says the charger is online (heartbeat fresh) but the WebSocket
+    has died. After this returns, the charger's auto-retry loop reopens a
+    new WebSocket within seconds and re-registers into active_charge_points.
+    """
+    cp = active_charge_points.get(charge_point_id)
+    closed = False
+    if cp is not None:
+        try:
+            ws = getattr(cp, "_connection", None) or getattr(cp, "websocket", None)
+            if ws is not None:
+                try:
+                    await ws.close(code=1000, reason="admin force reconnect")
+                except Exception as e:
+                    logger.warning(f"[force-reconnect] close ws raised for {charge_point_id}: {e}")
+            active_charge_points.pop(charge_point_id, None)
+            closed = True
+            logger.info(f"[force-reconnect] {charge_point_id}: socket closed + removed from active pool")
+        except Exception as e:
+            logger.error(f"[force-reconnect] {charge_point_id}: {e}", exc_info=True)
+    # Reset DB flag so the next reconnect is treated as fresh boot.
+    try:
+        db = SessionLocal()
+        charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+        if charger:
+            charger.status = "offline"
+            db.commit()
+        db.close()
+    except Exception as e:
+        logger.error(f"[force-reconnect] DB update failed for {charge_point_id}: {e}")
+    return {"closed_socket": closed, "remaining_active": len(active_charge_points)}
+
+
+async def ocpp_state_healer_loop(interval_seconds: int = 60):
+    """Background task — every `interval_seconds`, compare DB heartbeat to
+    in-memory WebSocket pool and fix mismatches:
+
+      Case A: DB last_heartbeat fresh (<5 min) but charger NOT in
+              active_charge_points → log warning, do NOTHING destructive
+              (heartbeat is the source of truth — if it's updating, the
+              socket IS alive somewhere; the pool just missed it).
+
+      Case B: charger IS in active_charge_points but last_heartbeat
+              > 10 min ago → socket is zombie, close it. The charger's
+              retry loop will reconnect.
+
+    This catches the 'DB online but RemoteStart says not connected'
+    confusion the admin saw without anyone having to SSH in.
+    """
+    logger.info("OCPP state healer started (interval=%ds)", interval_seconds)
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            db = SessionLocal()
+            now = _utcnow()
+            fresh_cutoff = now - timedelta(minutes=5)
+            stale_cutoff = now - timedelta(minutes=10)
+
+            rows = db.query(Charger).all()
+            mismatch_count = 0
+            cleaned = 0
+            for c in rows:
+                hb = c.last_heartbeat
+                in_pool = c.charge_point_id in active_charge_points
+
+                # Case B — zombie socket
+                if in_pool and hb and hb < stale_cutoff:
+                    logger.warning(
+                        f"[ocpp-healer] {c.charge_point_id}: in pool but heartbeat "
+                        f"{(now - hb).total_seconds():.0f}s old — closing zombie socket"
+                    )
+                    await force_close_charge_point(c.charge_point_id)
+                    cleaned += 1
+                    continue
+
+                # Case A — mismatch (heartbeat fresh but no socket)
+                if (not in_pool) and hb and hb >= fresh_cutoff:
+                    mismatch_count += 1
+                    logger.warning(
+                        f"[ocpp-healer] {c.charge_point_id}: DB online but "
+                        f"WebSocket missing — admin may need to force-reconnect"
+                    )
+
+            db.close()
+            if mismatch_count or cleaned:
+                logger.info(
+                    f"[ocpp-healer] cycle: {mismatch_count} mismatch(es), "
+                    f"{cleaned} zombie(s) cleaned, {len(active_charge_points)} active"
+                )
+        except Exception as e:
+            logger.error(f"[ocpp-healer] loop error: {e}", exc_info=True)
+
+
 async def orphan_session_watchdog(interval_seconds: int = 600):
     """
     Background task — runs every `interval_seconds` (default 10 min).

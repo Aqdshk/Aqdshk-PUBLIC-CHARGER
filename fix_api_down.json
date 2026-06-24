@@ -1,0 +1,22 @@
+{
+  "uid": "a1ce56bf-1a12-4297-9036-ea605dd1c7f6",
+  "orgID": 1,
+  "folderUID": "c4da57fe-4f3e-4845-bdad-3318899ee03a",
+  "ruleGroup": "PlagSini System",
+  "title": "API / App Down",
+  "condition": "C",
+  "for": "5m",
+  "noDataState": "Alerting",
+  "execErrState": "Error",
+  "annotations": {
+    "summary": "🌐 Aplikasi Tidak Dapat Diakses!",
+    "description": "Tiada aktiviti dikesan dari server dalam 5 minit. Kemungkinan aplikasi atau API mengalami gangguan serius."
+  },
+  "labels": {"severity": "critical", "team": "plagsini"},
+  "provenance": "api",
+  "data": [
+    {"refId":"A","queryType":"range","relativeTimeRange":{"from":300,"to":0},"datasourceUid":"loki","model":{"expr":"count_over_time({job=\"charging-platform\"} [5m])","queryType":"range","refId":"A","intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"B","queryType":"","relativeTimeRange":{"from":300,"to":0},"datasourceUid":"-100","model":{"type":"reduce","expression":"A","reducer":"last","refId":"B","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"C","queryType":"","relativeTimeRange":{"from":300,"to":0},"datasourceUid":"-100","model":{"type":"threshold","expression":"B","conditions":[{"evaluator":{"params":[1],"type":"lt"},"operator":{"type":"and"},"query":{"params":["B"]},"reducer":{"type":"last"},"type":"query"}],"refId":"C","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}}
+  ]
+}

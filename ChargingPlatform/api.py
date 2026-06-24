@@ -42,7 +42,7 @@ from database import (
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_charging_receipt
-from ocpp_server import get_active_charge_point, active_charge_points, firmware_events
+from ocpp_server import get_active_charge_point, active_charge_points, firmware_events, force_close_charge_point, ocpp_state_healer_loop
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -569,6 +569,7 @@ class ChargerStatus(BaseModel):
     max_power_kw: Optional[float] = None
     # Pricing (filled at query time)
     price_per_kwh: Optional[float] = None
+    ws_connected: Optional[bool] = None  # True = live OCPP WebSocket in pool
     # Idle-fee config (terminal kiosk feature) — surfaced so admin UI can edit
     idle_fee_enabled: Optional[bool] = None
     idle_fee_per_min: Optional[float] = None
@@ -960,6 +961,7 @@ async def get_chargers(
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
             "price_per_kwh": price_per_kwh,
+            "ws_connected": charger.charge_point_id in active_charge_points,
         }
         result.append(ChargerStatus(**charger_dict))
 
@@ -8141,6 +8143,45 @@ async def _start_refund_worker():
     """Background loop that processes pending TNG refunds from completed
     deposit/refund-flow sessions."""
     asyncio.create_task(_refund_worker_loop())
+
+
+@app.on_event("startup")
+async def _start_ocpp_state_healer():
+    """Background loop that detects + cleans state mismatch between the
+    in-memory active_charge_points pool and DB heartbeat. Saves admins
+    from SSHing to fix 'DB says online, RemoteStart says not connected'."""
+    asyncio.create_task(ocpp_state_healer_loop(interval_seconds=60))
+
+
+@app.post("/api/admin/chargers/{charge_point_id}/force-reconnect")
+async def admin_force_reconnect_charger(
+    charge_point_id: str,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Drop the server-side WebSocket so the charger reconnects fresh.
+
+    Use this when the charger appears online (recent heartbeat) but RemoteStart
+    fails with 'not connected to OCPP server'. Closes any zombie socket on our
+    side and flips the charger to offline so the next reconnect is treated as
+    a fresh boot. The charger's OCPP retry loop typically reopens within 30s.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+    result = await force_close_charge_point(charge_point_id)
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "closed_socket": result["closed_socket"],
+        "remaining_active": result["remaining_active"],
+        "message": (
+            "Socket closed. Charger should auto-reconnect within ~30s."
+            if result["closed_socket"]
+            else "No active socket found (already disconnected). "
+                 "Charger should still auto-reconnect on its retry interval."
+        ),
+    }
 
 
 @app.on_event("startup")

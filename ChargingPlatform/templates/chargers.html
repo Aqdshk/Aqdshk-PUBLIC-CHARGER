@@ -328,6 +328,8 @@
                     const canStart = status === 'online' && (availability === 'available' || availability === 'preparing') && !hasActive;
                     const canStop = availability === 'charging' || hasActive;
                     const statusDisplay = hasActive && status === 'offline' ? 'CHARGING (OFFLINE)' : status.toUpperCase();
+                    // ws_connected=false on a charger DB-marked "online" = state mismatch (zombie heartbeat / dropped socket)
+                    const wsMismatch = status === 'online' && charger.ws_connected === false;
                     return `
                         <div class="charger-item ${itemClass}">
                             <div class="charger-header">
@@ -335,6 +337,7 @@
                                 <div class="charger-badges">
                                     <span class="badge ${statusBadge}">${statusDisplay}</span>
                                     <span class="badge ${availBadge}">${availability.toUpperCase()}</span>
+                                    ${wsMismatch ? `<span class="badge" style="background:#f59e0b;color:#1a1a1a;" title="DB marks this charger online but the OCPP WebSocket is missing. Start commands will fail until reconnected.">⚠ WS LOST</span>` : ''}
                                 </div>
                             </div>
                             <div class="charger-info">
@@ -346,9 +349,28 @@
                             <div class="charger-actions">
                                 ${canStart ? `<button class="btn btn-success btn-small" onclick="startCharging('${charger.charge_point_id}')">▶ Start</button>` : ''}
                                 ${canStop ? `<button class="btn btn-danger btn-small" onclick="stopCharging('${charger.charge_point_id}',${charger.active_transaction_id||'null'})">⏹ Stop</button>` : ''}
+                                ${wsMismatch ? `<button class="btn btn-small" style="background:#f59e0b;color:#1a1a1a;" onclick="forceReconnect('${charger.charge_point_id}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>` : ''}
                             </div>
                         </div>`;
                 }).join('')}</div>`;
+        }
+
+        async function forceReconnect(cpId) {
+            if (!confirm(`Force-reconnect ${cpId}?\n\nThis closes the server-side OCPP socket. Charger will auto-reopen within ~30s.\nSafe to run; no in-flight session will be lost (StopTransaction is committed atomically).`)) return;
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+            try {
+                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(cpId)}/force-reconnect`, {
+                    method: 'POST', headers: { 'X-Staff-Token': token }
+                });
+                const r = await res.json();
+                if (r.success) {
+                    alert(`✅ ${r.message}\n\nWait ~30s, then refresh to confirm WS LOST badge clears.`);
+                    setTimeout(loadChargerStatus, 2000);
+                } else {
+                    alert(`❌ Failed: ${r.detail || r.message || 'Unknown'}`);
+                }
+            } catch(e) { alert(`❌ Error: ${e.message}`); }
         }
 
         async function startCharging(cpId) {

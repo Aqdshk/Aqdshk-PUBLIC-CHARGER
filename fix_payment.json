@@ -1,0 +1,22 @@
+{
+  "uid": "fa8c21d2-d0ca-4093-b1ec-b0e8aa539c05",
+  "orgID": 1,
+  "folderUID": "c4da57fe-4f3e-4845-bdad-3318899ee03a",
+  "ruleGroup": "PlagSini Business",
+  "title": "Payment Failed Spike",
+  "condition": "C",
+  "for": "5m",
+  "noDataState": "OK",
+  "execErrState": "Error",
+  "annotations": {
+    "summary": "💳 Masalah Pembayaran Dikesan!",
+    "description": "Lebih 3 kegagalan bayaran dalam 10 minit. Kemungkinan ada masalah dengan sistem pembayaran atau gateway."
+  },
+  "labels": {"severity": "warning", "team": "plagsini"},
+  "provenance": "api",
+  "data": [
+    {"refId":"A","queryType":"range","relativeTimeRange":{"from":600,"to":0},"datasourceUid":"loki","model":{"expr":"count_over_time({job=\"charging-platform\"} |~ \"(?i)(payment.*fail|topup.*fail|transaction.*fail|payment.*error|charge.*fail)\" [10m])","queryType":"range","refId":"A","intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"B","queryType":"","relativeTimeRange":{"from":600,"to":0},"datasourceUid":"-100","model":{"type":"reduce","expression":"A","reducer":"last","refId":"B","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"C","queryType":"","relativeTimeRange":{"from":600,"to":0},"datasourceUid":"-100","model":{"type":"threshold","expression":"B","conditions":[{"evaluator":{"params":[3],"type":"gt"},"operator":{"type":"and"},"query":{"params":["B"]},"reducer":{"type":"last"},"type":"query"}],"refId":"C","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}}
+  ]
+}

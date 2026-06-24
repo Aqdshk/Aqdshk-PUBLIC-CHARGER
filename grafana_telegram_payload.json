@@ -1,0 +1,13 @@
+{
+  "uid": "de564778-32de-4cbc-a0ce-934123517381",
+  "name": "Telegram",
+  "type": "telegram",
+  "settings": {
+    "bottoken": "8692255615:AAHWAFNGNoRlgYXzs1jrGI-gwzjCL9_uR-c",
+    "chatid": "775043649",
+    "parse_mode": "HTML",
+    "message": "{{ if eq .Status \"firing\" }}\n🚨 <b>AMARAN SISTEM — PlagSini EV</b>\n〰〰〰〰〰〰〰〰〰〰〰〰〰〰\n{{ range .Alerts.Firing -}}\n⚠️  <b>{{ .Annotations.summary }}</b>\n\n{{ .Annotations.description }}\n\n🕐 Berlaku pada: {{ .StartsAt.Format \"02 Jan 2006, 3:04 PM\" }}\n{{ end -}}\n{{ else }}\n✅ <b>MASALAH SELESAI — PlagSini EV</b>\n〰〰〰〰〰〰〰〰〰〰〰〰〰〰\n{{ range .Alerts.Resolved -}}\nSistem kembali normal. Tiada tindakan diperlukan.\n\n<b>{{ .Annotations.summary }}</b>\n\n🕐 Selesai pada: {{ .EndsAt.Format \"02 Jan 2006, 3:04 PM\" }}\n{{ end -}}\n{{ end }}"
+  },
+  "disableResolveMessage": false,
+  "provenance": "api"
+}

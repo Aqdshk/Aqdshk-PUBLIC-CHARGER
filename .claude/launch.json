@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ChargingPlatform",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": 8000,
+      "cwd": "C:/PUBLIC CHARGER RND/ChargingPlatform",
+      "description": "FastAPI REST API (port 8000) + OCPP WebSocket server (port 9000)"
+    },
+    {
+      "name": "CustomerService",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": 8001,
+      "cwd": "C:/PUBLIC CHARGER RND/CustomerService",
+      "description": "AI Chatbot & Support Ticket API (port 8001)"
+    },
+    {
+      "name": "AppEV",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "3000", "--web-hostname", "0.0.0.0"],
+      "port": 3000,
+      "cwd": "C:/PUBLIC CHARGER RND/AppEV",
+      "description": "Flutter Web App (port 3000)"
+    }
+  ]
+}

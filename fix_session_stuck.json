@@ -1,0 +1,23 @@
+{
+  "uid": "c6fce085-02f6-497a-a6e0-b8cb81846826",
+  "orgID": 1,
+  "folderUID": "c4da57fe-4f3e-4845-bdad-3318899ee03a",
+  "ruleGroup": "PlagSini Business",
+  "title": "Charging Session Stuck",
+  "condition": "C",
+  "for": "3h",
+  "noDataState": "OK",
+  "execErrState": "Error",
+  "annotations": {
+    "summary": "🔋 Sesi Cas Terlalu Lama!",
+    "description": "Ada sesi pengecasan yang masih berjalan lebih 3 jam. Kemungkinan sesi tersekat atau pengguna terlupa cabut plug."
+  },
+  "labels": {"severity": "warning", "team": "plagsini"},
+  "provenance": "api",
+  "data": [
+    {"refId":"A","queryType":"range","relativeTimeRange":{"from":14400,"to":0},"datasourceUid":"loki","model":{"expr":"count_over_time({job=\"charging-platform\"} |~ \"(?i)(StartTransaction)\" [4h])","queryType":"range","refId":"A","intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"B","queryType":"range","relativeTimeRange":{"from":14400,"to":0},"datasourceUid":"loki","model":{"expr":"count_over_time({job=\"charging-platform\"} |~ \"(?i)(StopTransaction)\" [4h])","queryType":"range","refId":"B","intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"D","queryType":"","relativeTimeRange":{"from":14400,"to":0},"datasourceUid":"-100","model":{"type":"math","expression":"$A - $B","refId":"D","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}},
+    {"refId":"C","queryType":"","relativeTimeRange":{"from":14400,"to":0},"datasourceUid":"-100","model":{"type":"threshold","expression":"D","conditions":[{"evaluator":{"params":[0],"type":"gt"},"operator":{"type":"and"},"query":{"params":["D"]},"reducer":{"type":"last"},"type":"query"}],"refId":"C","datasource":{"type":"__expr__","uid":"-100"},"intervalMs":1000,"maxDataPoints":43200}}
+  ]
+}

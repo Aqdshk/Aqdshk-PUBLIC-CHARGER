@@ -53,3 +53,6 @@ ESP-Charger-RND/.vscode/
 *.pfx
 *private_key*
 *secret_key*
+
+# Local secrets (TNG keys, etc.) — never commit
+secrets/
