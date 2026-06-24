@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>PlagSini — Terminal</title>
 <link rel="icon" href="/static/logo.png" type="image/png">
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="/static/qrcode.min.js"></script>
 <style>
     :root {
         --bg: #0a0e1a;
@@ -228,7 +228,9 @@
         box-shadow: 0 16px 48px rgba(0,255,136,0.2);
         margin-bottom: 18px;
     }
-    .qr-card canvas, .qr-card img { display: block; width: 240px; height: 240px; }
+    .qr-card canvas, .qr-card img, .qr-card #qrCanvas { display: block; width: 240px; height: 240px; }
+    .qr-card #qrCanvas > * { display: block; }
+    .qr-card #qrCanvas img, .qr-card #qrCanvas canvas { width: 240px !important; height: 240px !important; }
     .pay-amount {
         font-size: 36px; font-weight: 900; color: var(--primary); margin-bottom: 6px;
     }
@@ -259,6 +261,45 @@
     .status-icon.fail    { background: var(--danger); color: #fff; box-shadow: 0 12px 36px rgba(255,68,102,0.4); }
     .status-title { font-size: 26px; font-weight: 900; }
     .status-msg { font-size: 14px; color: var(--text-dim); max-width: 320px; line-height: 1.5; }
+
+    /* Payment success — concentric ring burst around the check icon */
+    .success-burst { position: relative; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
+    .burst-ring {
+        position: absolute; border-radius: 50%;
+        border: 2px solid var(--primary);
+        opacity: 0;
+        animation: burst 2.4s ease-out infinite;
+    }
+    .burst-ring.r1 { width: 120px; height: 120px; animation-delay: 0s; }
+    .burst-ring.r2 { width: 120px; height: 120px; animation-delay: 0.6s; }
+    .burst-ring.r3 { width: 120px; height: 120px; animation-delay: 1.2s; }
+    @keyframes burst {
+        0%   { transform: scale(0.6); opacity: 0.8; }
+        100% { transform: scale(1.8); opacity: 0; }
+    }
+
+    /* Charging journey — animated graphic + live card */
+    .charging-graphic {
+        filter: drop-shadow(0 12px 32px rgba(0,255,136,0.25));
+        animation: float-soft 4s ease-in-out infinite;
+    }
+    @keyframes float-soft { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    .charging-card {
+        margin-top: 18px;
+        background: var(--bg-card);
+        border: 1px solid rgba(0,255,136,0.18);
+        border-radius: 14px;
+        padding: 14px 18px;
+        min-width: 260px;
+        max-width: 320px;
+    }
+    .cc-row {
+        display: flex; align-items: center; justify-content: space-between;
+        font-size: 13px; padding: 5px 0;
+    }
+    .cc-row + .cc-row { border-top: 1px solid rgba(255,255,255,0.05); }
+    .cc-row span { color: var(--text-dim); }
+    .cc-row b { color: var(--text-primary); font-weight: 700; }
 
     /* footer buttons */
     .footer {
@@ -369,19 +410,66 @@
     <div class="pay-amount" id="qrAmount">RM 150.00</div>
     <div class="qr-subline" id="qrSubline">Securing deposit · balance auto-refunded after you unplug</div>
     <div class="instr">Open <b>Touch 'n Go eWallet</b> app on your phone and scan this QR.</div>
-    <div class="qr-card"><canvas id="qrCanvas"></canvas></div>
+    <div class="qr-card"><div id="qrCanvas"></div></div>
     <div class="countdown"><span class="pulse"></span><span id="countdownText">Waiting for payment · 09:59</span></div>
     <div class="footer">
         <button class="btn btn-secondary" onclick="cancelPayment()">Cancel</button>
     </div>
 </div>
 
-<!-- SUCCESS -->
+<!-- SUCCESS — stage 1: payment celebration (auto advances to charging stage) -->
 <div class="screen status-screen" id="screen-success">
-    <div class="status-icon success">✓</div>
-    <div class="status-title">Deposit secured!</div>
-    <div class="status-msg">Charger is starting. Plug in your EV cable now. Unused balance will be refunded to your TNG wallet right after you unplug.</div>
-    <div style="margin-top:8px;font-size:13px;color:var(--text-dim);">Returning to start screen in <b id="successCountdown">10</b>s</div>
+    <div class="success-burst">
+        <div class="burst-ring r1"></div>
+        <div class="burst-ring r2"></div>
+        <div class="burst-ring r3"></div>
+        <div class="status-icon success">✓</div>
+    </div>
+    <div class="status-title">Payment received</div>
+    <div class="status-msg">Starting your charger…</div>
+</div>
+
+<!-- CHARGING — stage 2: live charging animation, stays until idle timeout or stop -->
+<div class="screen status-screen" id="screen-charging">
+    <div class="charging-graphic">
+        <!-- Animated car silhouette + charge bolt + connector -->
+        <svg viewBox="0 0 240 160" width="240" height="160" xmlns="http://www.w3.org/2000/svg">
+            <!-- Glow ring -->
+            <circle cx="120" cy="80" r="70" fill="none" stroke="var(--primary)" stroke-width="2" opacity="0.15">
+                <animate attributeName="r" values="60;78;60" dur="2.4s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" values="0.15;0;0.15" dur="2.4s" repeatCount="indefinite"/>
+            </circle>
+            <!-- Car body -->
+            <g fill="var(--text-primary)" opacity="0.92">
+                <path d="M52 100 Q54 76 80 70 L100 66 Q110 60 124 60 L156 60 Q176 60 188 78 L200 88 Q204 92 204 100 L204 108 Q204 112 200 112 L52 112 Q48 112 48 108 L48 104 Q48 100 52 100Z"/>
+                <circle cx="76" cy="112" r="10" fill="#1a2238"/>
+                <circle cx="76" cy="112" r="5" fill="var(--text-dim)"/>
+                <circle cx="172" cy="112" r="10" fill="#1a2238"/>
+                <circle cx="172" cy="112" r="5" fill="var(--text-dim)"/>
+                <rect x="108" y="68" width="28" height="14" rx="2" fill="#0a0e1a" opacity="0.5"/>
+            </g>
+            <!-- Charging port + bolt -->
+            <g transform="translate(196,82)">
+                <rect x="-6" y="-8" width="12" height="16" rx="2" fill="var(--primary)" opacity="0.8"/>
+                <path d="M-2 -4 L2 0 L-2 0 L2 4" stroke="#000" stroke-width="1.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+            </g>
+            <!-- Bolt pulse -->
+            <g transform="translate(120,30)">
+                <path d="M-6 0 L0 -10 L0 -2 L6 -2 L0 10 L0 2 L-6 2 Z" fill="var(--primary)">
+                    <animate attributeName="opacity" values="1;0.3;1" dur="1.2s" repeatCount="indefinite"/>
+                </path>
+            </g>
+        </svg>
+    </div>
+    <div class="status-title" style="color:var(--primary);">Charging in progress</div>
+    <div class="status-msg">Your EV is now charging. You can leave the kiosk — we'll send the receipt to your email when the session ends.</div>
+    <!-- Energy ticker placeholder (could be live-updated from a status poll later) -->
+    <div class="charging-card">
+        <div class="cc-row"><span>Charger</span><b id="ccCharger">—</b></div>
+        <div class="cc-row"><span>Deposit held</span><b id="ccHold">RM 150.00</b></div>
+        <div class="cc-row"><span>Status</span><b style="color:var(--primary);">● Active</b></div>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-dim);">Returning to start screen in <b id="chargingCountdown">30</b>s</div>
 </div>
 
 <!-- FAILED -->
@@ -452,7 +540,7 @@ function resetIdleTimer() {
     clearTimeout(_state.idleTimer);
     // Auto-return to idle after 60s of inactivity (except on idle / qr screens)
     const cur = document.querySelector('.screen.active')?.id;
-    if (cur && cur !== 'screen-idle' && cur !== 'screen-qr' && cur !== 'screen-success') {
+    if (cur && cur !== 'screen-idle' && cur !== 'screen-qr' && cur !== 'screen-success' && cur !== 'screen-charging') {
         _state.idleTimer = setTimeout(() => showScreen('idle'), 60000);
     }
 }
@@ -545,13 +633,8 @@ async function startPayment() {
     // We show the DEPOSIT figure here, not the energy budget, because that
     // is what the customer's TNG app will display when they scan.
     document.getElementById('qrAmount').textContent = `RM ${(_state.holdAmount || 150).toFixed(2)}`;
-    const canvas = document.getElementById('qrCanvas');
-    canvas.width = 240; canvas.height = 240;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 240, 240);
-    ctx.fillStyle = '#000'; ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Generating QR…', 120, 120);
+    const qrEl = document.getElementById('qrCanvas');
+    qrEl.innerHTML = '<div style="width:240px;height:240px;display:flex;align-items:center;justify-content:center;color:#666;font:14px sans-serif;background:#fff;">Generating QR…</div>';
 
     try {
         const emailEl = document.getElementById('userEmail');
@@ -581,14 +664,16 @@ async function startPayment() {
             const depAmt = document.getElementById('depositAmt');
             if (depAmt) depAmt.textContent = `RM ${Number(data.hold_amount).toFixed(0)}`;
         }
-        // Render QR
-        if (data.qr_code) {
-            QRCode.toCanvas(canvas, data.qr_code, { width: 240, margin: 1, errorCorrectionLevel: 'M' });
-        } else if (data.payment_url) {
-            QRCode.toCanvas(canvas, data.payment_url, { width: 240, margin: 1 });
-        } else {
-            throw new Error('No QR returned from gateway');
-        }
+        // Render QR (qrcodejs by davidshim — new QRCode(div, {text,width,height}))
+        const qrPayload = data.qr_code || data.payment_url;
+        if (!qrPayload) throw new Error('No QR returned from gateway');
+        qrEl.innerHTML = '';
+        new QRCode(qrEl, {
+            text: qrPayload,
+            width: 240, height: 240,
+            colorDark: '#000000', colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M,
+        });
         startCountdown();
         startPolling();
     } catch (e) {
@@ -646,14 +731,28 @@ async function cancelPayment(expired = false) {
 }
 
 function showSuccess() {
+    // Stage 1: payment-received celebration (3s), then advance to live charging screen.
     showScreen('success');
-    let n = 10;
-    const el = document.getElementById('successCountdown');
-    el.textContent = n;
-    const t = setInterval(() => {
+    setTimeout(showCharging, 3000);
+}
+
+function showCharging() {
+    // Stage 2: live charging journey screen with car+bolt animation
+    // and a 30s countdown to idle (user usually walks back to the car).
+    showScreen('charging');
+    const cc = document.getElementById('ccCharger');
+    if (cc) cc.textContent = _state.selectedCharger?.charge_point_id || '—';
+    const hold = document.getElementById('ccHold');
+    if (hold) hold.textContent = `RM ${(_state.holdAmount || 150).toFixed(2)}`;
+
+    let n = 30;
+    const el = document.getElementById('chargingCountdown');
+    if (el) el.textContent = n;
+    clearInterval(_state.chargingCountdownTimer);
+    _state.chargingCountdownTimer = setInterval(() => {
         n--;
-        el.textContent = n;
-        if (n <= 0) { clearInterval(t); showScreen('idle'); }
+        if (el) el.textContent = n;
+        if (n <= 0) { clearInterval(_state.chargingCountdownTimer); showScreen('idle'); }
     }, 1000);
 }
 
