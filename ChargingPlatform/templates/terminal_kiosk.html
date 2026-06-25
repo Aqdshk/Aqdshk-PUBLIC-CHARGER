@@ -671,12 +671,21 @@ async function startPayment() {
         const qrPayload = data.qr_code || data.payment_url;
         if (!qrPayload) throw new Error('No QR returned from gateway');
         qrEl.innerHTML = '';
-        new QRCode(qrEl, {
-            text: qrPayload,
-            width: 240, height: 240,
-            colorDark: '#000000', colorLight: '#ffffff',
-            correctLevel: QRCode.CorrectLevel.M,
-        });
+        // Use CorrectLevel.L (max ~2953 bytes) — TNG SPI URLs can exceed
+        // the 512-byte M-level cap and trigger "code length overflow".
+        // If even L fails (very rare), swallow it so the payment polling
+        // can still complete — kiosk shows text fallback instead of crashing.
+        try {
+            new QRCode(qrEl, {
+                text: qrPayload,
+                width: 240, height: 240,
+                colorDark: '#000000', colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.L,
+            });
+        } catch (qrErr) {
+            console.warn('QR render failed, falling back to text:', qrErr);
+            qrEl.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:11px;word-break:break-all;background:#fff;color:#000;border-radius:8px;max-width:240px;">${qrPayload.length > 200 ? qrPayload.slice(0,200)+'…' : qrPayload}</div>`;
+        }
         startCountdown();
         startPolling();
     } catch (e) {
