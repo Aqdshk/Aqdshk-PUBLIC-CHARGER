@@ -472,7 +472,7 @@
         <div class="cc-row"><span>Deposit held</span><b id="ccHold">RM 150.00</b></div>
         <div class="cc-row"><span>Status</span><b style="color:var(--primary);">● Active</b></div>
     </div>
-    <div style="margin-top:14px;font-size:12px;color:var(--text-dim);">Returning to start screen in <b id="chargingCountdown">30</b>s</div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-dim);">Returning to start screen in <b id="chargingCountdown">15</b>s</div>
 </div>
 
 <!-- FAILED -->
@@ -757,7 +757,7 @@ function showCharging() {
     const hold = document.getElementById('ccHold');
     if (hold) hold.textContent = `RM ${(_state.holdAmount || 150).toFixed(2)}`;
 
-    let n = 30;
+    let n = 15;
     const el = document.getElementById('chargingCountdown');
     if (el) el.textContent = n;
     clearInterval(_state.chargingCountdownTimer);
