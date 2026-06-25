@@ -8786,7 +8786,14 @@ async def terminal_kiosk_page(device_id: str):
     file_path = Path(__file__).parent / "templates" / "terminal_kiosk.html"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Terminal page not found")
-    return HTMLResponse(file_path.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        file_path.read_text(encoding="utf-8"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 # ── Admin: manage terminals ──────────────────────────────────────────────
