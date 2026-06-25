@@ -85,6 +85,11 @@ async def get_version_details(request: Request):
         VersionEndpoint(identifier="cdrs", role="SENDER", url=f"{base}/ocpi/2.2.1/cdrs"),
         VersionEndpoint(identifier="tokens", role="SENDER", url=f"{base}/ocpi/2.2.1/tokens"),
         VersionEndpoint(identifier="tariffs", role="SENDER", url=f"{base}/ocpi/2.2.1/tariffs"),
+        # Receiver = eMSP pushes/calls us. Commands are remote-control requests.
+        VersionEndpoint(identifier="commands", role="RECEIVER", url=f"{base}/ocpi/2.2.1/commands"),
+        VersionEndpoint(identifier="tariff_groups", role="SENDER", url=f"{base}/ocpi/2.2.1/tariff_groups"),
+        VersionEndpoint(identifier="taxes", role="SENDER", url=f"{base}/ocpi/2.2.1/taxes"),
+        VersionEndpoint(identifier="roaming_operators", role="SENDER", url=f"{base}/ocpi/2.2.1/roaming_operators"),
     ]
     return {
         "status_code": 1000,
@@ -437,6 +442,235 @@ async def get_tariffs(
         "status_message": "Success",
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "data": result,
+    }
+
+
+# ============ Commands (Receiver — eMSP triggers us) ============
+# OCPI Commands flow: eMSP POSTs the command body → we reply CommandResponse
+# synchronously (ACCEPTED/REJECTED) → we later POST CommandResult to the
+# eMSP's response_url once the physical charger replies.
+COMMAND_TYPES = {"START_SESSION", "STOP_SESSION", "UNLOCK_CONNECTOR", "RESERVE_NOW", "CANCEL_RESERVATION"}
+
+
+async def _post_command_result(response_url: str, result: str, message: Optional[str] = None) -> None:
+    """Fire-and-forget POST of async CommandResult back to the eMSP."""
+    import asyncio
+    import httpx
+    try:
+        token = os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Token {token}"
+        body = {"result": result}
+        if message:
+            body["message"] = [{"language": "en", "text": message}]
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            await client.post(response_url, json=body, headers=headers)
+    except Exception as e:
+        logger.warning(f"[ocpi-commands] callback POST to {response_url} failed: {e}")
+
+
+@router.post("/2.2.1/commands/{command}", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def post_command(command: str, request: Request, db: Session = Depends(get_db)):
+    """eMSP-initiated remote command. Returns synchronous CommandResponse; the
+    final CommandResult is POSTed asynchronously to the eMSP's response_url."""
+    import asyncio
+    from ocpp_server import get_active_charge_point
+
+    if command not in COMMAND_TYPES:
+        return {
+            "status_code": 2001,
+            "status_message": f"Unknown command: {command}",
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data": {"result": "NOT_SUPPORTED", "timeout": 0},
+        }
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    response_url = body.get("response_url")
+    if not response_url:
+        return {
+            "status_code": 2002,
+            "status_message": "Missing response_url",
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data": {"result": "REJECTED", "timeout": 0},
+        }
+
+    if command == "START_SESSION":
+        location_id = body.get("location_id")
+        evse_uid = body.get("evse_uid") or location_id
+        connector_id = int(body.get("connector_id") or 1)
+        token = (body.get("token") or {}).get("uid") or "ROAMING_USER"
+        charger = db.query(Charger).filter(Charger.charge_point_id == location_id).first()
+        if not charger:
+            return {
+                "status_code": 1000, "status_message": "Success",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "data": {"result": "REJECTED", "timeout": 0},
+            }
+        cp = get_active_charge_point(location_id)
+        if cp is None:
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            return {
+                "status_code": 1000, "status_message": "Success",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "data": {"result": "ACCEPTED", "timeout": 30},
+            }
+
+        async def _dispatch_start():
+            try:
+                resp = await cp.remote_start_transaction(connector_id=connector_id, id_tag=token)
+                accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+            except Exception as e:
+                await _post_command_result(response_url, "FAILED", str(e))
+
+        asyncio.create_task(_dispatch_start())
+        return {
+            "status_code": 1000, "status_message": "Success",
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data": {"result": "ACCEPTED", "timeout": 30},
+        }
+
+    if command == "STOP_SESSION":
+        session_id = body.get("session_id")
+        sess = db.query(ChargingSession).filter(ChargingSession.id == session_id).first() if session_id else None
+        if not sess or not sess.transaction_id:
+            asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION"))
+            return {
+                "status_code": 1000, "status_message": "Success",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "data": {"result": "ACCEPTED", "timeout": 30},
+            }
+        charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+        cp = get_active_charge_point(charger.charge_point_id) if charger else None
+        if cp is None:
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            return {
+                "status_code": 1000, "status_message": "Success",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "data": {"result": "ACCEPTED", "timeout": 30},
+            }
+
+        async def _dispatch_stop():
+            try:
+                resp = await cp.remote_stop_transaction(transaction_id=int(sess.transaction_id))
+                accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+            except Exception as e:
+                await _post_command_result(response_url, "FAILED", str(e))
+
+        asyncio.create_task(_dispatch_stop())
+        return {
+            "status_code": 1000, "status_message": "Success",
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data": {"result": "ACCEPTED", "timeout": 30},
+        }
+
+    # UNLOCK_CONNECTOR / RESERVE_NOW / CANCEL_RESERVATION — surface as NOT_SUPPORTED
+    # until the underlying OCPP plumbing is added. Returning a structured response
+    # is required by the spec even for unsupported commands.
+    asyncio.create_task(_post_command_result(response_url, "NOT_SUPPORTED"))
+    return {
+        "status_code": 1000, "status_message": "Success",
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "data": {"result": "ACCEPTED", "timeout": 5},
+    }
+
+
+# ============ Taxes ============
+def _default_taxes() -> list:
+    """Default tax rules for Malaysia. Override via system_settings key 'ocpi_taxes'."""
+    return [
+        {
+            "id": "sst-my",
+            "name": "SST",
+            "rate": 6.0,
+            "applies_to": "TOTAL",
+            "country_code": "MY",
+        }
+    ]
+
+
+@router.get("/2.2.1/taxes", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def get_taxes():
+    """Tax rules applied on top of tariff prices. Override via OCPI_TAXES_JSON env (a JSON array)."""
+    import json as _json
+    raw = os.getenv("OCPI_TAXES_JSON", "").strip()
+    try:
+        taxes = _json.loads(raw) if raw else _default_taxes()
+    except Exception:
+        taxes = _default_taxes()
+    now = _to_ocpi_datetime(datetime.utcnow())
+    for t in taxes:
+        t.setdefault("last_updated", now)
+    return {
+        "status_code": 1000,
+        "status_message": "Success",
+        "timestamp": now,
+        "data": taxes,
+    }
+
+
+# ============ Tariff Groups ============
+@router.get("/2.2.1/tariff_groups", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def get_tariff_groups(db: Session = Depends(get_db)):
+    """Group tariffs by AC vs DC capability so eMSPs can show simple price tiers."""
+    pricings = db.query(Pricing).filter(Pricing.is_active == True).all()  # noqa: E712
+    now = _to_ocpi_datetime(datetime.utcnow())
+    ac_ids, dc_ids = [], []
+    for p in pricings:
+        # Pricing rows tied to a charger inherit its connector type; default → AC bucket.
+        charger = db.query(Charger).filter(Charger.id == p.charger_id).first() if p.charger_id else None
+        ctype = (charger.connector_type or "AC").upper() if charger else "AC"
+        (dc_ids if "DC" in ctype or "CCS" in ctype or "CHADEMO" in ctype else ac_ids).append(str(p.id))
+    groups = []
+    if ac_ids:
+        groups.append({"id": "ac-default", "name": "AC Charging", "description": "Slow + medium AC tariffs", "tariff_ids": ac_ids, "last_updated": now})
+    if dc_ids:
+        groups.append({"id": "dc-default", "name": "DC Fast Charging", "description": "DC fast-charge tariffs", "tariff_ids": dc_ids, "last_updated": now})
+    return {
+        "status_code": 1000,
+        "status_message": "Success",
+        "timestamp": now,
+        "data": groups,
+    }
+
+
+# ============ Roaming Operators ============
+def _default_roaming_operators() -> list:
+    """Bootstrap allow-list. Override via system_settings key 'ocpi_roaming_operators'."""
+    return [
+        {
+            "party_id": "VLT",
+            "country_code": "SG",
+            "name": "Voltality Pte Ltd",
+            "role": "HUB",
+            "status": "ALLOWED",
+        }
+    ]
+
+
+@router.get("/2.2.1/roaming_operators", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def get_roaming_operators():
+    """Operators we accept roaming traffic from. Override via OCPI_ROAMING_OPERATORS_JSON env (a JSON array)."""
+    import json as _json
+    raw = os.getenv("OCPI_ROAMING_OPERATORS_JSON", "").strip()
+    try:
+        ops = _json.loads(raw) if raw else _default_roaming_operators()
+    except Exception:
+        ops = _default_roaming_operators()
+    now = _to_ocpi_datetime(datetime.utcnow())
+    for o in ops:
+        o.setdefault("last_updated", now)
+    return {
+        "status_code": 1000,
+        "status_message": "Success",
+        "timestamp": now,
+        "data": ops,
     }
 
 

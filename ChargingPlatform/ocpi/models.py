@@ -155,3 +155,75 @@ class Token(BaseModel):
     default_profile_type: Optional[str] = None
     energy_contract: Optional[Dict] = None
     last_updated: str
+
+
+# ============ Commands Module ============
+class StartSession(BaseModel):
+    """eMSP → CPO request to start a charging session remotely."""
+    response_url: str  # CPO calls this with CommandResult after dispatch
+    token: Token
+    location_id: str
+    evse_uid: Optional[str] = None
+    connector_id: Optional[str] = None
+    authorization_reference: Optional[str] = None
+
+
+class StopSession(BaseModel):
+    """eMSP → CPO request to stop an active session."""
+    response_url: str
+    session_id: str
+
+
+class UnlockConnector(BaseModel):
+    """eMSP → CPO request to unlock a connector (cable release)."""
+    response_url: str
+    location_id: str
+    evse_uid: str
+    connector_id: str
+
+
+class CommandResponse(BaseModel):
+    """Synchronous reply CPO returns immediately for any Commands call."""
+    result: str  # NOT_SUPPORTED, REJECTED, ACCEPTED, UNKNOWN_SESSION
+    timeout: int = 30  # seconds CPO will wait before posting CommandResult
+    message: Optional[List[DisplayText]] = None
+
+
+class CommandResult(BaseModel):
+    """Async result CPO POSTs to eMSP's response_url after the charger replies."""
+    result: str  # ACCEPTED, CANCELED_RESERVATION, EVSE_OCCUPIED, EVSE_INOPERATIVE,
+                 # FAILED, NOT_SUPPORTED, REJECTED, TIMEOUT, UNKNOWN_RESERVATION
+    message: Optional[List[DisplayText]] = None
+
+
+# ============ Taxes Module ============
+class Tax(BaseModel):
+    """Tax rule applied on top of tariff prices."""
+    id: str
+    name: str  # e.g. "SST"
+    rate: float  # percentage, e.g. 6.0 for 6%
+    applies_to: str = "TOTAL"  # ENERGY, TIME, PARKING, FLAT, TOTAL
+    country_code: str = "MY"
+    last_updated: str
+
+
+# ============ Tariff Groups Module ============
+class TariffGroup(BaseModel):
+    """Group of related tariffs (e.g. weekday vs weekend, AC vs DC)."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    tariff_ids: List[str]  # references Tariff.id
+    last_updated: str
+
+
+# ============ Roaming Operators Module ============
+class RoamingOperator(BaseModel):
+    """Whitelist/blacklist of EMSP/CPO partners we accept roaming traffic from."""
+    party_id: str  # 3-char OCPI party ID e.g. "VLT" for Voltality
+    country_code: str  # 2-char ISO 3166-1 e.g. "SG"
+    name: str
+    role: str = "EMSP"  # EMSP, CPO, HUB
+    status: str = "ALLOWED"  # ALLOWED, BLOCKED, PENDING
+    partner_since: Optional[str] = None
+    last_updated: str
