@@ -480,18 +480,91 @@
                 type:'bar', data:{ labels:['Active','Pending','Done'], datasets:[{ data:[0,0,0], backgroundColor:[C.green,C.yellow,C.blue], borderRadius:6, borderSkipped:false }] },
                 options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:baseScales() }
             });
-            sessionsTimelineChart = new Chart(document.getElementById('sessionsTimelineChart'), {
-                type:'line', data:{ labels:[], datasets:[{ data:[], borderColor:C.green, backgroundColor:'rgba(0,230,118,0.10)', fill:true, tension:0.4, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:C.green, pointBorderColor:'#fff', pointBorderWidth:1, borderWidth:2.5 }] },
-                options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:baseScales() }
+            // Sessions (7 Days) — smooth gradient area, no dots, soft grid.
+            // The vertical fill is built once per canvas using its 2D context;
+            // recreated only if the canvas resizes (Chart.js handles).
+            const sessCanvas = document.getElementById('sessionsTimelineChart');
+            const sessCtx = sessCanvas.getContext('2d');
+            const sessGrad = sessCtx.createLinearGradient(0, 0, 0, 240);
+            sessGrad.addColorStop(0,   'rgba(0,230,118,0.45)');
+            sessGrad.addColorStop(0.6, 'rgba(0,230,118,0.10)');
+            sessGrad.addColorStop(1,   'rgba(0,230,118,0.00)');
+            sessionsTimelineChart = new Chart(sessCanvas, {
+                type:'line',
+                data:{ labels:[], datasets:[{
+                    data:[], borderColor:C.green, backgroundColor:sessGrad,
+                    fill:true, tension:0.45, borderWidth:2.5,
+                    pointRadius:0,                              // no permanent dots
+                    pointHoverRadius:5, pointHoverBackgroundColor:C.green, pointHoverBorderColor:'#fff', pointHoverBorderWidth:2,
+                }]},
+                options:{
+                    responsive:true, maintainAspectRatio:false,
+                    interaction:{ mode:'index', intersect:false },
+                    plugins:{
+                        legend:{display:false},
+                        tooltip:{
+                            backgroundColor:'rgba(15,23,42,0.95)', titleColor:'#fff', bodyColor:'#cbd5e1',
+                            padding:10, displayColors:false, cornerRadius:6,
+                            callbacks:{ label:(c)=>` ${c.parsed.y} session${c.parsed.y===1?'':'s'}` },
+                        },
+                    },
+                    scales:{
+                        x:{ grid:{display:false}, ticks:{color:tick, font:{size:11}} },
+                        y:{ beginAtZero:true, grid:{color:grid, drawBorder:false, lineWidth:1}, ticks:{color:tick, font:{size:11}, precision:0, maxTicksLimit:5} },
+                    },
+                },
             });
-            // Energy chart — horizontal bars so long charger IDs render
-            // readably instead of being squashed/rotated on a crammed x-axis.
-            energyChart = new Chart(document.getElementById('energyChart'), {
-                type:'bar', data:{ labels:[], datasets:[{ data:[], backgroundColor:'rgba(68,136,255,0.85)', borderRadius:6, borderSkipped:false, barThickness:14 }] },
-                options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y', plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(ctx)=>` ${ctx.parsed.x.toFixed(2)} kWh` } } }, scales:{
-                    x:{ beginAtZero:true, grid:{color:grid, drawBorder:false}, ticks:{color:tick, font:{size:11}} },
-                    y:{ grid:{display:false}, ticks:{color:tick, font:{size:11}, autoSkip:false} },
-                }}
+
+            // Energy by Charger — horizontal bars with value labels drawn
+            // at the end of each bar (custom Chart.js plugin), hide x-axis
+            // clutter since the values are now visually attached to bars.
+            const valueLabelPlugin = {
+                id: 'valueLabelEnd',
+                afterDatasetsDraw(chart) {
+                    const { ctx } = chart;
+                    const ds = chart.data.datasets[0]; if (!ds) return;
+                    const meta = chart.getDatasetMeta(0);
+                    ctx.save();
+                    ctx.fillStyle = tick;
+                    ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+                    ctx.textBaseline = 'middle';
+                    ctx.textAlign = 'left';
+                    meta.data.forEach((bar, i) => {
+                        const v = ds.data[i] || 0;
+                        if (v === 0) return;
+                        ctx.fillText(`${v.toFixed(1)} kWh`, bar.x + 6, bar.y);
+                    });
+                    ctx.restore();
+                },
+            };
+            const energyCanvas = document.getElementById('energyChart');
+            const energyCtx = energyCanvas.getContext('2d');
+            const energyGrad = energyCtx.createLinearGradient(0, 0, 800, 0);
+            energyGrad.addColorStop(0, 'rgba(59,130,246,0.95)');
+            energyGrad.addColorStop(1, 'rgba(99,102,241,0.85)');
+            energyChart = new Chart(energyCanvas, {
+                type:'bar',
+                data:{ labels:[], datasets:[{
+                    data:[], backgroundColor:energyGrad, hoverBackgroundColor:'#6366f1',
+                    borderRadius:8, borderSkipped:false, barThickness:18,
+                }]},
+                options:{
+                    responsive:true, maintainAspectRatio:false, indexAxis:'y',
+                    layout:{ padding:{ right:70 } }, // room for value labels at bar ends
+                    plugins:{
+                        legend:{display:false},
+                        tooltip:{
+                            backgroundColor:'rgba(15,23,42,0.95)', titleColor:'#fff', bodyColor:'#cbd5e1',
+                            padding:10, displayColors:false, cornerRadius:6,
+                            callbacks:{ label:(c)=>` ${c.parsed.x.toFixed(2)} kWh` },
+                        },
+                    },
+                    scales:{
+                        x:{ display:false, beginAtZero:true },   // hide axis; values shown on bars
+                        y:{ grid:{display:false, drawBorder:false}, ticks:{color:tick, font:{size:11.5,weight:'500'}, autoSkip:false, padding:6} },
+                    },
+                },
+                plugins:[valueLabelPlugin],
             });
         }
 
