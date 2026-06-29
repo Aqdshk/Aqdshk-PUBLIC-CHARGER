@@ -1271,7 +1271,8 @@ async def get_sessions(
     limit: int = 50,
     charger_id: Optional[int] = None,
     charge_point_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
 ):
     """Get charging sessions"""
     query = db.query(ChargingSession)
@@ -1304,7 +1305,8 @@ async def get_sessions(
 async def get_metering(
     charge_point_id: str,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
 ):
     """Get metering data for a charger"""
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
@@ -1319,7 +1321,11 @@ async def get_metering(
 
 
 @app.get("/api/metering/{charge_point_id}/latest", response_model=Optional[MeterValueResponse])
-async def get_latest_metering(charge_point_id: str, db: Session = Depends(get_db)):
+async def get_latest_metering(
+    charge_point_id: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
     """Get latest metering data for a charger.
 
     Returns the most recent MeterValue, or `null` (HTTP 200) if the charger
@@ -1344,7 +1350,8 @@ async def get_latest_metering(charge_point_id: str, db: Session = Depends(get_db
 async def get_faults(
     cleared: Optional[bool] = None,
     charger_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
 ):
     """Get faults"""
     query = db.query(Fault)

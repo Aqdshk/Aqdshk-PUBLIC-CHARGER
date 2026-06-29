@@ -765,7 +765,8 @@
             const body = document.getElementById('opsMeterBody');
             body.innerHTML = '<div style="color:var(--text-secondary);">Loading…</div>';
             try {
-                const res = await fetch(`/api/metering/${encodeURIComponent(cpId)}/latest`);
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`/api/metering/${encodeURIComponent(cpId)}/latest`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const m = await res.json();
                 if (!m) {
@@ -792,7 +793,8 @@
             const body = document.getElementById('opsSessionsBody');
             body.innerHTML = '<div style="color:var(--text-secondary);">Loading…</div>';
             try {
-                const res = await fetch(`/api/sessions?charge_point_id=${encodeURIComponent(cpId)}&limit=6`);
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`/api/sessions?charge_point_id=${encodeURIComponent(cpId)}&limit=6`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const list = await res.json();
                 if (!Array.isArray(list) || list.length === 0) {

@@ -122,7 +122,8 @@
             try {
                 const showCleared = document.getElementById('showCleared')?.checked;
                 const url = showCleared ? `${API_BASE}/faults` : `${API_BASE}/faults?cleared=false`;
-                const faults = await (await fetch(url)).json();
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const faults = await (await fetch(url, { headers: _tok ? {'X-Staff-Token': _tok} : {} })).json();
                 const container = document.getElementById('faultList');
                 const countEl = document.getElementById('faultCount');
 

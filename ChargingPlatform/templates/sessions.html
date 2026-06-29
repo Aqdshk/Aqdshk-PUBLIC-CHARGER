@@ -242,7 +242,8 @@
             try {
                 const filter = document.getElementById('chargerFilter')?.value || '';
                 const url = filter ? `${API_BASE}/sessions?charge_point_id=${filter}` : `${API_BASE}/sessions`;
-                _allSessions = await (await fetch(url)).json();
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                _allSessions = await (await fetch(url, { headers: _tok ? {'X-Staff-Token': _tok} : {} })).json();
                 renderSessions();
             } catch(e){
                 console.error('Error:',e);

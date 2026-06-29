@@ -263,7 +263,8 @@
             if (_meteringInflight) return;
             _meteringInflight = true;
             try {
-                const res = await fetch(`${API_BASE}/metering/${cpId}/latest`);
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`${API_BASE}/metering/${cpId}/latest`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 if (!res.ok) {
                     // Endpoint failed — KEEP showing cached data if any.
                     if (!_meteringCache[cpId]) {
