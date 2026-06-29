@@ -109,6 +109,55 @@
         .chart-wrap-wide { position: relative; height: clamp(200px, 18vw, 260px); }
         @media(max-width:1200px){ .charts-grid{ grid-template-columns:repeat(2,1fr); } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
         @media(max-width:768px){ .charts-grid,.charts-grid-2{ grid-template-columns:1fr; } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
+
+        /* ── Fleet Overview (Plugit-style) ───────────────────────────────── */
+        .fleet-grid {
+            display:grid; grid-template-columns: 2fr 1fr;
+            gap:14px; margin: 14px 0 18px;
+        }
+        @media(max-width:1024px){ .fleet-grid{ grid-template-columns:1fr; } }
+
+        .fleet-body { display:flex; gap:24px; align-items:center; padding:18px 20px; }
+        .charger-svg { width:80px; height:180px; flex-shrink:0; }
+        .fleet-stats { flex:1; min-width:0; }
+        .fleet-counts {
+            display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px;
+        }
+        .fleet-counts > div { display:flex; flex-direction:column; }
+        .fleet-counts .k { font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; }
+        .fleet-counts .v { font-size:22px; font-weight:700; color:var(--text-primary); margin-top:2px; }
+
+        .seg-bar {
+            display:flex; height:10px; border-radius:6px; overflow:hidden;
+            background:var(--bg-elevated); border:1px solid var(--border);
+        }
+        .seg { transition:width .3s ease; }
+        .seg-legend {
+            display:flex; gap:14px; flex-wrap:wrap; margin-top:8px;
+            font-size:12px; color:var(--text-secondary);
+        }
+        .seg-legend b { color:var(--text-primary); font-weight:600; margin-right:2px; }
+
+        .legend-row {
+            display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+            font-size:11px; color:var(--text-secondary);
+        }
+        .legend-row .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:2px; }
+
+        /* Locations card */
+        .loc-row { display:flex; gap:18px; margin-bottom:14px; flex-wrap:wrap; }
+        .loc-row > div { display:flex; flex-direction:column; }
+        .loc-row .k { font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; }
+        .loc-row .v { font-size:20px; font-weight:700; color:var(--text-primary); margin-top:2px; }
+
+        .loc-split { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        .loc-tile {
+            background:var(--bg-elevated); border:1px solid var(--border);
+            border-radius:8px; padding:14px; text-align:center;
+        }
+        .loc-icon { font-size:18px; margin-bottom:4px; }
+        .loc-num  { font-size:22px; font-weight:700; color:var(--text-primary); }
+        .loc-cap  { font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
     </style>
 </head>
 <body>
@@ -192,6 +241,92 @@
                     <div class="stat-label">Total Sessions</div>
                     <div class="stat-value" id="totalSessions">—</div>
                     <div class="stat-icon">📋</div>
+                </div>
+            </div>
+
+            <!-- Plugit-style Fleet Overview — SVG illustration + segmented bar + locations split -->
+            <div class="fleet-grid">
+                <div class="card fleet-chargers">
+                    <div class="card-header"><span class="card-title"><span>🔋</span> Chargers</span>
+                        <div class="legend-row">
+                            <span class="dot" style="background:#22c55e;"></span><span>Available</span>
+                            <span class="dot" style="background:#3b82f6;"></span><span>Charging</span>
+                            <span class="dot" style="background:#ef4444;"></span><span>Offline / Faulted</span>
+                            <span class="dot" style="background:#6b7280;"></span><span>Not operational</span>
+                        </div>
+                    </div>
+                    <div class="card-body fleet-body">
+                        <!-- Inline SVG charger pillar — no external asset needed -->
+                        <svg class="charger-svg" viewBox="0 0 80 180" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <defs>
+                                <linearGradient id="pillarG" x1="0" x2="0" y1="0" y2="1">
+                                    <stop offset="0" stop-color="#e2e8f0"/>
+                                    <stop offset="1" stop-color="#94a3b8"/>
+                                </linearGradient>
+                            </defs>
+                            <!-- pillar body -->
+                            <rect x="20" y="8" width="40" height="160" rx="6" fill="url(#pillarG)" stroke="#475569" stroke-width="1"/>
+                            <!-- top status LED strip -->
+                            <rect x="22" y="12" width="3" height="50" rx="1.5" fill="#22c55e"/>
+                            <!-- screen -->
+                            <rect x="26" y="22" width="28" height="38" rx="3" fill="#0f172a" stroke="#1e293b"/>
+                            <text x="40" y="45" text-anchor="middle" fill="#22c55e" font-size="8" font-family="monospace">PLAG</text>
+                            <!-- power icon -->
+                            <path d="M40 80 L35 92 L40 92 L36 102 L45 88 L40 88 Z" fill="#22c55e"/>
+                            <!-- card slot -->
+                            <rect x="30" y="110" width="20" height="2" rx="1" fill="#1e293b"/>
+                            <!-- gun outline -->
+                            <rect x="30" y="125" width="20" height="14" rx="3" fill="#0f172a" stroke="#1e293b"/>
+                            <circle cx="40" cy="132" r="3" fill="#475569"/>
+                            <!-- base -->
+                            <rect x="14" y="168" width="52" height="6" rx="2" fill="#475569"/>
+                        </svg>
+
+                        <div class="fleet-stats">
+                            <div class="fleet-counts">
+                                <div><span class="k">Total</span><span class="v" id="fleetTotal">—</span></div>
+                                <div><span class="k">Operational</span><span class="v" style="color:#22c55e;" id="fleetOperational">—</span></div>
+                                <div><span class="k">Not operational</span><span class="v" style="color:#94a3b8;" id="fleetNotOp">—</span></div>
+                                <div><span class="k">In use</span><span class="v" style="color:#3b82f6;" id="fleetInUse">—</span></div>
+                            </div>
+                            <!-- Segmented bar — proportional widths reflect mix -->
+                            <div class="seg-bar" id="fleetSegBar" title="Fleet status breakdown">
+                                <div class="seg" data-tone="ok"      style="width:0%;background:#22c55e;"></div>
+                                <div class="seg" data-tone="charging" style="width:0%;background:#3b82f6;"></div>
+                                <div class="seg" data-tone="bad"     style="width:0%;background:#ef4444;"></div>
+                                <div class="seg" data-tone="off"     style="width:0%;background:#6b7280;"></div>
+                            </div>
+                            <div class="seg-legend" id="fleetSegLegend">
+                                <span><b id="segOk">0</b> available</span>
+                                <span><b id="segCharging">0</b> charging</span>
+                                <span><b id="segBad">0</b> offline</span>
+                                <span><b id="segOff">0</b> other</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card fleet-locations">
+                    <div class="card-header"><span class="card-title"><span>📍</span> Locations</span></div>
+                    <div class="card-body">
+                        <div class="loc-row">
+                            <div><span class="k">Total</span><span class="v" id="locTotal">—</span></div>
+                            <div><span class="k">Operational</span><span class="v" style="color:#22c55e;" id="locOperational">—</span></div>
+                            <div><span class="k">Has problems</span><span class="v" style="color:#ef4444;" id="locProblems">—</span></div>
+                        </div>
+                        <div class="loc-split">
+                            <div class="loc-tile">
+                                <div class="loc-icon">🌐</div>
+                                <div class="loc-num" id="locPublic">—</div>
+                                <div class="loc-cap">Public</div>
+                            </div>
+                            <div class="loc-tile">
+                                <div class="loc-icon">🔒</div>
+                                <div class="loc-num" id="locPrivate">—</div>
+                                <div class="loc-cap">Private</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -294,6 +429,58 @@
                 document.getElementById('onlineChargers').textContent = chargers.filter(c=>c.status==='online').length;
                 document.getElementById('chargingNow').textContent = chargers.filter(c=>c.availability==='charging').length;
                 document.getElementById('totalSessions').textContent = sessions.length;
+
+                // ── Fleet Overview (Plugit-style block) ───────────────────
+                // Use fleet-prefixed locals so we don't collide with the
+                // `online` / `charging` consts the chart-update code declares
+                // a few lines down in this same function scope.
+                const flTotal     = chargers.length;
+                const flOnline    = chargers.filter(c=>c.status==='online').length;
+                const flCharging  = chargers.filter(c=>c.availability==='charging' || (c.active_transaction_id||0) > 0).length;
+                const flAvailable = chargers.filter(c=>c.status==='online' && c.availability==='available').length;
+                const flOffline   = chargers.filter(c=>c.status!=='online').length;
+                const flOther     = Math.max(0, flTotal - flAvailable - flCharging - flOffline);
+                document.getElementById('fleetTotal').textContent       = flTotal;
+                document.getElementById('fleetOperational').textContent = flOnline;
+                document.getElementById('fleetNotOp').textContent       = flOffline;
+                document.getElementById('fleetInUse').textContent       = flCharging;
+                // Segmented bar widths — normalise to %, clamp at 0 to avoid NaN bar.
+                const flDenom = flTotal || 1;
+                const flPct = (n) => `${(n / flDenom * 100).toFixed(1)}%`;
+                const flSegs = document.querySelectorAll('#fleetSegBar .seg');
+                flSegs[0].style.width = flPct(flAvailable);
+                flSegs[1].style.width = flPct(flCharging);
+                flSegs[2].style.width = flPct(flOffline);
+                flSegs[3].style.width = flPct(flOther);
+                document.getElementById('segOk').textContent       = flAvailable;
+                document.getElementById('segCharging').textContent = flCharging;
+                document.getElementById('segBad').textContent      = flOffline;
+                document.getElementById('segOff').textContent      = flOther;
+
+                // ── Locations panel ───────────────────────────────────────
+                // Group chargers by their `location` field (string). A
+                // location is "operational" if at least one of its chargers
+                // is online; "has problems" if any are faulted/offline while
+                // others are online — surfaces partial outages at a glance.
+                const byLoc = {};
+                chargers.forEach(c => {
+                    const key = (c.location || 'Unassigned').trim() || 'Unassigned';
+                    if (!byLoc[key]) byLoc[key] = { online:0, total:0, faulted:0 };
+                    byLoc[key].total += 1;
+                    if (c.status === 'online') byLoc[key].online += 1;
+                    if (c.availability === 'faulted') byLoc[key].faulted += 1;
+                });
+                const locKeys = Object.keys(byLoc);
+                const locOperational = locKeys.filter(k => byLoc[k].online > 0).length;
+                const locProblems    = locKeys.filter(k => byLoc[k].faulted > 0 || (byLoc[k].total > 0 && byLoc[k].online === 0)).length;
+                document.getElementById('locTotal').textContent       = locKeys.length;
+                document.getElementById('locOperational').textContent = locOperational;
+                document.getElementById('locProblems').textContent    = locProblems;
+                // Public vs private split — we don't track yet, so default
+                // everything to "Private" until charger.is_public is added.
+                // Shows 0 / total instead of "—" so the tile reads cleanly.
+                document.getElementById('locPublic').textContent  = 0;
+                document.getElementById('locPrivate').textContent = locKeys.length;
 
                 const online = chargers.filter(c=>c.status==='online').length;
                 chargerStatusChart.data.datasets[0].data = [online, chargers.length-online]; chargerStatusChart.update();
