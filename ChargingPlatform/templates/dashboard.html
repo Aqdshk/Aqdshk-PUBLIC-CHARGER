@@ -503,8 +503,11 @@
         // translate kg saved into a friendly "X trees" equivalent.
         const TREE_KG_PER_MONTH = 1.75;
 
-        function _bucketByDay(sessions, days) {
+        function _bucketByDay(sessions, days, priceByCp) {
             // Return arrays of length `days` (oldest → newest today).
+            // priceByCp: { charge_point_id → RM/kWh } so we can synthesize
+            // revenue from energy × tariff when the sessions endpoint
+            // doesn't return a cost column.
             const energy = new Array(days).fill(0);
             const revenue = new Array(days).fill(0);
             const txn = new Array(days).fill(0);
@@ -515,8 +518,11 @@
                 const ageDays = Math.round((now - d) / 86400000);
                 if (ageDays < 0 || ageDays >= days) return;
                 const idx = days - 1 - ageDays;  // oldest at 0, today at days-1
-                energy[idx]  += Number(s.energy_consumed || s.energy_consumed_kwh || 0);
-                revenue[idx] += Number(s.cost || s.total_cost || 0);
+                const kwh = Number(s.energy_consumed || s.energy_consumed_kwh || 0);
+                const explicitCost = Number(s.cost || s.total_cost || 0);
+                const price = (priceByCp && priceByCp[s.charge_point_id]) || 0.50;  // fallback RM 0.50/kWh
+                energy[idx]  += kwh;
+                revenue[idx] += explicitCost > 0 ? explicitCost : (kwh * price);
                 txn[idx]     += 1;
             });
             return { energy, revenue, txn };
@@ -551,20 +557,28 @@
             return { text: `= 0 ${unit} equal as last period`, cls: 'flat' };
         }
 
-        function updateKpiCards(sessions) {
+        function updateKpiCards(sessions, chargers) {
+            // Build a price lookup so revenue can be synthesized as
+            // energy × tariff when sessions have no explicit cost.
+            const priceByCp = {};
+            (chargers || []).forEach(c => {
+                if (c && c.charge_point_id) priceByCp[c.charge_point_id] = Number(c.price_per_kwh || 0.50);
+            });
             // Last 30 days = current period, prior 30 (days 31-60 ago) = baseline.
             // Splitting on the same `sessions` array avoids a second API call.
-            const curr = _bucketByDay(sessions, 30);
+            const curr = _bucketByDay(sessions, 30, priceByCp);
             // For "prior period" we re-bucket by shifting now back 30 days.
-            const priorDate = new Date(); priorDate.setDate(priorDate.getDate() - 30); priorDate.setHours(0,0,0,0);
             const prior = { energy:0, revenue:0, txn:0 };
             sessions.forEach(s => {
                 const t = s.start_time || s.end_time; if (!t) return;
                 const d = new Date(t); d.setHours(0,0,0,0);
                 const ageDays = Math.round((Date.now() - d.getTime()) / 86400000);
                 if (ageDays >= 30 && ageDays < 60) {
-                    prior.energy  += Number(s.energy_consumed || s.energy_consumed_kwh || 0);
-                    prior.revenue += Number(s.cost || s.total_cost || 0);
+                    const kwh = Number(s.energy_consumed || s.energy_consumed_kwh || 0);
+                    const explicitCost = Number(s.cost || s.total_cost || 0);
+                    const price = priceByCp[s.charge_point_id] || 0.50;
+                    prior.energy  += kwh;
+                    prior.revenue += explicitCost > 0 ? explicitCost : (kwh * price);
                     prior.txn     += 1;
                 }
             });
@@ -606,7 +620,10 @@
                 const sessions = await sessionsRes.json();
 
                 // ── KPI cards: Revenue / Energy / Transactions / CO₂ ─────
-                updateKpiCards(sessions);
+                // Pass chargers too so revenue can be computed as
+                // energy × per-charger price_per_kwh (the sessions endpoint
+                // doesn't return cost).
+                updateKpiCards(sessions, chargers);
 
                 // ── Fleet Overview (Plugit-style block) ───────────────────
                 // Use fleet-prefixed locals so we don't collide with the
