@@ -982,6 +982,21 @@ class ChargePoint(cp):
     @on('Heartbeat')
     async def on_heartbeat(self):
         """Handle Heartbeat from charging station"""
+        # Zombie-socket defence: if this ChargePoint instance is no longer
+        # the one tracked in active_charge_points (because a newer connection
+        # superseded it via on_connect), it's an orphan that the firmware
+        # never tore down. Close it from our side so the firmware stops
+        # using it and the dashboard isn't fed stale heartbeats.
+        tracked = active_charge_points.get(self.id)
+        if tracked is not None and tracked is not self:
+            logger.warning(f"[on_heartbeat] {self.id}: zombie ChargePoint received heartbeat — closing")
+            try:
+                ws = getattr(self, "_connection", None) or getattr(self, "websocket", None)
+                if ws is not None:
+                    await ws.close(code=1000, reason="orphan connection")
+            except Exception:
+                pass
+            return call_result.Heartbeat(current_time=utc_now_iso_z())
         try:
             charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
             if charger:
@@ -1500,7 +1515,29 @@ async def on_connect(websocket):
         
         # Create charge point instance and start handling messages
         charge_point = ChargePoint(charge_point_id, websocket)
-        
+
+        # If a previous connection for this charger is still in the pool
+        # (e.g. firmware opened a second WS without closing the first), tear
+        # the old one down BEFORE registering the new one. Without this,
+        # the zombie task keeps writing Heartbeats to DB while RemoteStart
+        # uses the new ChargePoint that the charger may have abandoned —
+        # so the dashboard sees "online" but commands fail.
+        prev_cp = active_charge_points.pop(charge_point_id, None)
+        prev_task = connection_tasks.pop(charge_point_id, None)
+        if prev_cp is not None:
+            logger.warning(f"[on_connect] {charge_point_id}: duplicate connection — terminating previous session")
+            try:
+                prev_ws = getattr(prev_cp, "_connection", None) or getattr(prev_cp, "websocket", None)
+                if prev_ws is not None:
+                    try:
+                        await prev_ws.close(code=1000, reason="superseded by new connection")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"[on_connect] close prev ws raised for {charge_point_id}: {e}")
+        if prev_task is not None and not prev_task.done():
+            prev_task.cancel()  # don't await — let the old task die in background
+
         # Register charge point in global dictionary (for RemoteStartTransaction/RemoteStopTransaction)
         active_charge_points[charge_point_id] = charge_point
         # Track the task that owns this connection so we can cancel it on
