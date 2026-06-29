@@ -220,30 +220,6 @@
                 <div class="hero-pill"><span class="hero-dot"></span><span id="heroPill">SYSTEM OPERATIONAL</span></div>
             </div>
 
-            <!-- KPI stat cards -->
-            <div class="stats-grid">
-                <div class="stat-card" data-tone="green">
-                    <div class="stat-label">Total Chargers</div>
-                    <div class="stat-value" id="totalChargers">—</div>
-                    <div class="stat-icon">🔌</div>
-                </div>
-                <div class="stat-card" data-tone="blue">
-                    <div class="stat-label">Online</div>
-                    <div class="stat-value" id="onlineChargers">—</div>
-                    <div class="stat-icon">📡</div>
-                </div>
-                <div class="stat-card" data-tone="orange">
-                    <div class="stat-label">Charging Now</div>
-                    <div class="stat-value" id="chargingNow">—</div>
-                    <div class="stat-icon">⚡</div>
-                </div>
-                <div class="stat-card" data-tone="purple">
-                    <div class="stat-label">Total Sessions</div>
-                    <div class="stat-value" id="totalSessions">—</div>
-                    <div class="stat-icon">📋</div>
-                </div>
-            </div>
-
             <!-- Plugit-style Fleet Overview — SVG illustration + segmented bar + locations split -->
             <div class="fleet-grid">
                 <div class="card fleet-chargers">
@@ -424,11 +400,6 @@
                 const [chargersRes, sessionsRes] = await Promise.all([fetch(`${API_BASE}/chargers`), fetch(`${API_BASE}/sessions`)]);
                 const chargers = await chargersRes.json();
                 const sessions = await sessionsRes.json();
-
-                document.getElementById('totalChargers').textContent = chargers.length;
-                document.getElementById('onlineChargers').textContent = chargers.filter(c=>c.status==='online').length;
-                document.getElementById('chargingNow').textContent = chargers.filter(c=>c.availability==='charging').length;
-                document.getElementById('totalSessions').textContent = sessions.length;
 
                 // ── Fleet Overview (Plugit-style block) ───────────────────
                 // Use fleet-prefixed locals so we don't collide with the
