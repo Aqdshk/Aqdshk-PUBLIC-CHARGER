@@ -110,6 +110,55 @@
         @media(max-width:1200px){ .charts-grid{ grid-template-columns:repeat(2,1fr); } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
         @media(max-width:768px){ .charts-grid,.charts-grid-2{ grid-template-columns:1fr; } .stats-grid{ grid-template-columns:repeat(2,1fr) !important; } }
 
+        /* ── KPI Cards (Plugit-style with sparkline + delta) ─────────────── */
+        .kpi-grid {
+            display:grid; grid-template-columns:repeat(4,1fr); gap:14px;
+            margin: 14px 0 18px;
+        }
+        @media(max-width:1200px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
+        @media(max-width:640px){ .kpi-grid{ grid-template-columns:1fr; } }
+
+        .kpi-card {
+            background:var(--bg-card); border:1px solid var(--border);
+            border-radius:12px; padding:16px 18px 0; position:relative;
+            display:flex; flex-direction:column; min-height:170px; overflow:hidden;
+        }
+        .kpi-card[data-tone="blue"] { background:linear-gradient(180deg,#1d4ed8 0%,#1e3a8a 100%); border-color:#1e3a8a; }
+        .kpi-card[data-tone="blue"] .kpi-title,
+        .kpi-card[data-tone="blue"] .kpi-delta,
+        .kpi-card[data-tone="blue"] .kpi-value,
+        .kpi-card[data-tone="blue"] .kpi-icon,
+        .kpi-card[data-tone="blue"] .kpi-arrow { color:#fff; }
+        .kpi-card[data-tone="blue"] .kpi-value small { color:rgba(255,255,255,0.7); }
+
+        .kpi-head {
+            display:flex; align-items:center; gap:8px; margin-bottom:10px;
+        }
+        .kpi-icon { font-size:14px; }
+        .kpi-title {
+            font-size:13px; font-weight:600; color:var(--text-primary);
+            flex:1; min-width:0;
+        }
+        .kpi-arrow {
+            color:var(--text-secondary); font-size:14px; text-decoration:none;
+            padding:2px 6px; border-radius:4px; transition:background .15s;
+        }
+        .kpi-arrow:hover { background:var(--bg-elevated); color:var(--text-primary); }
+        .kpi-value { font-size:28px; font-weight:700; color:var(--text-primary); line-height:1.1; }
+        .kpi-value small { font-size:13px; font-weight:500; color:var(--text-secondary); margin-left:4px; }
+        .kpi-delta {
+            font-size:11.5px; color:var(--text-secondary); margin-top:6px;
+            display:flex; align-items:center; gap:4px;
+        }
+        .kpi-delta.up   { color:#22c55e; }
+        .kpi-delta.down { color:#ef4444; }
+        .kpi-delta.flat { color:var(--text-secondary); }
+        .kpi-spark {
+            display:block; width:100% !important; height:50px !important;
+            margin-top:auto;
+        }
+        .kpi-sub b { color:var(--text-primary); font-weight:700; }
+
         /* ── Fleet Overview (Plugit-style) ───────────────────────────────── */
         .fleet-grid {
             display:grid; grid-template-columns: 2fr 1fr;
@@ -218,6 +267,54 @@
                     <div class="hero-sub" id="heroSub">Monitoring charger fleet, sessions and energy throughput in real time.</div>
                 </div>
                 <div class="hero-pill"><span class="hero-dot"></span><span id="heroPill">SYSTEM OPERATIONAL</span></div>
+            </div>
+
+            <!-- Plugit-style KPI cards — period: last 30 days vs prior 30 days -->
+            <div class="kpi-grid">
+                <div class="kpi-card" data-tone="ink">
+                    <div class="kpi-head">
+                        <span class="kpi-icon">💵</span>
+                        <span class="kpi-title">Revenue</span>
+                        <a class="kpi-arrow" href="/invoice" title="Open invoices →">→</a>
+                    </div>
+                    <div class="kpi-value"><span id="kpiRevenue">—</span> <small>RM</small></div>
+                    <div class="kpi-delta" id="kpiRevenueDelta">—</div>
+                    <canvas class="kpi-spark" id="kpiRevenueSpark"></canvas>
+                </div>
+
+                <div class="kpi-card" data-tone="blue">
+                    <div class="kpi-head">
+                        <span class="kpi-icon">⚡</span>
+                        <span class="kpi-title">Energy Charged</span>
+                        <a class="kpi-arrow" href="/metering" title="Open metering →">→</a>
+                    </div>
+                    <div class="kpi-value"><span id="kpiEnergy">—</span> <small>MWh</small></div>
+                    <div class="kpi-delta" id="kpiEnergyDelta">—</div>
+                    <canvas class="kpi-spark" id="kpiEnergySpark"></canvas>
+                </div>
+
+                <div class="kpi-card" data-tone="ink">
+                    <div class="kpi-head">
+                        <span class="kpi-icon">🔌</span>
+                        <span class="kpi-title">Transactions Made</span>
+                        <a class="kpi-arrow" href="/sessions" title="Open sessions →">→</a>
+                    </div>
+                    <div class="kpi-value"><span id="kpiTxn">—</span></div>
+                    <div class="kpi-delta" id="kpiTxnDelta">—</div>
+                    <canvas class="kpi-spark" id="kpiTxnSpark"></canvas>
+                </div>
+
+                <div class="kpi-card" data-tone="ink">
+                    <div class="kpi-head">
+                        <span class="kpi-icon">☁️</span>
+                        <span class="kpi-title">Reduced CO₂ emission</span>
+                    </div>
+                    <div class="kpi-value"><span id="kpiCo2">—</span> <small>kg</small></div>
+                    <div class="kpi-delta" id="kpiCo2Delta">—</div>
+                    <div class="kpi-sub" id="kpiCo2Sub" style="font-size:11px;color:var(--text-secondary);margin-top:8px;">
+                        Saved as much CO₂ as around <b id="kpiCo2Trees">—</b> trees this month. 🌲🌲🌲
+                    </div>
+                </div>
             </div>
 
             <!-- Plugit-style Fleet Overview — SVG illustration + segmented bar + locations split -->
@@ -339,6 +436,9 @@
     <script>
         const API_BASE = '/api';
         let chargerStatusChart = null, chargerAvailabilityChart = null, sessionsStatusChart = null, energyChart = null, sessionsTimelineChart = null;
+        // KPI sparkline charts (Revenue / Energy / Transactions). CO2 has no
+        // sparkline by design — its delta is communicated via the trees line.
+        let kpiRevenueSpark = null, kpiEnergySpark = null, kpiTxnSpark = null;
         const C = { green:'#00e676', red:'#ef5350', yellow:'#ffa726', blue:'#42a5f5', gray:'#5a6478' };
 
         // Sidebar
@@ -395,11 +495,118 @@
             });
         }
 
+        // Malaysia grid emission factor (kg CO₂ per kWh of grid electricity)
+        // — conservative midpoint of Energy Commission 2022 figures (0.55–0.7).
+        // An EV charged with renewable energy displaces this much grid CO₂.
+        const GRID_EMISSION_KG_PER_KWH = 0.585;
+        // Average tree absorbs ~21 kg CO₂/year ≈ 1.75 kg/month — used to
+        // translate kg saved into a friendly "X trees" equivalent.
+        const TREE_KG_PER_MONTH = 1.75;
+
+        function _bucketByDay(sessions, days) {
+            // Return arrays of length `days` (oldest → newest today).
+            const energy = new Array(days).fill(0);
+            const revenue = new Array(days).fill(0);
+            const txn = new Array(days).fill(0);
+            const now = new Date(); now.setHours(0,0,0,0);
+            sessions.forEach(s => {
+                const t = s.start_time || s.end_time; if (!t) return;
+                const d = new Date(t); d.setHours(0,0,0,0);
+                const ageDays = Math.round((now - d) / 86400000);
+                if (ageDays < 0 || ageDays >= days) return;
+                const idx = days - 1 - ageDays;  // oldest at 0, today at days-1
+                energy[idx]  += Number(s.energy_consumed || s.energy_consumed_kwh || 0);
+                revenue[idx] += Number(s.cost || s.total_cost || 0);
+                txn[idx]     += 1;
+            });
+            return { energy, revenue, txn };
+        }
+
+        function _renderSpark(canvas, holder, data, color) {
+            if (!canvas) return holder;
+            if (holder) { holder.data.datasets[0].data = data; holder.update('none'); return holder; }
+            return new Chart(canvas, {
+                type: 'line',
+                data: { labels: data.map((_, i) => i), datasets: [{
+                    data, borderColor: color, backgroundColor: color + '22',
+                    fill: true, borderWidth: 1.6, pointRadius: 0, tension: 0.35,
+                }]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+                    elements: { line: { borderJoinStyle: 'round' } },
+                },
+            });
+        }
+
+        function _formatDelta(curr, prev, unit, decimals=2) {
+            const el = document.createElement('span');
+            if (prev === 0 && curr === 0) return { text: `= 0 ${unit} equal as last period`, cls: 'flat' };
+            if (prev === 0) return { text: `↑ ${curr.toFixed(decimals)} ${unit} (new)`, cls: 'up' };
+            const diff = curr - prev;
+            const abs = Math.abs(diff).toFixed(decimals);
+            if (diff > 0) return { text: `↑ ${abs} ${unit} more than last period`, cls: 'up' };
+            if (diff < 0) return { text: `↓ ${abs} ${unit} less than last period`, cls: 'down' };
+            return { text: `= 0 ${unit} equal as last period`, cls: 'flat' };
+        }
+
+        function updateKpiCards(sessions) {
+            // Last 30 days = current period, prior 30 (days 31-60 ago) = baseline.
+            // Splitting on the same `sessions` array avoids a second API call.
+            const curr = _bucketByDay(sessions, 30);
+            // For "prior period" we re-bucket by shifting now back 30 days.
+            const priorDate = new Date(); priorDate.setDate(priorDate.getDate() - 30); priorDate.setHours(0,0,0,0);
+            const prior = { energy:0, revenue:0, txn:0 };
+            sessions.forEach(s => {
+                const t = s.start_time || s.end_time; if (!t) return;
+                const d = new Date(t); d.setHours(0,0,0,0);
+                const ageDays = Math.round((Date.now() - d.getTime()) / 86400000);
+                if (ageDays >= 30 && ageDays < 60) {
+                    prior.energy  += Number(s.energy_consumed || s.energy_consumed_kwh || 0);
+                    prior.revenue += Number(s.cost || s.total_cost || 0);
+                    prior.txn     += 1;
+                }
+            });
+            const currTotals = {
+                energy:  curr.energy.reduce((a,b)=>a+b,0),
+                revenue: curr.revenue.reduce((a,b)=>a+b,0),
+                txn:     curr.txn.reduce((a,b)=>a+b,0),
+            };
+
+            // Values
+            document.getElementById('kpiRevenue').textContent = currTotals.revenue.toFixed(2);
+            document.getElementById('kpiEnergy').textContent  = (currTotals.energy / 1000).toFixed(2);  // kWh → MWh
+            document.getElementById('kpiTxn').textContent     = currTotals.txn;
+            const currCo2  = currTotals.energy * GRID_EMISSION_KG_PER_KWH;
+            const priorCo2 = prior.energy * GRID_EMISSION_KG_PER_KWH;
+            document.getElementById('kpiCo2').textContent     = currCo2.toFixed(0);
+            document.getElementById('kpiCo2Trees').textContent = Math.max(0, Math.round(currCo2 / TREE_KG_PER_MONTH));
+
+            // Deltas
+            const dRev = _formatDelta(currTotals.revenue, prior.revenue, 'RM', 2);
+            const dEn  = _formatDelta(currTotals.energy/1000, prior.energy/1000, 'MWh', 2);
+            const dTxn = _formatDelta(currTotals.txn, prior.txn, '', 0);
+            const dCo2 = _formatDelta(currCo2, priorCo2, 'kg', 0);
+            const rev = document.getElementById('kpiRevenueDelta'); rev.textContent = dRev.text; rev.className = 'kpi-delta ' + dRev.cls;
+            const en  = document.getElementById('kpiEnergyDelta');  en.textContent  = dEn.text;  en.className  = 'kpi-delta ' + dEn.cls;
+            const tx  = document.getElementById('kpiTxnDelta');     tx.textContent  = dTxn.text.replace(' equal as last period', ' equal').replace(' more than last period', ' more').replace(' less than last period', ' less'); tx.className = 'kpi-delta ' + dTxn.cls;
+            const co  = document.getElementById('kpiCo2Delta');     co.textContent  = dCo2.text; co.className  = 'kpi-delta ' + dCo2.cls;
+
+            // Sparklines
+            kpiRevenueSpark = _renderSpark(document.getElementById('kpiRevenueSpark'), kpiRevenueSpark, curr.revenue, '#22c55e');
+            kpiEnergySpark  = _renderSpark(document.getElementById('kpiEnergySpark'),  kpiEnergySpark,  curr.energy,  '#ffffff');
+            kpiTxnSpark     = _renderSpark(document.getElementById('kpiTxnSpark'),     kpiTxnSpark,     curr.txn,     '#3b82f6');
+        }
+
         async function loadDashboardData() {
             try {
                 const [chargersRes, sessionsRes] = await Promise.all([fetch(`${API_BASE}/chargers`), fetch(`${API_BASE}/sessions`)]);
                 const chargers = await chargersRes.json();
                 const sessions = await sessionsRes.json();
+
+                // ── KPI cards: Revenue / Energy / Transactions / CO₂ ─────
+                updateKpiCards(sessions);
 
                 // ── Fleet Overview (Plugit-style block) ───────────────────
                 // Use fleet-prefixed locals so we don't collide with the
