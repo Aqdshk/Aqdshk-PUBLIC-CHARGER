@@ -57,6 +57,16 @@ def _utcnow():
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 # Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
 active_charge_points: Dict[str, 'ChargePoint'] = {}
+# Track the asyncio Task running each ChargePoint's message loop.
+# Needed so force_close_charge_point() can cancel the loop — otherwise
+# ws.close() alone doesn't always tear down the running cp.start() coroutine,
+# and the "zombie" task keeps processing Heartbeats (updating DB) without
+# the ChargePoint being in active_charge_points (so RemoteStart fails).
+connection_tasks: Dict[str, "asyncio.Task"] = {}
+# Per-charger mismatch counter for the healer's auto-recovery — increments
+# each healer cycle the charger appears in pool/heartbeat mismatch state,
+# resets when state is consistent. Auto-recovery fires at threshold.
+_mismatch_strikes: Dict[str, int] = {}
 
 # Reference to the FastAPI (main) event loop.
 # Set by api.py startup handler. Used by the scheduled charging worker
@@ -1493,8 +1503,11 @@ async def on_connect(websocket):
         
         # Register charge point in global dictionary (for RemoteStartTransaction/RemoteStopTransaction)
         active_charge_points[charge_point_id] = charge_point
+        # Track the task that owns this connection so we can cancel it on
+        # admin force-reconnect (ws.close() alone leaves a zombie loop).
+        connection_tasks[charge_point_id] = asyncio.current_task()
         logger.info(f"✅ Charge point {charge_point_id} registered. Total active connections: {len(active_charge_points)}")
-        
+
         try:
             # Start handling OCPP messages from charger
             # Wrap in try-except to handle errors gracefully without closing connection
@@ -1512,6 +1525,8 @@ async def on_connect(websocket):
         finally:
             # Remove from active connections when disconnected
             active_charge_points.pop(charge_point_id, None)
+            connection_tasks.pop(charge_point_id, None)
+            _mismatch_strikes.pop(charge_point_id, None)
             logger.info(f"❌ Charge point {charge_point_id} disconnected. Remaining connections: {len(active_charge_points)}")
             
             # IMPORTANT:
@@ -1563,15 +1578,19 @@ def get_active_charge_point(charge_point_id: str) -> ChargePoint:
 
 
 async def force_close_charge_point(charge_point_id: str) -> dict:
-    """Drop the server-side WebSocket for a charger so it reconnects fresh.
+    """Drop the server-side WebSocket AND cancel its message loop so the
+    charger detects disconnect and reconnects fresh.
 
-    Used by /api/admin/chargers/{id}/force-reconnect to clear stale state
-    where DB says the charger is online (heartbeat fresh) but the WebSocket
-    has died. After this returns, the charger's auto-retry loop reopens a
-    new WebSocket within seconds and re-registers into active_charge_points.
+    Previously this only closed the WS, which on some firmwares left a
+    zombie asyncio task running cp.start() — Heartbeats kept updating DB
+    but the ChargePoint was removed from active_charge_points so
+    RemoteStart still failed. We now also cancel the task to guarantee
+    teardown.
     """
     cp = active_charge_points.get(charge_point_id)
+    task = connection_tasks.get(charge_point_id)
     closed = False
+    # 1) Close the WebSocket from our side (sends TCP FIN/RST to charger).
     if cp is not None:
         try:
             ws = getattr(cp, "_connection", None) or getattr(cp, "websocket", None)
@@ -1580,12 +1599,25 @@ async def force_close_charge_point(charge_point_id: str) -> dict:
                     await ws.close(code=1000, reason="admin force reconnect")
                 except Exception as e:
                     logger.warning(f"[force-reconnect] close ws raised for {charge_point_id}: {e}")
-            active_charge_points.pop(charge_point_id, None)
             closed = True
-            logger.info(f"[force-reconnect] {charge_point_id}: socket closed + removed from active pool")
         except Exception as e:
             logger.error(f"[force-reconnect] {charge_point_id}: {e}", exc_info=True)
-    # Reset DB flag so the next reconnect is treated as fresh boot.
+    # 2) Cancel the running message-loop task so it doesn't keep processing
+    #    Heartbeats from a half-dead socket and confusing the dashboard.
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        except Exception as e:
+            logger.warning(f"[force-reconnect] task await raised for {charge_point_id}: {e}")
+    # 3) Belt-and-suspenders cleanup (the task's own finally block usually
+    #    handles this, but if cancellation happened mid-await we make sure).
+    active_charge_points.pop(charge_point_id, None)
+    connection_tasks.pop(charge_point_id, None)
+    _mismatch_strikes.pop(charge_point_id, None)
+    # 4) Reset DB flag so the next reconnect is treated as fresh boot.
     try:
         db = SessionLocal()
         charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
@@ -1595,7 +1627,8 @@ async def force_close_charge_point(charge_point_id: str) -> dict:
         db.close()
     except Exception as e:
         logger.error(f"[force-reconnect] DB update failed for {charge_point_id}: {e}")
-    return {"closed_socket": closed, "remaining_active": len(active_charge_points)}
+    logger.info(f"[force-reconnect] {charge_point_id}: closed={closed} task_cancelled={task is not None}")
+    return {"closed_socket": closed, "task_cancelled": task is not None, "remaining_active": len(active_charge_points)}
 
 
 async def ocpp_state_healer_loop(interval_seconds: int = 60):
@@ -1640,13 +1673,34 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
                     cleaned += 1
                     continue
 
-                # Case A — mismatch (heartbeat fresh but no socket)
+                # Case A — mismatch (heartbeat fresh but no socket). Could be
+                # a genuine race (charger reconnecting right now) — so we wait
+                # AUTO_RECOVERY_THRESHOLD consecutive healer cycles before
+                # intervening to avoid disturbing a healthy reconnect.
                 if (not in_pool) and hb and hb >= fresh_cutoff:
                     mismatch_count += 1
-                    logger.warning(
-                        f"[ocpp-healer] {c.charge_point_id}: DB online but "
-                        f"WebSocket missing — admin may need to force-reconnect"
-                    )
+                    strikes = _mismatch_strikes.get(c.charge_point_id, 0) + 1
+                    _mismatch_strikes[c.charge_point_id] = strikes
+                    AUTO_RECOVERY_THRESHOLD = 2  # ≈ 2 minutes at 60s interval
+                    if strikes >= AUTO_RECOVERY_THRESHOLD:
+                        logger.warning(
+                            f"[ocpp-healer] {c.charge_point_id}: mismatch persisted "
+                            f"{strikes} cycles — auto force-reconnect"
+                        )
+                        try:
+                            await force_close_charge_point(c.charge_point_id)
+                            cleaned += 1
+                        except Exception as e:
+                            logger.error(f"[ocpp-healer] auto-recovery failed for {c.charge_point_id}: {e}")
+                        _mismatch_strikes.pop(c.charge_point_id, None)
+                    else:
+                        logger.warning(
+                            f"[ocpp-healer] {c.charge_point_id}: DB online but WS missing "
+                            f"(strike {strikes}/{AUTO_RECOVERY_THRESHOLD}) — watching"
+                        )
+                else:
+                    # Consistent state — clear any pending strikes.
+                    _mismatch_strikes.pop(c.charge_point_id, None)
 
             db.close()
             if mismatch_count or cleaned:
