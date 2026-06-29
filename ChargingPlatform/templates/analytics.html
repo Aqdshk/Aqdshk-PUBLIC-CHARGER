@@ -360,7 +360,11 @@
         function renderKPIs(d) {
             const grid = document.getElementById('kpiGrid');
             const kpis = [
-                { label: 'Total Revenue', value: `RM ${d.revenue.total.toLocaleString()}`, change: d.revenue.growth_pct, sub: `RM ${d.revenue.today} today` },
+                // "Total Revenue" backend = top-ups only (PaymentTransaction).
+                // Renamed for clarity so it isn't confused with charging
+                // revenue from the energy-billing tile below.
+                { label: 'Top-up Revenue (All-time)', value: `RM ${d.revenue.total.toLocaleString()}`, change: d.revenue.growth_pct, sub: `RM ${d.revenue.today} today` },
+                { label: 'Revenue (This Month)', value: `RM ${d.revenue.this_month.toLocaleString()}`, change: null, sub: `RM ${d.revenue.prev_month.toLocaleString()} last month` },
                 { label: 'Total Users', value: d.users.total.toLocaleString(), change: d.users.growth_pct, sub: `${d.users.new_this_month} new this month` },
                 { label: 'Charging Sessions', value: d.sessions.total.toLocaleString(), change: null, sub: `${d.sessions.active} active now` },
                 { label: 'Energy Delivered', value: `${d.energy.total_kwh.toLocaleString()} kWh`, change: null, sub: `${d.energy.this_month_kwh} kWh this month` },
@@ -466,7 +470,7 @@
             const grid = document.getElementById('financialGrid');
             const items = [
                 { label: 'Gross Revenue (Top-ups)', value: `RM ${d.revenue.total.toLocaleString()}`, color: '#00ff88' },
-                { label: 'Charging Revenue (Energy)', value: `RM ${d.revenue.charging_revenue.toLocaleString()}`, color: '#4488ff' },
+                { label: 'Charging Revenue (Energy · All-time)', value: `RM ${d.revenue.charging_revenue.toLocaleString()}`, color: '#4488ff' },
                 { label: 'Maintenance Costs', value: `RM ${d.maintenance.total_cost.toLocaleString()}`, color: '#ff9944' },
                 { label: 'Net Profit', value: `RM ${d.financials.net_profit.toLocaleString()}`, color: d.financials.net_profit >= 0 ? '#00ff88' : '#ff4466' },
             ];
