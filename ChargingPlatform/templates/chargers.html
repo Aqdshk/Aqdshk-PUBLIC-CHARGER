@@ -91,6 +91,81 @@
             </div>
         </div>
 
+        <!-- OCPP Console — Plugit-style inline operations panel -->
+        <div class="ops-panel" id="opsPanel">
+            <div class="ops-panel-header">
+                <h3>🎛 OCPP Console — <span id="opsCpId">—</span></h3>
+                <button class="close" onclick="closeOpsPanel()">×</button>
+            </div>
+            <div class="ops-panel-body">
+                <div class="ops-section">
+                    <h4>Status</h4>
+                    <div class="ops-status-grid" id="opsStatus">
+                        <span class="k">Status</span><span class="v" id="opsS_status">—</span>
+                        <span class="k">Availability</span><span class="v" id="opsS_avail">—</span>
+                        <span class="k">WebSocket</span><span class="v" id="opsS_ws">—</span>
+                        <span class="k">Last heartbeat</span><span class="v" id="opsS_hb">—</span>
+                        <span class="k">Vendor / Model</span><span class="v" id="opsS_vm">—</span>
+                    </div>
+                </div>
+
+                <div class="ops-section">
+                    <h4>Power control</h4>
+                    <div class="ops-row">
+                        <label>Reset type</label>
+                        <select id="opsResetType"><option value="Soft">Soft</option><option value="Hard">Hard</option></select>
+                        <button class="btn btn-warning btn-small" onclick="opsReset()">⟳ Reset</button>
+                    </div>
+                    <div class="ops-row">
+                        <button class="btn btn-secondary btn-small" onclick="opsClearCache()">🧹 Clear Auth Cache</button>
+                    </div>
+                    <div class="ops-result" id="opsResult_power"></div>
+                </div>
+
+                <div class="ops-section">
+                    <h4>Connector</h4>
+                    <div class="ops-row">
+                        <label>Connector ID</label>
+                        <input type="number" id="opsUnlockConn" value="1" min="1">
+                        <button class="btn btn-secondary btn-small" onclick="opsUnlock()">🔓 Unlock</button>
+                    </div>
+                    <div class="ops-row">
+                        <label>Availability</label>
+                        <input type="number" id="opsAvailConn" value="0" min="0" title="0 = entire charger, 1+ = specific connector">
+                        <select id="opsAvailType"><option value="Operative">Operative</option><option value="Inoperative">Inoperative</option></select>
+                        <button class="btn btn-secondary btn-small" onclick="opsChangeAvail()">Apply</button>
+                    </div>
+                    <div class="ops-result" id="opsResult_conn"></div>
+                </div>
+
+                <div class="ops-section">
+                    <h4>Diagnostics</h4>
+                    <div class="ops-row">
+                        <label>Trigger</label>
+                        <select id="opsTrigger">
+                            <option>BootNotification</option>
+                            <option>StatusNotification</option>
+                            <option>Heartbeat</option>
+                            <option>MeterValues</option>
+                            <option>DiagnosticsStatusNotification</option>
+                            <option>FirmwareStatusNotification</option>
+                        </select>
+                        <input type="number" id="opsTriggerConn" placeholder="conn (opt)" min="1" style="max-width:90px;">
+                        <button class="btn btn-secondary btn-small" onclick="opsTriggerMessage()">📤 Send</button>
+                    </div>
+                    <div class="ops-result" id="opsResult_diag"></div>
+                </div>
+
+                <div class="ops-section">
+                    <h4>Advanced</h4>
+                    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">
+                        Configuration read/write, charging schedules, firmware update, local list →
+                        <a href="/operations" style="color:var(--accent,#22c55e);">/operations</a> page.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <!-- Edit Charger modal — wired to PATCH /api/admin/chargers/{id}/info -->
         <div class="modal-backdrop" id="editChargerModal" onclick="if(event.target===this)closeEditCharger()">
             <div class="modal-box">
@@ -164,6 +239,59 @@
                 background:var(--bg-elev,#111); color:var(--text-primary); font-size:13px; box-sizing:border-box;
             }
             .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
+
+            /* OCPP Console side-panel — Plugit-style inline control */
+            .ops-panel {
+                position:fixed; top:0; right:0; height:100vh; width:min(92vw,460px);
+                background:var(--bg-card); border-left:1px solid var(--border);
+                box-shadow:-8px 0 24px rgba(0,0,0,0.35); z-index:8500;
+                transform:translateX(100%); transition:transform .22s ease;
+                display:flex; flex-direction:column;
+            }
+            .ops-panel.open { transform:translateX(0); }
+            .ops-panel-header {
+                padding:14px 18px; border-bottom:1px solid var(--border);
+                display:flex; align-items:center; justify-content:space-between;
+            }
+            .ops-panel-header h3 { margin:0; font-size:15px; }
+            .ops-panel-header .close {
+                background:transparent; border:none; color:var(--text-secondary);
+                font-size:20px; cursor:pointer; padding:4px 8px; line-height:1;
+            }
+            .ops-panel-body {
+                flex:1; overflow-y:auto; padding:16px 18px;
+            }
+            .ops-section {
+                margin-bottom:18px; padding:12px 14px;
+                background:var(--bg-elev,#0f1421); border:1px solid var(--border); border-radius:8px;
+            }
+            .ops-section h4 {
+                margin:0 0 10px; font-size:12px; font-weight:600;
+                text-transform:uppercase; letter-spacing:.6px;
+                color:var(--text-secondary);
+            }
+            .ops-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+            .ops-row label { font-size:12px; color:var(--text-secondary); min-width:90px; }
+            .ops-row input, .ops-row select {
+                padding:6px 10px; border-radius:6px; border:1px solid var(--border);
+                background:var(--bg-elev,#0a0e1a); color:var(--text-primary); font-size:13px;
+                flex:1; min-width:80px;
+            }
+            .ops-row .btn { padding:6px 12px; font-size:12px; }
+            .ops-result {
+                margin-top:8px; padding:8px 10px; border-radius:6px;
+                font-size:12px; font-family:Consolas,monospace; word-break:break-all;
+                background:rgba(255,255,255,0.04); border:1px solid var(--border);
+                display:none;
+            }
+            .ops-result.ok    { display:block; border-color:#16a34a; color:#86efac; }
+            .ops-result.fail  { display:block; border-color:#ef4444; color:#fca5a5; }
+            .ops-status-grid {
+                display:grid; grid-template-columns:max-content 1fr; gap:6px 14px;
+                font-size:12px;
+            }
+            .ops-status-grid .k { color:var(--text-secondary); }
+            .ops-status-grid .v { color:var(--text-primary); font-weight:600; }
         </style>
     </div>
 
@@ -442,7 +570,7 @@
                                             <button onclick="openEditCharger('${cpEsc}')">✏️ Edit details</button>
                                             <button onclick="window.location='/sessions?charger_id=${encodeURIComponent(charger.charge_point_id)}'">📊 View sessions</button>
                                             <button onclick="window.location='/metering?charger_id=${encodeURIComponent(charger.charge_point_id)}'">⚡ View metering</button>
-                                            <button onclick="window.location='/operations'">🎛 OCPP Operations</button>
+                                            <button onclick="openOpsPanel('${cpEsc}')">🎛 OCPP Operations</button>
                                             <div class="menu-sep"></div>
                                             <button onclick="forceReconnect('${cpEsc}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>
                                             <button onclick="disableCharger('${cpEsc}')">🔇 Disable temporarily</button>
@@ -537,6 +665,71 @@
             } catch (e) {
                 msg.innerHTML = `<span style="color:#ef4444;">❌ ${e.message}</span>`;
             }
+        }
+
+        // ── OCPP Console side panel ─────────────────────────────────────────
+        let _opsCpId = null;
+        function openOpsPanel(cpId) {
+            const c = (_allChargers || []).find(x => x.charge_point_id === cpId);
+            if (!c) { alert('Charger not in cache. Refresh and try again.'); return; }
+            _opsCpId = cpId;
+            document.getElementById('opsCpId').textContent = cpId;
+            document.getElementById('opsS_status').textContent = (c.status || '—').toUpperCase();
+            document.getElementById('opsS_avail').textContent = (c.availability || '—').toUpperCase();
+            const ws = c.ws_connected;
+            const wsEl = document.getElementById('opsS_ws');
+            wsEl.textContent = ws === true ? '● connected' : ws === false ? '✗ missing' : '—';
+            wsEl.style.color = ws === true ? '#22c55e' : ws === false ? '#f59e0b' : '';
+            document.getElementById('opsS_hb').textContent = c.last_heartbeat ? formatKLTime(c.last_heartbeat) : 'Never';
+            document.getElementById('opsS_vm').textContent = `${c.vendor || 'N/A'} · ${c.model || 'N/A'}`;
+            // Clear any stale result banners from a previous opening.
+            ['opsResult_power','opsResult_conn','opsResult_diag'].forEach(id => {
+                const e = document.getElementById(id);
+                if (e) { e.className = 'ops-result'; e.textContent = ''; }
+            });
+            document.getElementById('opsPanel').classList.add('open');
+        }
+        function closeOpsPanel() {
+            document.getElementById('opsPanel').classList.remove('open');
+            _opsCpId = null;
+        }
+
+        // Shared call helper — surface OcppOperationResponse {success,message} cleanly.
+        async function _opsCall(path, body, resultElId) {
+            if (!_opsCpId) return;
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+            const el = document.getElementById(resultElId);
+            el.className = 'ops-result'; el.textContent = '⏳ Sending…'; el.style.display = 'block';
+            try {
+                const res = await fetch(`/api/ocpp/${encodeURIComponent(_opsCpId)}${path}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
+                    body: body ? JSON.stringify(body) : '{}',
+                });
+                const r = await res.json();
+                el.className = 'ops-result ' + (r.success ? 'ok' : 'fail');
+                el.textContent = (r.success ? '✓ ' : '✗ ') + (r.message || JSON.stringify(r));
+            } catch (e) {
+                el.className = 'ops-result fail';
+                el.textContent = '✗ ' + e.message;
+            }
+        }
+
+        function opsReset()       { _opsCall('/reset', { type: document.getElementById('opsResetType').value }, 'opsResult_power'); }
+        function opsClearCache()  { _opsCall('/clear-cache', null, 'opsResult_power'); }
+        function opsUnlock()      { _opsCall('/unlock-connector', { connector_id: parseInt(document.getElementById('opsUnlockConn').value || '1', 10) }, 'opsResult_conn'); }
+        function opsChangeAvail() {
+            _opsCall('/change-availability', {
+                connector_id: parseInt(document.getElementById('opsAvailConn').value || '0', 10),
+                type: document.getElementById('opsAvailType').value,
+            }, 'opsResult_conn');
+        }
+        function opsTriggerMessage() {
+            const body = { requested_message: document.getElementById('opsTrigger').value };
+            const conn = document.getElementById('opsTriggerConn').value;
+            if (conn !== '') body.connector_id = parseInt(conn, 10);
+            _opsCall('/trigger-message', body, 'opsResult_diag');
         }
 
         // ── Disable / Delete (stubs — wire backend in next iteration) ───────
