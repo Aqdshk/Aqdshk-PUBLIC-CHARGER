@@ -71,6 +71,15 @@
                 </div>
                 <div id="addChargerMsg" style="margin-top:10px;font-size:12px;"></div>
             </div>
+            <!-- Stats bar — fleet snapshot at a glance -->
+            <div id="chargerStats" style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:12px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:13px;flex-shrink:0;">
+                <div><span style="color:var(--text-secondary);">Total</span> <b id="statTotal" style="margin-left:6px;">—</b></div>
+                <div><span style="color:var(--text-secondary);">Online</span> <b id="statOnline" style="margin-left:6px;color:#16a34a;">—</b></div>
+                <div><span style="color:var(--text-secondary);">Available</span> <b id="statAvailable" style="margin-left:6px;color:#22c55e;">—</b></div>
+                <div><span style="color:var(--text-secondary);">Charging</span> <b id="statCharging" style="margin-left:6px;color:#0ea5e9;">—</b></div>
+                <div><span style="color:var(--text-secondary);">Offline</span> <b id="statOffline" style="margin-left:6px;color:#94a3b8;">—</b></div>
+                <div style="margin-left:auto;"><span style="color:var(--text-secondary);">Utilisation</span> <b id="statUtil" style="margin-left:6px;">—</b></div>
+            </div>
             <!-- Sticky search bar — stays visible while the list scrolls -->
             <div style="margin-bottom:12px;flex-shrink:0;">
                 <input type="text" id="chargerSearch" placeholder="🔍 Search by charger ID, vendor or model..." oninput="renderChargers()" autocomplete="off"
@@ -81,11 +90,80 @@
                 <div class="loading-spinner">Loading chargers...</div>
             </div>
         </div>
+
+        <!-- Edit Charger modal — wired to PATCH /api/admin/chargers/{id}/info -->
+        <div class="modal-backdrop" id="editChargerModal" onclick="if(event.target===this)closeEditCharger()">
+            <div class="modal-box">
+                <h3>✏️ Edit charger — <span id="ecId">—</span></h3>
+                <label>Location label</label>
+                <input type="text" id="ecLocation" placeholder="e.g. Carpark B · Slot 12">
+                <label>Latitude</label>
+                <input type="number" step="any" id="ecLat" placeholder="3.0738">
+                <label>Longitude</label>
+                <input type="number" step="any" id="ecLng" placeholder="101.5183">
+                <label>Connector type</label>
+                <select id="ecConnector">
+                    <option value="">— keep current —</option>
+                    <option value="Type 2">Type 2 (AC)</option>
+                    <option value="CCS2">CCS2 (DC)</option>
+                    <option value="CHAdeMO">CHAdeMO (DC)</option>
+                    <option value="GB/T">GB/T</option>
+                </select>
+                <label>Max power (kW)</label>
+                <input type="number" step="0.1" id="ecPower" placeholder="22">
+                <div class="modal-actions">
+                    <button class="btn btn-secondary btn-small" onclick="closeEditCharger()">Cancel</button>
+                    <button class="btn btn-success btn-small" onclick="saveEditCharger()">💾 Save</button>
+                </div>
+                <div id="ecMsg" style="margin-top:10px;font-size:12px;color:var(--text-secondary);"></div>
+            </div>
+        </div>
         <style>
             #chargerStatusList::-webkit-scrollbar { width:6px; }
             #chargerStatusList::-webkit-scrollbar-track { background:transparent; }
             #chargerStatusList::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
             #chargerStatusList::-webkit-scrollbar-thumb:hover { background:var(--text-muted); }
+
+            /* Per-card Actions dropdown (Plugit-style inline menu) */
+            .actions-wrap { position:relative; display:inline-block; }
+            .actions-btn {
+                background:transparent; border:1px solid var(--border); color:var(--text-secondary);
+                width:30px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1;
+                display:inline-flex; align-items:center; justify-content:center;
+            }
+            .actions-btn:hover { background:var(--bg-elev,#1a1f2e); color:var(--text-primary); }
+            .actions-menu {
+                display:none; position:absolute; right:0; top:32px; z-index:50;
+                min-width:200px; background:var(--bg-card); border:1px solid var(--border);
+                border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.35); padding:4px;
+            }
+            .actions-menu.open { display:block; }
+            .actions-menu button {
+                display:flex; align-items:center; gap:10px; width:100%; padding:8px 12px;
+                background:transparent; border:none; color:var(--text-primary); cursor:pointer;
+                font-size:13px; text-align:left; border-radius:6px;
+            }
+            .actions-menu button:hover { background:var(--bg-elev,#1a1f2e); }
+            .actions-menu button.danger { color:#ef4444; }
+            .actions-menu .menu-sep { height:1px; background:var(--border); margin:4px 0; }
+
+            /* Edit Charger modal */
+            .modal-backdrop {
+                display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9000;
+                align-items:center; justify-content:center;
+            }
+            .modal-backdrop.open { display:flex; }
+            .modal-box {
+                background:var(--bg-card); border:1px solid var(--border); border-radius:12px;
+                padding:24px; width:min(92vw,460px); max-height:88vh; overflow:auto;
+            }
+            .modal-box h3 { margin:0 0 16px; font-size:16px; }
+            .modal-box label { display:block; font-size:12px; color:var(--text-secondary); margin:10px 0 4px; }
+            .modal-box input, .modal-box select {
+                width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--border);
+                background:var(--bg-elev,#111); color:var(--text-primary); font-size:13px; box-sizing:border-box;
+            }
+            .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
         </style>
     </div>
 
@@ -311,6 +389,25 @@
                 ? `${list.length} of ${_allChargers.length} charger(s)`
                 : `${_allChargers.length} charger(s)`;
 
+            // Fleet stats — computed across ALL chargers (not just filtered list)
+            // so the snapshot doesn't change when the user types in search.
+            const stats = _allChargers.reduce((s, c) => {
+                s.total++;
+                const st = (c.status || 'offline'), av = (c.availability || 'unknown');
+                if (st === 'online') s.online++; else s.offline++;
+                if (st === 'online' && av === 'available') s.available++;
+                if (av === 'charging' || (c.active_transaction_id||0) > 0) s.charging++;
+                return s;
+            }, {total:0, online:0, offline:0, available:0, charging:0});
+            const denom = stats.online || 1;
+            const util = Math.round((stats.charging / denom) * 100);
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statOnline').textContent = stats.online;
+            document.getElementById('statAvailable').textContent = stats.available;
+            document.getElementById('statCharging').textContent = stats.charging;
+            document.getElementById('statOffline').textContent = stats.offline;
+            document.getElementById('statUtil').textContent = stats.online ? `${util}%` : '—';
+
             if (list.length === 0) {
                 container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div>No charger matches your search</div></div>`;
                 return;
@@ -330,14 +427,29 @@
                     const statusDisplay = hasActive && status === 'offline' ? 'CHARGING (OFFLINE)' : status.toUpperCase();
                     // ws_connected=false on a charger DB-marked "online" = state mismatch (zombie heartbeat / dropped socket)
                     const wsMismatch = status === 'online' && charger.ws_connected === false;
+                    const cpEsc = (charger.charge_point_id || '').replace(/'/g, "\\'");
                     return `
                         <div class="charger-item ${itemClass}">
                             <div class="charger-header">
                                 <span class="charger-id">${charger.charge_point_id}</span>
-                                <div class="charger-badges">
+                                <div class="charger-badges" style="display:flex;align-items:center;gap:6px;">
                                     <span class="badge ${statusBadge}">${statusDisplay}</span>
                                     <span class="badge ${availBadge}">${availability.toUpperCase()}</span>
                                     ${wsMismatch ? `<span class="badge" style="background:#f59e0b;color:#1a1a1a;" title="DB marks this charger online but the OCPP WebSocket is missing. Start commands will fail until reconnected.">⚠ WS LOST</span>` : ''}
+                                    <div class="actions-wrap">
+                                        <button class="actions-btn" title="More actions" onclick="toggleActions(event,'${cpEsc}')">⋯</button>
+                                        <div class="actions-menu" id="menu-${cpEsc}">
+                                            <button onclick="openEditCharger('${cpEsc}')">✏️ Edit details</button>
+                                            <button onclick="window.location='/sessions?charger_id=${encodeURIComponent(charger.charge_point_id)}'">📊 View sessions</button>
+                                            <button onclick="window.location='/metering?charger_id=${encodeURIComponent(charger.charge_point_id)}'">⚡ View metering</button>
+                                            <button onclick="window.location='/operations'">🎛 OCPP Operations</button>
+                                            <div class="menu-sep"></div>
+                                            <button onclick="forceReconnect('${cpEsc}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>
+                                            <button onclick="disableCharger('${cpEsc}')">🔇 Disable temporarily</button>
+                                            <div class="menu-sep"></div>
+                                            <button class="danger" onclick="deleteCharger('${cpEsc}')">🗑 Delete</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="charger-info">
@@ -349,10 +461,94 @@
                             <div class="charger-actions">
                                 ${canStart ? `<button class="btn btn-success btn-small" onclick="startCharging('${charger.charge_point_id}')">▶ Start</button>` : ''}
                                 ${canStop ? `<button class="btn btn-danger btn-small" onclick="stopCharging('${charger.charge_point_id}',${charger.active_transaction_id||'null'})">⏹ Stop</button>` : ''}
-                                ${wsMismatch ? `<button class="btn btn-small" style="background:#f59e0b;color:#1a1a1a;" onclick="forceReconnect('${charger.charge_point_id}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>` : ''}
                             </div>
                         </div>`;
                 }).join('')}</div>`;
+        }
+
+        // ── Actions dropdown: toggle + outside-click close ─────────────────
+        function toggleActions(ev, cpId) {
+            ev.stopPropagation();
+            const el = document.getElementById('menu-' + cpId);
+            // Close any other open menus first so only one is visible at a time.
+            document.querySelectorAll('.actions-menu.open').forEach(m => {
+                if (m !== el) m.classList.remove('open');
+            });
+            if (el) el.classList.toggle('open');
+        }
+        document.addEventListener('click', (ev) => {
+            // Click outside any dropdown → close all. The button's own
+            // stopPropagation prevents this from immediately closing the
+            // menu it just opened.
+            if (!ev.target.closest('.actions-wrap')) {
+                document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+            }
+        });
+
+        // ── Edit Charger modal ──────────────────────────────────────────────
+        let _editingCpId = null;
+        function openEditCharger(cpId) {
+            const c = (_allChargers || []).find(x => x.charge_point_id === cpId);
+            if (!c) { alert('Charger not found in cached list. Refresh and try again.'); return; }
+            _editingCpId = cpId;
+            document.getElementById('ecId').textContent = cpId;
+            document.getElementById('ecLocation').value = c.location || '';
+            document.getElementById('ecLat').value = c.latitude ?? '';
+            document.getElementById('ecLng').value = c.longitude ?? '';
+            document.getElementById('ecConnector').value = c.connector_type || '';
+            document.getElementById('ecPower').value = c.max_power_kw ?? '';
+            document.getElementById('ecMsg').textContent = '';
+            document.getElementById('editChargerModal').classList.add('open');
+        }
+        function closeEditCharger() {
+            document.getElementById('editChargerModal').classList.remove('open');
+            _editingCpId = null;
+        }
+        async function saveEditCharger() {
+            if (!_editingCpId) return;
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+            const body = {};
+            const loc = document.getElementById('ecLocation').value.trim();
+            const lat = document.getElementById('ecLat').value;
+            const lng = document.getElementById('ecLng').value;
+            const ct  = document.getElementById('ecConnector').value;
+            const pw  = document.getElementById('ecPower').value;
+            if (loc !== '') body.location = loc;
+            if (lat !== '') body.latitude = parseFloat(lat);
+            if (lng !== '') body.longitude = parseFloat(lng);
+            if (ct  !== '') body.connector_type = ct;
+            if (pw  !== '') body.max_power_kw = parseFloat(pw);
+            const msg = document.getElementById('ecMsg');
+            msg.textContent = 'Saving…';
+            try {
+                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/info`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
+                    body: JSON.stringify(body),
+                });
+                const r = await res.json();
+                if (r.success) {
+                    msg.innerHTML = '<span style="color:var(--accent,#22c55e);">✅ Saved.</span>';
+                    setTimeout(() => { closeEditCharger(); loadChargerStatus(); }, 700);
+                } else {
+                    msg.innerHTML = `<span style="color:#ef4444;">❌ ${r.detail || r.message || 'Failed'}</span>`;
+                }
+            } catch (e) {
+                msg.innerHTML = `<span style="color:#ef4444;">❌ ${e.message}</span>`;
+            }
+        }
+
+        // ── Disable / Delete (stubs — wire backend in next iteration) ───────
+        function disableCharger(cpId) {
+            // TODO: wire to POST /api/admin/chargers/{id}/disable when staff UX
+            // for the maintenance flow is finalised. For now surface intent.
+            alert(`Disable ${cpId} temporarily — coming soon.\n\n(Use Force reconnect or pull the breaker for now.)`);
+        }
+        function deleteCharger(cpId) {
+            // TODO: wire to DELETE /api/admin/chargers/{id} once the endpoint
+            // exists with a cascade-safety check (no active sessions).
+            alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
         }
 
         async function forceReconnect(cpId) {
