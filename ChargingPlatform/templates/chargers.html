@@ -230,10 +230,18 @@
             }
             .actions-btn:hover { background:var(--bg-elevated); color:var(--text-primary); }
             .actions-menu {
-                display:none; position:absolute; right:0; top:32px; z-index:50;
+                display:none; position:absolute; right:0; top:32px; z-index:9000;
                 min-width:200px; background:var(--bg-card); border:1px solid var(--border);
-                border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.35); padding:4px;
+                border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.55); padding:4px;
+                /* Force a fresh stacking context so the menu floats above
+                   sibling charger cards (which otherwise create their own
+                   contexts via box-shadow/overflow). z-index alone wasn't
+                   enough — cards rendered later in the grid were on top. */
+                isolation: isolate;
             }
+            /* The card hosting the open menu must also win the stacking
+               battle, otherwise the next charger card overlaps the dropdown. */
+            .charger-item:has(.actions-menu.open) { position:relative; z-index:8500; }
             .actions-menu.open { display:block; }
             .actions-menu button {
                 display:flex; align-items:center; gap:10px; width:100%; padding:8px 12px;
