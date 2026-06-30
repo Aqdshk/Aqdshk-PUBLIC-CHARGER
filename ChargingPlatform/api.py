@@ -41,7 +41,7 @@ from database import (
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
-from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_charging_receipt
+from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_ticket_notification_to_staff, send_charging_receipt
 from ocpp_server import get_active_charge_point, active_charge_points, firmware_events, force_close_charge_point, ocpp_state_healer_loop
 from payment_gateway import (
     get_gateway,
@@ -5655,11 +5655,29 @@ async def create_ticket(req: CreateTicketRequest, db: Session = Depends(get_db))
     db.commit()
     db.refresh(ticket)
 
-    # Auto email confirmation
+    # Auto email confirmation to customer
     try:
         await send_ticket_confirmation(req.user_email, ticket_number, req.subject, req.category)
     except Exception as e:
         logger.warning(f"Failed to send ticket confirmation email: {e}")
+
+    # Notify assigned staff via email (so they don't need the dashboard open
+    # to know a ticket landed). Only fires when auto-assignment succeeded
+    # AND the staff record has a deliverable email address.
+    if staff and getattr(staff, "email", None):
+        try:
+            await send_ticket_notification_to_staff(
+                to_email=staff.email,
+                staff_name=staff.name or "Staff",
+                ticket_number=ticket_number,
+                subject=req.subject,
+                category=req.category,
+                priority=req.priority,
+                customer_email=req.user_email,
+                description=req.description or "",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to notify staff {staff.email} of new ticket: {e}")
 
     return {
         "success": True,

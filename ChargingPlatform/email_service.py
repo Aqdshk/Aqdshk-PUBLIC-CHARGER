@@ -257,6 +257,64 @@ async def send_ticket_confirmation(to_email: str, ticket_number: str, subject: s
     return await asyncio.to_thread(_send_generic_email, to_email, f"[{ticket_number}] Ticket Received – {subject}", body)
 
 
+async def send_ticket_notification_to_staff(
+    to_email: str,
+    staff_name: str,
+    ticket_number: str,
+    subject: str,
+    category: str,
+    priority: str,
+    customer_email: str,
+    description: str = "",
+) -> bool:
+    """Notify assigned staff member that a new ticket landed on their queue.
+
+    Fires from /api/tickets/create right after auto-assignment so staff
+    don't need to keep the dashboard open to know a ticket arrived.
+    """
+    priority_colors = {
+        "low": "#10b981",
+        "medium": "#3b82f6",
+        "high": "#f59e0b",
+        "urgent": "#ef4444",
+        "critical": "#ef4444",
+    }
+    pcolor = priority_colors.get((priority or "medium").lower(), "#3b82f6")
+    portal_url = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
+
+    # Trim description for the email preview — long bodies get truncated so
+    # the email stays scannable. Full text always available in dashboard.
+    desc_preview = (description or "").strip()
+    if len(desc_preview) > 280:
+        desc_preview = desc_preview[:280] + "…"
+
+    body = f"""
+    <h2 style="color:#00FF88;margin:0 0 15px;">🎫 New Ticket Assigned to You</h2>
+    <p>Hi <strong>{staff_name}</strong>,</p>
+    <p>A new support ticket has been routed to you and needs attention.</p>
+    <div style="background:#0A0A1A;border:1px solid #00FF88;border-radius:10px;padding:16px;margin:16px 0;">
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Ticket #:</strong> {ticket_number}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Subject:</strong> {subject}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Category:</strong> {category}</p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">Priority:</strong>
+        <span style="color:{pcolor};font-weight:bold;">{(priority or 'medium').upper()}</span></p>
+      <p style="margin:4px 0;"><strong style="color:#00FF88;">From:</strong> {customer_email}</p>
+    </div>
+    {f'<p style="color:#cbd5e1;font-size:13px;background:#0A0A1A;border-left:3px solid #00FF88;padding:10px 12px;border-radius:4px;"><em>{desc_preview}</em></p>' if desc_preview else ''}
+    <p style="margin-top:18px;">
+      <a href="{portal_url}/admin#tickets" style="display:inline-block;background:#00FF88;color:#0A0A1A;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:bold;">
+        Open ticket in dashboard →
+      </a>
+    </p>
+    <p style="color:#828a94;font-size:11px;margin-top:18px;">
+      You're receiving this because you were auto-assigned this ticket.
+      If you can't respond, please reassign via the dashboard.
+    </p>
+    """
+    email_subject = f"[🎫 NEW] {ticket_number} · {(priority or 'medium').upper()} · {subject}"
+    return await asyncio.to_thread(_send_generic_email, to_email, email_subject, body)
+
+
 async def send_ticket_reminder(to_email: str, staff_name: str, ticket_number: str, subject: str, priority: str, due_at_str: str, is_overdue: bool) -> bool:
     """Send SLA reminder/overdue alert email to assigned staff."""
     if is_overdue:
