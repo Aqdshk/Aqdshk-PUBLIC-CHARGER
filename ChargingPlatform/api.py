@@ -490,6 +490,47 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Idempotency-Key", "X-Staff-Token"],
 )
 
+
+# ── Audit log middleware ──────────────────────────────────────────────────
+# Writes one structured line per privileged request (admin / OCPP control /
+# OCPI commands) to a dedicated 'audit' logger. Configure handlers in your
+# logging.conf to route this to a file or shipper (Loki etc). Captures:
+#   ts ip method path status user
+# We intentionally skip GET reads — too noisy and not state-changing.
+_audit_logger = logging.getLogger("plagsini.audit")
+_AUDIT_PATH_PREFIXES = ("/api/admin/", "/api/ocpp/", "/api/charging/start",
+                        "/api/charging/stop", "/ocpi/2.2.1/commands/")
+
+
+@app.middleware("http")
+async def audit_log_middleware(request, call_next):
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        method = request.method
+        # Skip noisy GETs and non-privileged paths
+        if method in ("GET", "HEAD", "OPTIONS"):
+            return response
+        if not any(path.startswith(p) for p in _AUDIT_PATH_PREFIXES):
+            return response
+        ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+              or (request.client.host if request.client else "?"))
+        # Best-effort user identity — peek at the staff token last 6 chars
+        # (don't log the whole token!). Real identity lookup would need a
+        # DB call which would double-cost every privileged write — defer
+        # to a future iteration if richer auditing is needed.
+        token = (request.headers.get("x-staff-token") or
+                 request.headers.get("authorization", "")).strip()
+        user_hint = f"token:...{token[-6:]}" if len(token) >= 6 else "anon"
+        _audit_logger.info(
+            "audit %s %s status=%d ip=%s user=%s",
+            method, path, response.status_code, ip, user_hint,
+        )
+    except Exception:
+        # Never let audit failure break the actual response.
+        pass
+    return response
+
 # Mount static files (resolve path relative to this file)
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
