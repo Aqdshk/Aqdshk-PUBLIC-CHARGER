@@ -157,7 +157,8 @@
 
         async function loadChargers() {
             try {
-                chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                chargers = await (await fetch(`${API_BASE}/chargers`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
                 const f = document.getElementById('filterCharger'), s = document.getElementById('formCharger');
                 chargers.forEach(c => { f.innerHTML += `<option value="${c.charge_point_id}">${c.charge_point_id}</option>`; s.innerHTML += `<option value="${c.charge_point_id}">${c.charge_point_id}</option>`; });
             } catch(e){ console.error('Error:',e); }

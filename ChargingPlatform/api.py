@@ -850,6 +850,7 @@ def invalidate_chargers_cache() -> None:
 
 @app.get("/api/chargers", response_model=List[ChargerStatus])
 async def get_chargers(
+    request: Request,
     db: Session = Depends(get_db),
     online_only: Optional[str] = Query(
         None,
@@ -865,7 +866,11 @@ async def get_chargers(
     """
     import time
     _now = time.time()
-    _cache_key = "online" if (online_only in ("1", "true", "True")) else "all"
+    # Auth-aware caching: anon and admin get the same DB result but the
+    # response payload differs (stripped vs full). Splitting the cache key
+    # avoids serving admin-only fields to an anonymous follow-up request.
+    _is_admin = bool(request.headers.get("x-staff-token") or request.headers.get("authorization"))
+    _cache_key = ("online" if (online_only in ("1", "true", "True")) else "all") + ("|admin" if _is_admin else "|anon")
     _cached = _CHARGERS_CACHE.get(_cache_key)
     if _cached and _cached["exp"] > _now:
         return _cached["data"]
@@ -965,8 +970,23 @@ async def get_chargers(
         }
         result.append(ChargerStatus(**charger_dict))
 
-    _CHARGERS_CACHE[_cache_key] = {"data": result, "exp": _now + _CHARGERS_CACHE_TTL}
-    return result
+    # Strip operational/competitive fields for unauthenticated callers.
+    # Authenticated admin/staff (X-Staff-Token header) get the full payload;
+    # everyone else (AppEV mobile, public map) gets only what a customer
+    # needs to find an available charger nearby. Avoids leaking fleet
+    # heartbeat / vendor / firmware data via the same endpoint.
+    if _is_admin:
+        out = result
+    else:
+        PUBLIC_KEYS = {
+            "charge_point_id", "status", "availability", "connector_type",
+            "max_power_kw", "price_per_kwh", "latitude", "longitude",
+            "location", "number_of_connectors",
+        }
+        out = [{k: v for k, v in cs.model_dump().items() if k in PUBLIC_KEYS} for cs in result]
+
+    _CHARGERS_CACHE[_cache_key] = {"data": out, "exp": _now + _CHARGERS_CACHE_TTL}
+    return out
 
 
 @app.get("/api/chargers/{charge_point_id}/status", response_model=ChargerStatus)

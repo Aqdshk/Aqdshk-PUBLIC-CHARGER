@@ -153,7 +153,8 @@
 
         async function populateChargerFilter() {
             try {
-                let chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`)).json();
+                const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                let chargers = await (await fetch(`${API_BASE}/chargers?online_only=1`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
                 chargers = filterDropdownChargers(chargers);
                 const sel = document.getElementById('chargerFilter');
                 sel.innerHTML = '<option value="">All Chargers</option>';

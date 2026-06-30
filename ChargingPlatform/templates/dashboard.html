@@ -791,7 +791,7 @@
                 const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
                 const _authHeaders = _tok ? { 'X-Staff-Token': _tok } : {};
                 const [chargersRes, sessionsRes] = await Promise.all([
-                    fetch(`${API_BASE}/chargers`),
+                    fetch(`${API_BASE}/chargers`, { headers: _authHeaders }),
                     fetch(`${API_BASE}/sessions`, { headers: _authHeaders }),
                 ]);
                 const chargers = await chargersRes.json();

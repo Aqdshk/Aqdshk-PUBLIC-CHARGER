@@ -172,7 +172,7 @@
         document.addEventListener('DOMContentLoaded', () => { loadChargers(); setThisMonth(); });
 
         async function loadChargers() {
-            try { const cs = await(await fetch(`${API_BASE}/chargers`)).json(); const s=document.getElementById('filterCharger'); cs.forEach(c=>{s.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;}); } catch(e){}
+            try { const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || ''; const cs = await(await fetch(`${API_BASE}/chargers`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json(); const s=document.getElementById('filterCharger'); cs.forEach(c=>{s.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;}); } catch(e){}
         }
 
         function setThisMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth(),1); const l=new Date(n.getFullYear(),n.getMonth()+1,0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }

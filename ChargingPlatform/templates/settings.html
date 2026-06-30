@@ -115,7 +115,8 @@
 
         async function populateChargerSelect() {
             try {
-                const chargers = await (await fetch(`${API_BASE}/chargers`)).json();
+                const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const chargers = await (await fetch(`${API_BASE}/chargers`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
                 const sel = document.getElementById('deviceCharger');
                 sel.innerHTML = '<option value="">Select Charger</option>';
                 chargers.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=c.charge_point_id; sel.appendChild(o); });

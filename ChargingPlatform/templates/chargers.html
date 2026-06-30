@@ -440,7 +440,8 @@
 
         async function loadChargerStatus() {
             try {
-                const response = await fetch(`${API_BASE}/chargers`);
+                const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const response = await fetch(`${API_BASE}/chargers`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 const chargers = await response.json();
                 const countEl = document.getElementById('chargerCount');
 

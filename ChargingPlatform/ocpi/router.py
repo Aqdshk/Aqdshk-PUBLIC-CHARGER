@@ -40,10 +40,21 @@ def _get_base_url(request: Request) -> str:
 
 
 def _ocpi_auth(authorization: Optional[str] = Header(None)) -> None:
-    """Validate OCPI Authorization: Token {token}."""
+    """Validate OCPI Authorization: Token {token}.
+
+    Fail-closed: if OCPI_TOKEN is not configured, reject all requests.
+    The previous silent allow-all behaviour was a production trap —
+    forgetting to set the env var would silently expose the OCPI endpoints
+    to anyone. Set OCPI_ALLOW_ANON=1 explicitly to bypass for local dev.
+    """
     token = os.getenv("OCPI_TOKEN", "").strip()
     if not token:
-        return  # No token configured = allow (dev/test mode)
+        if os.getenv("OCPI_ALLOW_ANON", "").strip().lower() in ("1", "true", "yes"):
+            return  # explicit dev opt-in
+        raise HTTPException(
+            status_code=503,
+            detail="OCPI not configured (server missing OCPI_TOKEN). Contact the operator.",
+        )
     if not authorization or not authorization.startswith("Token "):
         raise HTTPException(status_code=403, detail="Missing OCPI token")
     if not secrets.compare_digest(authorization[6:].strip(), token):

@@ -11,10 +11,16 @@ import os
 from typing import List
 
 # ─── Database ─────────────────────────────────────────────────────────────
-DATABASE_URL: str = os.getenv(
-    "DATABASE_URL",
-    "mysql+pymysql://charging_user:password@localhost:3306/charging_platform",
-)
+# DATABASE_URL MUST be set via environment — no fallback default.
+# Previous fallback embedded a literal 'password' that could be misread as a
+# real credential. Fail loud at startup if the env is missing so deployments
+# can't silently fall back to a non-functional URL.
+DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip()
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL env var is required. "
+        "Set it in your .env (mysql+pymysql://user:pass@host:port/db)."
+    )
 
 # ─── JWT & Auth ──────────────────────────────────────────────────────────
 # JWT_SECRET_KEY MUST be set via environment — no default allowed.
