@@ -497,7 +497,11 @@ app.add_middleware(
 # logging.conf to route this to a file or shipper (Loki etc). Captures:
 #   ts ip method path status user
 # We intentionally skip GET reads — too noisy and not state-changing.
-_audit_logger = logging.getLogger("plagsini.audit")
+# Reuse the module logger (handler already attached via uvicorn config)
+# instead of creating a fresh "plagsini.audit" logger that would have no
+# handler under uvicorn's logging setup. AUDIT messages are differentiated
+# by the "AUDIT" prefix so they're trivially greppable.
+_audit_logger = logging.getLogger(__name__)
 _AUDIT_PATH_PREFIXES = ("/api/admin/", "/api/ocpp/", "/api/charging/start",
                         "/api/charging/stop", "/ocpi/2.2.1/commands/")
 
@@ -523,7 +527,7 @@ async def audit_log_middleware(request, call_next):
                  request.headers.get("authorization", "")).strip()
         user_hint = f"token:...{token[-6:]}" if len(token) >= 6 else "anon"
         _audit_logger.info(
-            "audit %s %s status=%d ip=%s user=%s",
+            "AUDIT %s %s status=%d ip=%s user=%s",
             method, path, response.status_code, ip, user_hint,
         )
     except Exception:
