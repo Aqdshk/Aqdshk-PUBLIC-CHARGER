@@ -526,7 +526,9 @@ async def audit_log_middleware(request, call_next):
         token = (request.headers.get("x-staff-token") or
                  request.headers.get("authorization", "")).strip()
         user_hint = f"token:...{token[-6:]}" if len(token) >= 6 else "anon"
-        _audit_logger.info(
+        # WARNING level so it isn't filtered by the default WARN root config
+        # under uvicorn — audit lines must always surface.
+        _audit_logger.warning(
             "AUDIT %s %s status=%d ip=%s user=%s",
             method, path, response.status_code, ip, user_hint,
         )
