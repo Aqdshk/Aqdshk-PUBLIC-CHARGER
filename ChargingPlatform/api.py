@@ -973,17 +973,20 @@ async def get_chargers(
     # Strip operational/competitive fields for unauthenticated callers.
     # Authenticated admin/staff (X-Staff-Token header) get the full payload;
     # everyone else (AppEV mobile, public map) gets only what a customer
-    # needs to find an available charger nearby. Avoids leaking fleet
-    # heartbeat / vendor / firmware data via the same endpoint.
+    # needs to find an available charger nearby. We null the sensitive
+    # fields rather than dropping the keys so the ChargerStatus response
+    # model still validates.
     if _is_admin:
         out = result
     else:
-        PUBLIC_KEYS = {
-            "charge_point_id", "status", "availability", "connector_type",
-            "max_power_kw", "price_per_kwh", "latitude", "longitude",
-            "location", "number_of_connectors",
-        }
-        out = [{k: v for k, v in cs.model_dump().items() if k in PUBLIC_KEYS} for cs in result]
+        SENSITIVE = {"vendor", "model", "firmware_version", "last_heartbeat",
+                     "active_transaction_id", "ws_connected"}
+        out = []
+        for cs in result:
+            d = cs.model_dump()
+            for k in SENSITIVE:
+                d[k] = None
+            out.append(ChargerStatus(**d))
 
     _CHARGERS_CACHE[_cache_key] = {"data": out, "exp": _now + _CHARGERS_CACHE_TTL}
     return out
