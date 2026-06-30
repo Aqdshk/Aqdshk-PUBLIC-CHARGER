@@ -56,3 +56,11 @@ ESP-Charger-RND/.vscode/
 
 # Local secrets (TNG keys, etc.) — never commit
 secrets/
+
+# AI dev tooling (local context for Claude/Codex/agents — NOT project code)
+.claude/
+.codex/
+.agents/
+CLAUDE.md
+AGENTS.md
+graphify-out/
