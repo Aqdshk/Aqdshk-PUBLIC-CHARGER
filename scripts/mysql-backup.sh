@@ -44,19 +44,29 @@ docker exec -e MYSQL_PWD="${MYSQL_PASS}" "${CONTAINER}" \
 SIZE=$(du -sh "${TARGET}" | cut -f1)
 echo "[$(date -Iseconds)] local backup OK: ${FILE} (${SIZE})"
 
-# ── Optional: upload to S3 ──────────────────────────────────────────────
+# ── Cloud upload via rclone (default: GDrive remote 'gdrive') ───────────
+# Skip if RCLONE_REMOTE is explicitly blank or rclone isn't installed.
+RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:PlagSiniBackups}"
+if [ -n "${RCLONE_REMOTE}" ] && command -v rclone >/dev/null 2>&1; then
+    # Path layout daily/YYYY/MM/<file> so a year of dumps stays browsable.
+    YY=$(date +%Y); MM=$(date +%m)
+    DEST="${RCLONE_REMOTE}/daily/${YY}/${MM}/"
+    if rclone copy "${TARGET}" "${DEST}" --quiet; then
+        echo "[$(date -Iseconds)] cloud upload OK: ${RCLONE_REMOTE}/daily/${YY}/${MM}/${FILE}"
+    else
+        echo "[$(date -Iseconds)] WARN: rclone upload failed for ${FILE}" >&2
+    fi
+fi
+
+# ── (Legacy) Optional: upload to S3 ─────────────────────────────────────
 if [ -n "${AWS_S3_BUCKET:-}" ]; then
     if ! command -v aws >/dev/null 2>&1; then
         echo "[$(date -Iseconds)] WARN: AWS_S3_BUCKET set but aws CLI not installed — skip upload" >&2
     else
-        # Bucket key: daily/YYYY/MM/<file>.gz so listing/sorting stays sane
-        # across many months. Adjust if you prefer a different layout.
         YY=$(date +%Y); MM=$(date +%m)
         S3_KEY="daily/${YY}/${MM}/${FILE}"
         aws s3 cp "${TARGET}" "s3://${AWS_S3_BUCKET}/${S3_KEY}" \
-            --region "${AWS_REGION}" \
-            --storage-class STANDARD_IA \
-            --no-progress
+            --region "${AWS_REGION}" --storage-class STANDARD_IA --no-progress
         echo "[$(date -Iseconds)] s3 upload OK: s3://${AWS_S3_BUCKET}/${S3_KEY}"
     fi
 fi
