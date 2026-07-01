@@ -742,7 +742,7 @@
                 if (status) url += '&status=' + status;
                 if (priority) url += '&priority=' + priority;
                 
-                const res = await fetch(url);
+                const res = await fetch(url, {headers: authH()});
                 const data = await res.json();
                 const tickets = data.tickets || [];
 
