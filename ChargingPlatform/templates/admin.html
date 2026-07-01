@@ -674,6 +674,14 @@
                 btn.classList.toggle('active', btn.dataset.tab === tab);
             });
 
+            // Sync URL hash silently so refresh / bookmark preserves tab.
+            // replaceState avoids polluting browser history with every click.
+            try {
+                if (tab && window.location.hash !== '#' + tab) {
+                    history.replaceState(null, '', '#' + tab);
+                }
+            } catch (e) { /* ignore in file:// or restricted contexts */ }
+
             // Update admin name in new tabs
             ['adminName2','adminName3','adminName4','adminName5','adminName6'].forEach(id => {
                 const el = document.getElementById(id); if(el) el.textContent = adminName || 'Admin';
@@ -705,11 +713,24 @@
                 const sa = document.getElementById('sidebarAvatar'); if(sa) sa.textContent = (adminName || 'A')[0].toUpperCase();
                 loadStats();
                 loadUsers();
-                // Check if we should open a specific tab
+                // Check if we should open a specific tab. Priority:
+                // (1) ?tab= query param  → set from another page's navigation
+                // (2) URL #hash          → set by direct bookmark or refresh
+                // (3) localStorage       → set by sidebar link on other pages
+                // Without (2), hard-refreshing on /admin#tickets fell back to
+                // the users tab because the hash was ignored.
                 const urlParams = new URLSearchParams(window.location.search);
-                const tabParam = urlParams.get('tab') || localStorage.getItem('adminTab');
+                const hashTab = (window.location.hash || '').replace(/^#/, '');
+                const tabParam = urlParams.get('tab') || hashTab || localStorage.getItem('adminTab');
                 if (tabParam && TAB_MAP[tabParam]) { showTab(tabParam); }
                 if (localStorage.getItem('adminTab')) localStorage.removeItem('adminTab');
+                // Keep URL hash in sync when tabs change (so refresh preserves
+                // the visible tab). Delegated on the sub-tab click, plus we
+                // update on any showTab call further down the file.
+                window.addEventListener('hashchange', () => {
+                    const t = (window.location.hash || '').replace(/^#/, '');
+                    if (t && TAB_MAP[t]) showTab(t);
+                });
             }
             // Auth handled by auth.js — no else redirect needed
         };
