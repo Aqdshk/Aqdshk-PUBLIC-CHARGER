@@ -64,3 +64,11 @@ secrets/
 CLAUDE.md
 AGENTS.md
 graphify-out/
+
+# Partner-facing docs (kept local, not in repo — regen via _build_docx.py)
+ChargingPlatform/docs/CZero_22kW_Charger_Requirements_v*.docx
+ChargingPlatform/docs/CZero_22kW_Charger_Requirements_v*.md
+ChargingPlatform/docs/PlagSini_Platform_Overview_v*.docx
+ChargingPlatform/docs/PlagSini_Platform_Overview_v*.md
+ChargingPlatform/docs/PlagSini_OCPP_1.6J_Integration_Guide_v*.docx
+ChargingPlatform/docs/PlagSini_OCPP_1.6J_Integration_Guide_v*.md
