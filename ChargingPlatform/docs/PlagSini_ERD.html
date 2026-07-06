@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PlagSini EV — Database ERD</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --card: #131a2c;
+    --border: #1e2a3a;
+    --text: #e4e8ef;
+    --muted: #8892a4;
+    --accent: #00e676;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 20px;
+    line-height: 1.5;
+  }
+  header {
+    max-width: 1400px;
+    margin: 0 auto 20px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, #0b4ea2 0%, #1a1a1a 100%);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  h1 { margin: 0 0 6px; font-size: 24px; color: #fff; }
+  header .sub { color: rgba(255,255,255,0.7); font-size: 13px; }
+  .meta { display: flex; gap: 24px; margin-top: 14px; flex-wrap: wrap; font-size: 12px; }
+  .meta div { color: rgba(255,255,255,0.85); }
+  .meta b { color: var(--accent); }
+  .diagram-card {
+    max-width: 1400px;
+    margin: 0 auto 20px;
+    padding: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+  .diagram-card h2 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .diagram-card .desc { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  footer {
+    max-width: 1400px;
+    margin: 30px auto 20px;
+    padding: 14px 20px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+  }
+  .mermaid { background: transparent; }
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin: 12px 0 20px; padding: 12px 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12px;
+  }
+  .legend b { color: var(--accent); }
+  .print-btn {
+    background: var(--accent); color: #0b0e14;
+    padding: 8px 16px; border: none; border-radius: 6px;
+    font-weight: 600; cursor: pointer; font-size: 12px;
+  }
+  @media print {
+    body { background: #fff; color: #000; padding: 0; }
+    header { background: #fff; border: 1px solid #ccc; color: #000; }
+    header h1, header .sub, .meta div { color: #000 !important; }
+    .diagram-card { background: #fff; border: 1px solid #ccc; page-break-inside: avoid; margin-bottom: 30px; }
+    .diagram-card h2 { color: #000; }
+    .legend, .print-btn, footer { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PlagSini EV Charging Platform — Database ERD</h1>
+  <div class="sub">Entity relationships across CSMS, mobile app, kiosk, support, and customer chatbot</div>
+  <div class="meta">
+    <div><b>Version:</b> 1.0</div>
+    <div><b>Date:</b> 2 July 2026</div>
+    <div><b>Issued by:</b> C Zero Sdn Bhd</div>
+    <div><b>Tables:</b> 29 (27 main DB + 2 customer service DB)</div>
+    <div><b>Database:</b> MySQL 8.0</div>
+  </div>
+  <div style="margin-top:14px;">
+    <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
+</header>
+
+<div class="legend">
+  <div>🟢 <b>User + Wallet</b></div>
+  <div>🔵 <b>Charger + Sessions</b></div>
+  <div>🟠 <b>Payment</b></div>
+  <div>🟣 <b>Support / Tickets</b></div>
+  <div>🤖 <b>Chatbot</b></div>
+  <div>⚙️ <b>System</b></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 1: User & Wallet -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🟢 User & Wallet Domain</h2>
+  <p class="desc">Customer identity, credentials, wallet balance, and personal notifications</p>
+  <pre class="mermaid">
+erDiagram
+    users ||--o{ wallets : "owns"
+    users ||--o{ vehicles : "registers"
+    users ||--o{ push_subscriptions : "subscribes"
+    users ||--o{ notifications : "receives"
+    wallets ||--o{ wallet_transactions : "logs"
+    wallet_transactions }o--|| charging_sessions : "linked to"
+
+    users {
+        int id PK
+        string email UK
+        string phone UK
+        string password_hash
+        string name
+        string role "user|admin"
+        bool is_active
+        bool is_verified
+        datetime created_at
+        datetime updated_at
+    }
+    wallets {
+        int id PK
+        int user_id FK
+        decimal balance "MYR"
+        int points
+        string currency
+        datetime updated_at
+    }
+    wallet_transactions {
+        int id PK
+        int user_id FK
+        int wallet_id FK
+        int session_id FK "nullable"
+        decimal amount
+        string type "topup|charge|refund"
+        string status
+        string reference
+        datetime created_at
+    }
+    vehicles {
+        int id PK
+        int user_id FK
+        string plate_number
+        string make
+        string model
+        int battery_kwh
+        string connector_type
+    }
+    push_subscriptions {
+        int id PK
+        int user_id FK
+        text endpoint
+        text keys_json
+        datetime created_at
+    }
+    notifications {
+        int id PK
+        int user_id FK
+        string title
+        text body
+        bool is_read
+        datetime created_at
+    }
+    otp_verifications {
+        int id PK
+        string email
+        string phone
+        string otp
+        datetime expires_at
+        bool used
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 2: Charger Infrastructure -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🔵 Charger + Sessions Domain</h2>
+  <p class="desc">Physical charger fleet, live metering, sessions, pricing, faults, maintenance</p>
+  <pre class="mermaid">
+erDiagram
+    chargers ||--o{ charging_sessions : "hosts"
+    chargers ||--o{ meter_values : "reports"
+    chargers ||--o{ faults : "raises"
+    chargers ||--o{ maintenance_records : "tracked in"
+    chargers ||--o{ pricing : "priced at"
+    chargers ||--o{ charging_schedules : "scheduled on"
+    chargers ||--o{ charger_reviews : "reviewed in"
+    chargers ||--o{ charger_bookings : "booked at"
+    users ||--o{ charger_reviews : "writes"
+    users ||--o{ charger_bookings : "books"
+    users ||--o{ charging_schedules : "sets"
+
+    chargers {
+        int id PK
+        string charge_point_id UK
+        string vendor
+        string model
+        string firmware_version
+        string status "online|offline"
+        string availability
+        string location
+        decimal latitude
+        decimal longitude
+        int number_of_connectors
+        decimal max_power_kw
+        string connector_type
+        bool maintenance_mode
+        bool idle_fee_enabled
+        decimal idle_fee_rm_per_min
+        int grace_period_min
+        datetime last_heartbeat
+        datetime created_at
+    }
+    charging_sessions {
+        int id PK
+        int charger_id FK
+        int payment_id FK "nullable"
+        int transaction_id "OCPP txn id"
+        int connector_id
+        datetime start_time
+        datetime stop_time
+        decimal energy_consumed "kWh"
+        int meter_start
+        int meter_stop
+        string status "pending|active|completed"
+        decimal cost
+        decimal hold_amount_rm
+        decimal energy_budget_rm
+        datetime charge_complete_at
+        datetime idle_start_at
+        string refund_status
+    }
+    meter_values {
+        int id PK
+        int charger_id FK
+        int transaction_id
+        int connector_id
+        decimal power_kw
+        decimal energy_kwh
+        decimal voltage
+        decimal current
+        int soc
+        datetime timestamp
+    }
+    pricing {
+        int id PK
+        int charger_id FK "nullable=default"
+        decimal price_per_kwh
+        bool is_active
+        datetime effective_from
+    }
+    faults {
+        int id PK
+        int charger_id FK
+        string error_code
+        text description
+        bool cleared
+        datetime raised_at
+        datetime cleared_at
+    }
+    charging_schedules {
+        int id PK
+        int user_id FK
+        int charger_id FK
+        int connector_id
+        datetime start_at
+        int duration_minutes
+        decimal target_energy_kwh
+        bool enabled
+    }
+    maintenance_records {
+        int id PK
+        int charger_id FK
+        string title
+        text description
+        string status "open|resolved"
+        datetime scheduled_at
+        datetime completed_at
+    }
+    charger_reviews {
+        int id PK
+        int charger_id FK
+        int user_id FK
+        int rating "1-5"
+        text comment
+        datetime created_at
+    }
+    charger_bookings {
+        int id PK
+        int charger_id FK
+        int user_id FK
+        datetime start_at
+        int duration_minutes
+        string status
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 3: Payment -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🟠 Payment Domain</h2>
+  <p class="desc">Session billing, gateway transactions (TNG/Billplz/OCBC/Fiuu), kiosk terminals</p>
+  <pre class="mermaid">
+erDiagram
+    charging_sessions }o--|| payments : "billed via"
+    users ||--o{ payment_transactions : "pays"
+    wallet_transactions ||--o{ payment_transactions : "settles"
+    payment_terminals ||--o{ terminal_chargers : "manages"
+    chargers ||--o{ terminal_chargers : "assigned to"
+
+    payments {
+        int id PK
+        string gateway "tng|billplz|ocbc|wallet"
+        string reference
+        decimal amount
+        string status
+        datetime created_at
+    }
+    payment_transactions {
+        int id PK
+        int user_id FK
+        int wallet_transaction_id FK "nullable"
+        string transaction_ref UK
+        string user_email
+        decimal amount
+        string currency
+        string payment_method
+        string gateway_name
+        string gateway_transaction_id
+        string gateway_reference
+        string gateway_status
+        string status
+        string purpose
+        string charger_id
+        int connector_id
+        text gateway_response "JSON meta"
+        datetime paid_at
+        datetime created_at
+    }
+    payment_gateway_config {
+        int id PK
+        string gateway_name UK
+        string display_name
+        bool is_active
+        text config_json "encrypted secrets"
+        datetime updated_at
+    }
+    payment_terminals {
+        int id PK
+        string device_id UK
+        string display_name
+        string shop_name
+        string location
+        string brand
+        bool test_mode
+        text api_key "encrypted"
+        datetime last_heartbeat
+    }
+    terminal_chargers {
+        int id PK
+        int terminal_id FK
+        int charger_id FK
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 4: Support -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🟣 Support / Tickets Domain</h2>
+  <p class="desc">Staff accounts, ticket queue, message threads, SLA tracking</p>
+  <pre class="mermaid">
+erDiagram
+    users ||--o| support_staff : "may be"
+    support_staff ||--o{ staff_sessions : "logs in"
+    support_staff ||--o{ support_tickets : "assigned"
+    support_tickets ||--o{ ticket_messages : "has"
+
+    support_staff {
+        int id PK
+        int user_id FK "nullable"
+        string name
+        string email UK
+        string department "IT|Ops|Finance"
+        string role "admin|manager|staff"
+        bool is_active
+        int max_tickets
+        datetime last_login
+    }
+    staff_sessions {
+        int id PK
+        int staff_id FK
+        string token UK
+        datetime expires_at
+        datetime created_at
+    }
+    support_tickets {
+        int id PK
+        int assigned_staff_id FK "nullable"
+        string ticket_number UK
+        int user_id "user id or null"
+        string user_email
+        string user_name
+        string category
+        string department
+        string subject
+        text description
+        string priority "low|medium|high|urgent"
+        string status "open|in_progress|resolved|closed"
+        string source "web|app|email"
+        string assigned_to
+        datetime due_at
+        datetime created_at
+        datetime updated_at
+    }
+    ticket_messages {
+        int id PK
+        int ticket_id FK
+        string sender_type "user|staff|system"
+        string sender_name
+        text message
+        datetime created_at
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 5: Chatbot (separate DB) -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🤖 Customer Service Chatbot (separate DB)</h2>
+  <p class="desc">Bot conversation logs — runs in `customer_service` database, isolated from main app</p>
+  <pre class="mermaid">
+erDiagram
+    bot_conversations ||--o{ bot_messages : "contains"
+
+    bot_conversations {
+        int id PK
+        string session_id UK
+        int user_id "nullable — anon supported"
+        string user_email
+        datetime started_at
+        datetime ended_at
+        string resolved_by "bot|human_handoff"
+    }
+    bot_messages {
+        int id PK
+        int conversation_id FK
+        string role "user|assistant|system"
+        text content
+        text metadata "JSON — model, tokens"
+        datetime created_at
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Domain 6: System -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>⚙️ System Tables</h2>
+  <p class="desc">Cross-cutting: audit trail for privileged actions, KV settings store</p>
+  <pre class="mermaid">
+erDiagram
+    audit_logs {
+        int id PK
+        int user_id "nullable — anon possible"
+        string action
+        string ip_address
+        string description
+        decimal amount
+        datetime created_at
+    }
+    system_settings {
+        int id PK
+        string key UK
+        text value
+        text description
+        datetime updated_at
+    }
+    alembic_version {
+        string version_num PK "migration head"
+    }
+  </pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Cross-domain relationships summary -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="diagram-card">
+  <h2>🌐 Cross-Domain Overview (Simplified)</h2>
+  <p class="desc">High-level relationships between the 6 domains — each box collapses many tables</p>
+  <pre class="mermaid">
+graph TB
+    U[👤 users + wallets<br/>+ vehicles + notifications]
+    C[🔌 chargers + meter_values<br/>+ faults + pricing + schedules]
+    S[⚡ charging_sessions]
+    P[💳 payment_transactions<br/>+ payment_terminals + gateway_config]
+    T[🎫 support_tickets<br/>+ ticket_messages + support_staff]
+    B[🤖 bot_conversations + bot_messages]
+    A[⚙️ audit_logs + system_settings]
+
+    U -->|starts / pays for| S
+    C -->|hosts| S
+    S -->|billed via| P
+    U -->|initiates| P
+    U -->|files| T
+    U -->|chats with| B
+    U -.->|writes to| A
+    C -.->|state changes logged in| A
+
+    classDef user fill:#22c55e,stroke:#16a34a,color:#0b0e14
+    classDef charger fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef session fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    classDef payment fill:#f59e0b,stroke:#d97706,color:#0b0e14
+    classDef support fill:#ec4899,stroke:#be185d,color:#fff
+    classDef bot fill:#06b6d4,stroke:#0891b2,color:#fff
+    classDef system fill:#6b7280,stroke:#374151,color:#fff
+
+    class U user
+    class C charger
+    class S session
+    class P payment
+    class T support
+    class B bot
+    class A system
+  </pre>
+</div>
+
+<footer>
+  Auto-generated from live MySQL schema on 2 July 2026 · C Zero Sdn Bhd — PlagSini EV Charging Platform
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    er: {
+      diagramPadding: 20,
+      layoutDirection: 'TB',
+      minEntityWidth: 140,
+      minEntityHeight: 60,
+      entityPadding: 12,
+      stroke: '#00e676',
+      fill: '#131a2c',
+      fontSize: 12,
+    },
+    themeVariables: {
+      darkMode: true,
+      primaryColor: '#131a2c',
+      primaryBorderColor: '#00e676',
+      primaryTextColor: '#e4e8ef',
+      lineColor: '#8892a4',
+      background: '#0b0e14',
+    },
+  });
+</script>
+
+</body>
+</html>

@@ -98,7 +98,12 @@ def add_code_block(doc, code):
 
 
 def add_table(doc, rows):
-    table = doc.add_table(rows=len(rows), cols=len(rows[0]))
+    # Normalise ragged markdown tables — some rows may accidentally have
+    # more or fewer pipes than the header. Take the max column count and
+    # pad shorter rows with empty strings so cell access never overflows.
+    max_cols = max(len(r) for r in rows) if rows else 0
+    rows = [r + [""] * (max_cols - len(r)) for r in rows]
+    table = doc.add_table(rows=len(rows), cols=max_cols)
     table.style = "Light Grid Accent 1"
     table.autofit = True
     for r_idx, row in enumerate(rows):
@@ -136,8 +141,19 @@ def parse_table(lines, start):
     return rows, i
 
 
-def build():
-    md = SRC.read_text(encoding="utf-8").splitlines()
+def build(src_path=None, out_path=None, title=None, subtitle=None, date_str=None):
+    """Convert a markdown file to a branded .docx.
+
+    Kept backwards-compatible: called with no args, still builds the OCPI
+    spec doc. Pass overrides to reuse for other partner-facing documents.
+    """
+    src = Path(src_path) if src_path else SRC
+    out = Path(out_path) if out_path else OUT
+    cover_title = title or "OCPI 2.2.1 API Specification"
+    cover_sub = subtitle or "Partner Integration Reference — PlagSini EV Charging Platform"
+    cover_date = date_str or "25 June 2026"
+
+    md = src.read_text(encoding="utf-8").splitlines()
     doc = Document()
 
     # Page setup: A4 portrait, 2cm margins
@@ -165,21 +181,21 @@ def build():
 
     sub = doc.add_paragraph()
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = sub.add_run("OCPI 2.2.1 API Specification")
+    r = sub.add_run(cover_title)
     r.bold = True
     r.font.size = Pt(18)
     r.font.color.rgb = BRAND_DARK
 
     sub2 = doc.add_paragraph()
     sub2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = sub2.add_run("Partner Integration Reference — PlagSini EV Charging Platform")
+    r = sub2.add_run(cover_sub)
     r.italic = True
     r.font.size = Pt(11)
 
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     meta.paragraph_format.space_before = Pt(60)
-    for line in ("Version 1.0", "25 June 2026", "Confidential — Partner Use Only"):
+    for line in ("Version 1.0", cover_date, "Confidential — Partner Use Only"):
         r = meta.add_run(line + "\n")
         r.font.size = Pt(10)
     doc.add_page_break()
@@ -289,9 +305,35 @@ def build():
     fld.append(run2)
     fp._p.append(fld)
 
-    doc.save(OUT)
-    print(f"Wrote {OUT}  ({OUT.stat().st_size:,} bytes)")
+    doc.save(str(out))
+    print(f"Wrote {out}  ({out.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":
-    build()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "charger-req":
+        build(
+            src_path=ROOT / "CZero_22kW_Charger_Requirements_v1.0.md",
+            out_path=ROOT / "CZero_22kW_Charger_Requirements_v1.0.docx",
+            title="22kW AC Public EV Charger — Requirements",
+            subtitle="Vendor Procurement Specification — C Zero Sdn Bhd",
+            date_str="2 July 2026",
+        )
+    elif len(sys.argv) > 1 and sys.argv[1] == "transsemi":
+        # Build the two partner-facing docs for Transsemi hardware onboarding.
+        build(
+            src_path=ROOT / "PlagSini_Platform_Overview_v1.0.md",
+            out_path=ROOT / "PlagSini_Platform_Overview_v1.0.docx",
+            title="PlagSini Platform Overview",
+            subtitle="EV Charging Management Platform — Partner Introduction",
+            date_str="1 July 2026",
+        )
+        build(
+            src_path=ROOT / "PlagSini_OCPP_1.6J_Integration_Guide_v1.0.md",
+            out_path=ROOT / "PlagSini_OCPP_1.6J_Integration_Guide_v1.0.docx",
+            title="OCPP 1.6J Integration Guide",
+            subtitle="Charger Hardware Vendor Onboarding — PlagSini EV Charging",
+            date_str="1 July 2026",
+        )
+    else:
+        build()
