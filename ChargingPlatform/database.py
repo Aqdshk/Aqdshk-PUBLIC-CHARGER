@@ -25,7 +25,7 @@ from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
     create_engine,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
 
@@ -696,7 +696,10 @@ class StaffSession(Base):
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
 
-    staff = relationship("SupportStaff", backref="sessions")
+    staff = relationship(
+        "SupportStaff",
+        backref=backref("sessions", passive_deletes=True, cascade="all, delete-orphan"),
+    )
 
 
 # ==================== SUPPORT TICKETS ====================
