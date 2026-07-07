@@ -238,7 +238,113 @@
         document.body.appendChild(badge);
     }
 
-    // ──────── 6. RUN ON DOM READY ────────
+    // ──────── 6. IDLE SESSION TIMEOUT ────────
+    // Auto-logout after inactivity to prevent stale-token 401 errors and
+    // reduce the risk of an unattended browser being used by someone else.
+    // Cross-tab synced via localStorage — activity in any tab resets the
+    // countdown across all open PlagSini admin tabs.
+    const IDLE_WARN_MS   = 25 * 60 * 1000;   // 25 min → show warning modal
+    const IDLE_LOGOUT_MS = 26 * 60 * 1000;   // 26 min → force logout
+    const ACTIVITY_KEY   = 'psLastActivity'; // localStorage key, shared across tabs
+    const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    let _idleWarnTimer = null;
+    let _idleLogoutTimer = null;
+    let _idleModal = null;
+    let _idleCountdownTimer = null;
+
+    function _markActive() {
+        try { localStorage.setItem(ACTIVITY_KEY, String(Date.now())); } catch (e) {}
+        _scheduleIdleChecks();
+        _dismissIdleWarning();
+    }
+
+    function _scheduleIdleChecks() {
+        clearTimeout(_idleWarnTimer);
+        clearTimeout(_idleLogoutTimer);
+        _idleWarnTimer = setTimeout(_showIdleWarning, IDLE_WARN_MS);
+        _idleLogoutTimer = setTimeout(_idleForceLogout, IDLE_LOGOUT_MS);
+    }
+
+    function _showIdleWarning() {
+        // If any tab had activity more recently than our stored timestamp,
+        // that other tab already reset the counter — don't fire the modal.
+        try {
+            const last = parseInt(localStorage.getItem(ACTIVITY_KEY) || '0', 10);
+            if (Date.now() - last < IDLE_WARN_MS - 1000) return;
+        } catch (e) {}
+
+        if (_idleModal) return;
+        _idleModal = document.createElement('div');
+        _idleModal.id = 'psIdleWarning';
+        _idleModal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;';
+        _idleModal.innerHTML = `
+            <div style="background:#151b28;border:1px solid #1e2a3a;border-radius:12px;padding:28px 32px;max-width:420px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                    <div style="width:40px;height:40px;border-radius:50%;background:rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;">⏱️</div>
+                    <h3 style="margin:0;color:#e4e8ef;font-size:16px;font-weight:600;">Session about to expire</h3>
+                </div>
+                <p style="color:#8892a4;font-size:13.5px;line-height:1.5;margin:0 0 8px;">
+                    You've been inactive for a while. For security, you will be logged out in
+                    <b id="psIdleCountdown" style="color:#f59e0b;">60</b> seconds.
+                </p>
+                <p style="color:#8892a4;font-size:12px;margin:0 0 20px;">
+                    Click the button below to stay logged in — this refreshes your session.
+                </p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button id="psIdleLogout" style="background:transparent;border:1px solid #374151;color:#8892a4;padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer;">Logout now</button>
+                    <button id="psIdleStay" style="background:#00e676;border:none;color:#0b0e14;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Stay logged in</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(_idleModal);
+        document.getElementById('psIdleStay').addEventListener('click', _markActive);
+        document.getElementById('psIdleLogout').addEventListener('click', _idleForceLogout);
+
+        // 60-second countdown display in the modal.
+        let remaining = 60;
+        const countdownEl = document.getElementById('psIdleCountdown');
+        _idleCountdownTimer = setInterval(() => {
+            remaining -= 1;
+            if (countdownEl) countdownEl.textContent = String(Math.max(0, remaining));
+            if (remaining <= 0) clearInterval(_idleCountdownTimer);
+        }, 1000);
+    }
+
+    function _dismissIdleWarning() {
+        if (_idleModal) {
+            _idleModal.remove();
+            _idleModal = null;
+        }
+        if (_idleCountdownTimer) {
+            clearInterval(_idleCountdownTimer);
+            _idleCountdownTimer = null;
+        }
+    }
+
+    function _idleForceLogout() {
+        _dismissIdleWarning();
+        if (typeof window._psLogout === 'function') {
+            window._psLogout();
+        } else {
+            // Fallback if auth.js's logout helper hasn't loaded yet.
+            localStorage.removeItem('staffToken');
+            localStorage.removeItem('adminToken');
+            window.location.href = '/login';
+        }
+    }
+
+    // Attach activity listeners once at startup. Passive=true keeps scrolling smooth.
+    ACTIVITY_EVENTS.forEach(evt => {
+        window.addEventListener(evt, _markActive, { passive: true, capture: true });
+    });
+    // Cross-tab sync: if another tab records activity, reset our timers too.
+    window.addEventListener('storage', (e) => {
+        if (e.key === ACTIVITY_KEY) { _scheduleIdleChecks(); _dismissIdleWarning(); }
+    });
+    // Kick off the first idle window.
+    _markActive();
+
+    // ──────── 7. RUN ON DOM READY ────────
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             filterSidebar();
