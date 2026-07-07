@@ -6276,10 +6276,16 @@ async def delete_staff(staff_id: int, db: Session = Depends(get_db), _auth: dict
     staff = db.query(SupportStaff).filter(SupportStaff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found")
-    # Unassign any tickets
+    # Unassign any tickets (clear FK refs before delete to avoid RESTRICT violation)
     db.query(SupportTicket).filter(SupportTicket.assigned_staff_id == staff_id).update(
-        {SupportTicket.assigned_staff_id: None, SupportTicket.assigned_to: None}
+        {SupportTicket.assigned_staff_id: None, SupportTicket.assigned_to: None},
+        synchronize_session=False,
     )
+    # Drop any active login sessions (defensive — FK is CASCADE but flush ensures order)
+    db.query(StaffSession).filter(StaffSession.staff_id == staff_id).delete(
+        synchronize_session=False,
+    )
+    db.flush()
     db.delete(staff)
     db.commit()
     return {"success": True, "message": "Staff deleted"}
