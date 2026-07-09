@@ -1995,7 +1995,11 @@ def _get_or_create_guest_user(db: Session) -> int:
 
 def _require_partner_api_key(request: Request) -> str:
     """Validate the partner shared-secret header. Returns a short partner label
-    used for audit logging. Raises 401 / 503 on failure."""
+    used for audit logging. Raises 401 / 429 / 503 on failure.
+
+    Applies a per-IP rate limit of 300 requests/minute across all partner
+    endpoints to protect the OCPP layer from noisy partners.
+    """
     expected = os.getenv("PARTNER_API_KEY", "").strip()
     if not expected:
         raise HTTPException(
@@ -2006,6 +2010,8 @@ def _require_partner_api_key(request: Request) -> str:
     if not provided or not secrets.compare_digest(provided, expected):
         logger.warning("Rejected partner API call from %s — invalid API key", get_client_ip(request))
         raise HTTPException(status_code=401, detail="Invalid or missing X-Partner-API-Key header")
+    # Global partner rate limit — 300 req/min per source IP across all partner endpoints
+    _enforce_rate_limit(request, "partner-any", max_requests=300, window_seconds=60)
     # Optional friendly label for logs
     return os.getenv("PARTNER_NAME", "partner")
 
@@ -2153,7 +2159,7 @@ async def partner_start_charging(
         "kwh_quota": kwh_quota,
         "ocpp_status": ocpp_status,
         "external_ref": req.external_ref,
-        "started_at": now.isoformat(),
+        "started_at": _iso_utc_naive_to_myt(now),
     }
 
 
