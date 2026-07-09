@@ -362,6 +362,12 @@ class Charger(Base):
     idle_fee_per_min = Column(Numeric(6, 2), nullable=False, default=Decimal("0.40"))
     idle_grace_minutes = Column(Integer, nullable=False, default=15)
 
+    # Partner fleet ownership — scopes which partner API key can control this charger.
+    # Matches env PARTNER_OWNER_ID on the calling side. NULL = not owned by any partner
+    # (available to admin + TNG walk-up flow only, partner endpoints will 403).
+    # Example values: "PERODUA_MY_PUB", "PERODUA_SANDBOX".
+    partner_owner_id = Column(String(50), nullable=True, index=True)
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")

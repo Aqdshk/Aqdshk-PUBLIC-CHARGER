@@ -2010,6 +2010,27 @@ def _require_partner_api_key(request: Request) -> str:
     return os.getenv("PARTNER_NAME", "partner")
 
 
+def _partner_owner_id() -> Optional[str]:
+    """The fleet ownership tag scoped to the currently configured partner key.
+    Set PARTNER_OWNER_ID in env (e.g. 'PERODUA_MY_PUB'). If unset, ownership
+    guard is disabled and partner endpoints behave as before (any charger)."""
+    v = os.getenv("PARTNER_OWNER_ID", "").strip()
+    return v or None
+
+
+def _enforce_charger_ownership(charger: "Charger") -> None:
+    """403 if the charger is not owned by the calling partner's fleet.
+    Silently allows when PARTNER_OWNER_ID env is unset (opt-in guard)."""
+    expected = _partner_owner_id()
+    if expected is None:
+        return  # guard disabled
+    if (charger.partner_owner_id or "") != expected:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Ownership mismatch: charger {charger.charge_point_id} is not in your fleet",
+        )
+
+
 class PartnerStartChargingRequest(BaseModel):
     charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001'")
     connector_id: int = Field(default=1, ge=1, le=10)
@@ -2043,6 +2064,7 @@ async def partner_start_charging(
     charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
+    _enforce_charger_ownership(charger)
     if charger.maintenance_mode:
         reason = (charger.maintenance_reason or "Under maintenance").strip()
         raise HTTPException(status_code=503, detail=f"Charger temporarily unavailable: {reason}")
@@ -2116,6 +2138,7 @@ async def partner_start_charging(
         "transaction_ref": txn_ref,
         "charger_id": req.charger_id,
         "connector_id": req.connector_id,
+        "owner_id": charger.partner_owner_id,
         "amount": req.amount,
         "currency": "MYR",
         "tariff_per_kwh": tariff,
@@ -2155,6 +2178,7 @@ async def partner_stop_charging(
     charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
+    _enforce_charger_ownership(charger)
 
     # Find the active session linked to this txn
     if txn.paid_at:
@@ -2209,6 +2233,8 @@ async def partner_stop_charging(
     return {
         "success": ocpp_status == "Accepted",
         "transaction_ref": txn.transaction_ref,
+        "charger_id": charger.charge_point_id,
+        "owner_id": charger.partner_owner_id,
         "ocpp_status": ocpp_status,
         "session_transaction_id": session.transaction_id,
         "message": "RemoteStop sent — final session details available via /api/partner/charging/sessions/{ref}",
@@ -2233,6 +2259,11 @@ async def partner_get_session(
     )
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    # Ownership guard — refuse to leak session details for chargers outside partner fleet
+    if txn.charger_id:
+        charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
+        if charger:
+            _enforce_charger_ownership(charger)
     return {"success": True, "transaction": _serialize_sync_transaction(txn, db)}
 
 
@@ -2254,6 +2285,7 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
             charger_payload = {
                 "id": charger.charge_point_id,
                 "name": charger.name,
+                "owner_id": charger.partner_owner_id,
                 "connector_id": t.connector_id,
                 "connector_type": charger.connector_type,
                 "max_power_kw": charger.max_power_kw,
