@@ -2045,8 +2045,13 @@ def _enforce_charger_ownership(charger: "Charger", claimed_owner_id: Optional[st
 class PartnerStartChargingRequest(BaseModel):
     charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001'")
     owner_id: str = Field(..., min_length=1, max_length=50,
-                          description="Perodua user identifier claiming ownership of this charger "
-                                      "(e.g. 'P2-USER-100'). Must match charger.partner_owner_id.")
+                          description="Perodua user identifier that owns the charger "
+                                      "(e.g. 'P2-USER-100'). Must match charger.partner_owner_id "
+                                      "for a start to succeed.")
+    customer_id: str = Field(..., min_length=1, max_length=50,
+                             description="Perodua user identifier of the CALLER — the person "
+                                         "actually initiating the charge. May differ from owner_id "
+                                         "in shared-access scenarios. Recorded for audit.")
     connector_id: int = Field(default=1, ge=1, le=10)
     amount: float = Field(..., gt=0, le=500,
                           description="Amount partner has already collected from customer (RM)")
@@ -2145,7 +2150,8 @@ async def partner_start_charging(
 
     logger.info(
         f"[partner:{partner}] start charging on {req.charger_id} c{req.connector_id} "
-        f"RM{req.amount} → txn {txn_ref} (external_ref={req.external_ref})"
+        f"RM{req.amount} → txn {txn_ref} "
+        f"(caller={req.customer_id} owner={req.owner_id} external_ref={req.external_ref})"
     )
     return {
         "success": True,
@@ -2168,6 +2174,9 @@ class PartnerStopChargingRequest(BaseModel):
     owner_id: str = Field(..., min_length=1, max_length=50,
                           description="Perodua user identifier that owns the charger. "
                                       "Must match the charger's registered owner.")
+    customer_id: str = Field(..., min_length=1, max_length=50,
+                             description="Perodua user identifier of the CALLER — the person "
+                                         "actually issuing the stop. Recorded for audit.")
 
 
 @app.post("/api/partner/charging/stop")
@@ -2245,7 +2254,8 @@ async def partner_stop_charging(
 
     logger.info(
         f"[partner:{partner}] stop charging on {charger.charge_point_id} "
-        f"txn={req.transaction_ref} ocpp_status={ocpp_status}"
+        f"txn={req.transaction_ref} caller={req.customer_id} owner={req.owner_id} "
+        f"ocpp_status={ocpp_status}"
     )
     return {
         "success": ocpp_status == "Accepted",
@@ -2298,6 +2308,10 @@ async def partner_get_session(
 class PartnerAssignOwnerRequest(BaseModel):
     owner_id: str = Field(..., min_length=1, max_length=50,
                           description="The Perodua user identifier that will own this charger.")
+    customer_id: str = Field(..., min_length=1, max_length=50,
+                             description="Perodua user identifier of the CALLER performing this "
+                                         "assignment. Usually equals owner_id (self-claim), but "
+                                         "may be an admin acting on behalf. Recorded for audit.")
     force: bool = Field(default=False,
                         description="If true, overwrite an existing owner. Otherwise a charger "
                                     "already assigned to someone else returns 409.")
@@ -2334,7 +2348,7 @@ async def partner_assign_charger(
     charger.partner_owner_id = new_owner
     db.commit()
     logger.info(f"[partner:{partner}] assigned charger {charger_id} → owner {new_owner} "
-                f"(was: {existing or 'none'})")
+                f"caller={req.customer_id} (was: {existing or 'none'})")
     return {
         "success": True,
         "charger_id": charger_id,
@@ -2346,6 +2360,9 @@ async def partner_assign_charger(
 class PartnerUnassignOwnerRequest(BaseModel):
     owner_id: str = Field(..., min_length=1, max_length=50,
                           description="The current owner must match — prevents accidental release.")
+    customer_id: str = Field(..., min_length=1, max_length=50,
+                             description="Perodua user identifier of the CALLER performing this "
+                                         "release. Recorded for audit.")
 
 
 @app.post("/api/partner/chargers/{charger_id}/unassign")
@@ -2369,7 +2386,8 @@ async def partner_unassign_charger(
     previous = charger.partner_owner_id
     charger.partner_owner_id = None
     db.commit()
-    logger.info(f"[partner:{partner}] unassigned charger {charger_id} (was owner {previous})")
+    logger.info(f"[partner:{partner}] unassigned charger {charger_id} "
+                f"caller={req.customer_id} (was owner {previous})")
     return {
         "success": True,
         "charger_id": charger_id,
