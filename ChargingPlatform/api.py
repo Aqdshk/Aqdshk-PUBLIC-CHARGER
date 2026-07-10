@@ -2075,10 +2075,17 @@ class PartnerStartChargingRequest(BaseModel):
                                          "actually initiating the charge. May differ from owner_id "
                                          "in shared-access scenarios. Recorded for audit.")
     connector_id: int = Field(default=1, ge=1, le=10)
-    amount: float = Field(..., gt=0, le=500,
-                          description="Amount partner has already collected from customer (RM)")
-    customer_email: str = Field(..., min_length=3, max_length=255,
-                                description="Where to email the receipt")
+    amount: Optional[float] = Field(
+        default=None, gt=0, le=500,
+        description="OPTIONAL. Amount partner has collected (RM). When present, PlagSini "
+                    "computes a kWh auto-stop quota. When absent, session runs open-ended "
+                    "until the partner (or user) explicitly calls /stop.",
+    )
+    customer_email: Optional[str] = Field(
+        default=None, min_length=3, max_length=255,
+        description="OPTIONAL. Where to email the receipt. Leave empty if the partner "
+                    "handles their own receipts.",
+    )
     external_ref: Optional[str] = Field(
         default=None, max_length=100,
         description="Partner's own reference (e.g. their payment txn ID) for cross-mapping"
@@ -2126,14 +2133,17 @@ async def partner_start_charging(
 
     # Create a payment txn record marked as already-paid externally — gateway is
     # the partner, not TNG/Billplz. paid_at = now since partner has settled it.
+    # amount = 0 signals "no auto-stop, run open-ended" downstream (RemoteStart helper).
     txn_ref = generate_transaction_ref()
     now = _utcnow()
     guest_user_id = _get_or_create_guest_user(db)
+    stored_amount = float(req.amount) if req.amount is not None else 0.0
+    stored_email = (req.customer_email or "").strip() or None
     txn = PaymentTransaction(
         transaction_ref=txn_ref,
         user_id=guest_user_id,  # external customer, no PlagSini account
-        user_email=req.customer_email,
-        amount=req.amount,
+        user_email=stored_email,
+        amount=stored_amount,
         currency="MYR",
         payment_method="external",
         gateway_name=f"partner:{partner}",
@@ -2144,7 +2154,7 @@ async def partner_start_charging(
         purpose="charge_payment",
         charger_id=req.charger_id,
         connector_id=req.connector_id,
-        customer_email=req.customer_email,
+        customer_email=stored_email,
         ip_address=client_ip,
         paid_at=now,
         created_at=now,
@@ -2166,13 +2176,13 @@ async def partner_start_charging(
             detail=f"RemoteStart failed: {e}. Partner should refund customer.",
         )
 
-    # Compute kWh quota for response transparency
+    # Compute kWh quota for response transparency (only if partner supplied amount).
     tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
-    kwh_quota = round(req.amount / tariff, 4) if tariff > 0 else None
+    kwh_quota = round(stored_amount / tariff, 4) if (stored_amount > 0 and tariff > 0) else None
 
     logger.info(
         f"[partner:{partner}] start charging on {req.charger_id} c{req.connector_id} "
-        f"RM{req.amount} → txn {txn_ref} "
+        f"RM{stored_amount if stored_amount > 0 else '—'} → txn {txn_ref} "
         f"(caller={req.customer_id} owner={req.owner_id} external_ref={req.external_ref})"
     )
     return {
@@ -7554,7 +7564,9 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         try:
             tariff = float(charger.tariff_per_kwh or Decimal("0.10"))
             budget_amount = _energy_budget_for_txn(txn)
-            kwh_limit = round(budget_amount / tariff, 4) if tariff > 0 else None
+            # No cap when partner didn't supply an amount (budget_amount == 0) —
+            # session runs open-ended until they explicitly call /stop.
+            kwh_limit = round(budget_amount / tariff, 4) if (budget_amount > 0 and tariff > 0) else None
         except Exception:
             kwh_limit = None
         hold_amount = float(txn.amount or 0)
