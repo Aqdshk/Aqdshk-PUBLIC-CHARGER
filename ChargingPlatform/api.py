@@ -2302,7 +2302,7 @@ async def partner_stop_charging(
         "owner_id": charger.partner_owner_id,
         "ocpp_status": ocpp_status,
         "session_transaction_id": session.transaction_id,
-        "message": "RemoteStop sent — final session details available via /api/partner/charging/sessions/{ref}",
+        "message": "RemoteStop sent. Charger will emit its final StopTransaction over OCPP within a few seconds.",
     }
 
 
