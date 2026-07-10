@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PlagSini Login — Brand Match</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --mint: #A8DDC0;
+    --mint-dark: #7EC9A2;
+    --mint-deep: #4FA57C;
+    --lime: #C6F542;
+    --lime-hover: #B5E830;
+    --ink: #0A0F0D;
+    --ink-soft: #1F2A24;
+    --muted: #4A5C52;
+  }
+  html, body { height: 100%; font-family: 'Inter', -apple-system, sans-serif; background: var(--mint); color: var(--ink); overflow-x: hidden; }
+
+  .stage { min-height: 100vh; display: grid; grid-template-columns: 1fr 1.15fr; }
+
+  /* ============ LEFT: HERO + FORM ============ */
+  .left { padding: 36px 56px 40px; display: flex; flex-direction: column; position: relative; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-mark { width: 44px; height: 44px; background: var(--ink); color: var(--lime); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-family: 'Archivo Black'; font-size: 18px; letter-spacing: -1px; box-shadow: 0 6px 18px rgba(0,0,0,0.15); }
+  .logo-txt { font-family: 'Archivo Black'; font-size: 18px; letter-spacing: -0.5px; }
+  .logo-txt span { color: var(--ink); }
+  .logo-txt em { font-style: normal; background: var(--lime); padding: 0 6px; border-radius: 4px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(10,15,13,0.06); border: 1px solid rgba(10,15,13,0.1); padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+  .status-dot { width: 8px; height: 8px; background: #16a34a; border-radius: 50%; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.15); } }
+
+  .hero { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 560px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 20px; }
+  .eyebrow::before { content: ''; width: 24px; height: 2px; background: var(--ink); }
+  .headline { font-family: 'Archivo Black'; font-size: clamp(48px, 6vw, 84px); line-height: 0.88; letter-spacing: -0.04em; color: var(--ink); text-transform: uppercase; margin-bottom: 22px; }
+  .headline .accent { background: var(--lime); padding: 0 8px; margin-left: -4px; border-radius: 6px; box-shadow: 4px 4px 0 var(--ink); display: inline-block; transform: rotate(-1deg); }
+  .lede { font-size: 15px; line-height: 1.65; color: var(--ink-soft); max-width: 460px; margin-bottom: 44px; }
+
+  /* ---- form card ---- */
+  .card { background: #fff; border: 2px solid var(--ink); border-radius: 20px; padding: 28px 28px 24px; box-shadow: 8px 8px 0 var(--ink); max-width: 460px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .card-head h2 { font-family: 'Archivo Black'; font-size: 20px; letter-spacing: -0.02em; }
+  .card-head .lock { width: 32px; height: 32px; background: var(--lime); border: 2px solid var(--ink); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+
+  .field-group { margin-bottom: 14px; }
+  label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 8px; }
+  .field-wrap { position: relative; }
+  .field-wrap .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 15px; opacity: 0.55; }
+  .field { width: 100%; background: #F4F4F0; border: 2px solid transparent; padding: 13px 14px 13px 40px; border-radius: 10px; font-family: inherit; font-size: 14px; font-weight: 500; color: var(--ink); outline: none; transition: all 0.15s; }
+  .field:focus { border-color: var(--ink); background: #fff; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 18px; font-size: 13px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); cursor: pointer; font-weight: 500; }
+  .check input { width: 16px; height: 16px; accent-color: var(--ink); }
+
+  .btn { width: 100%; background: var(--lime); color: var(--ink); border: 2px solid var(--ink); padding: 15px; border-radius: 12px; font-family: 'Archivo Black'; font-size: 15px; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; box-shadow: 4px 4px 0 var(--ink); transition: all 0.12s; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .btn:hover { background: var(--lime-hover); transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); }
+  .btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .btn .arrow { font-family: 'Inter'; font-size: 20px; font-weight: 900; }
+
+  .foot-note { margin-top: 18px; text-align: center; font-size: 11px; color: var(--muted); letter-spacing: 0.5px; }
+
+  /* mini stats strip */
+  .stats-strip { margin-top: 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 460px; }
+  .stat { background: rgba(10,15,13,0.06); border: 1px solid rgba(10,15,13,0.1); border-radius: 12px; padding: 12px 14px; }
+  .stat .n { font-family: 'Archivo Black'; font-size: 22px; letter-spacing: -0.03em; }
+  .stat .l { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+
+  /* ============ RIGHT: HERO IMAGE ============ */
+  .right { position: relative; background: linear-gradient(135deg, var(--mint) 0%, var(--mint-dark) 100%); overflow: hidden; }
+  .right::before { content: ''; position: absolute; inset: 0; background:
+    radial-gradient(circle at 30% 20%, rgba(198, 245, 66, 0.25), transparent 45%),
+    radial-gradient(circle at 80% 80%, rgba(255,255,255,0.15), transparent 40%); }
+  .right-inner { position: relative; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 40px; z-index: 2; }
+
+  .car-wrap { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; }
+  .car-photo { position: absolute; inset: 0; background-image: url('https://images.unsplash.com/photo-1697490036041-72d4be34f6ec?w=1600&q=80&fit=crop');
+    background-size: cover; background-position: center; border-radius: 24px; box-shadow: 0 30px 60px rgba(0,0,0,0.25); }
+  .car-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 0%, transparent 55%, rgba(10,15,13,0.65) 100%); border-radius: 24px; }
+
+  /* charging overlay HUD */
+  .hud { position: absolute; bottom: 32px; left: 32px; right: 32px; z-index: 3; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: end; }
+  .hud-title { color: #fff; }
+  .hud-title .l { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.8; margin-bottom: 6px; }
+  .hud-title .n { font-family: 'Archivo Black'; font-size: 32px; letter-spacing: -0.02em; line-height: 1; }
+  .hud-title .n em { color: var(--lime); font-style: normal; }
+
+  .hud-card { background: rgba(255,255,255,0.14); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.25); border-radius: 16px; padding: 14px 18px; color: #fff; min-width: 200px; }
+  .hud-card .row-mini { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; opacity: 0.9; }
+  .hud-card .bar { height: 6px; background: rgba(255,255,255,0.2); border-radius: 999px; overflow: hidden; margin-bottom: 10px; }
+  .hud-card .bar > i { display: block; height: 100%; width: 72%; background: linear-gradient(90deg, var(--lime), #fff); border-radius: 999px; box-shadow: 0 0 12px var(--lime); }
+  .hud-card .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .hud-card .pill::before { content: ''; width: 6px; height: 6px; background: var(--lime); border-radius: 50%; box-shadow: 0 0 8px var(--lime); }
+
+  .top-tag { align-self: flex-end; background: var(--ink); color: var(--lime); font-family: 'Archivo Black'; font-size: 11px; letter-spacing: 3px; padding: 10px 16px; border-radius: 999px; text-transform: uppercase; }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width: 1100px) {
+    .stage { grid-template-columns: 1fr; }
+    .right { min-height: 400px; }
+    .left { padding: 32px; }
+    .card { max-width: 100%; }
+    .stats-strip { max-width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .headline { font-size: 44px; }
+    .left { padding: 24px 20px; }
+    .right-inner { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ============ LEFT ============ -->
+  <div class="left">
+    <div class="topbar">
+      <div class="logo">
+        <div class="logo-mark">PS</div>
+        <div class="logo-txt">PLAG<em>SINI</em></div>
+      </div>
+      <div class="status-pill"><span class="status-dot"></span>Network Online · 474 chargers</div>
+    </div>
+
+    <div class="hero">
+      <div class="eyebrow">Staff Portal · v2.6</div>
+      <h1 class="headline">
+        POWERING<br>
+        MALAYSIA'S<br>
+        <span class="accent">EV FUTURE.</span>
+      </h1>
+      <p class="lede">Sign in to monitor the network, manage stations, and keep the grid moving. Every kWh you deliver replaces a litre of petrol.</p>
+
+      <!-- form card -->
+      <form class="card" onsubmit="event.preventDefault(); alert('Preview only.');">
+        <div class="card-head">
+          <h2>Sign in</h2>
+          <div class="lock">🔒</div>
+        </div>
+
+        <div class="field-group">
+          <label>Email address</label>
+          <div class="field-wrap">
+            <span class="icon">✉</span>
+            <input class="field" type="email" value="admin@plagsini.com" autocomplete="email">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Password</label>
+          <div class="field-wrap">
+            <span class="icon">🔑</span>
+            <input class="field" type="password" value="••••••••••••" autocomplete="current-password">
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="check"><input type="checkbox" checked> Remember me</label>
+          <a href="#" style="color: var(--ink-soft); font-weight: 600; text-decoration: none;">Forgot?</a>
+        </div>
+
+        <button class="btn" type="submit">
+          Enter Portal <span class="arrow">→</span>
+        </button>
+
+        <div class="foot-note">Secure access · All activity is monitored and logged</div>
+      </form>
+
+      <div class="stats-strip">
+        <div class="stat"><div class="n">474</div><div class="l">Chargers</div></div>
+        <div class="stat"><div class="n">8.1K</div><div class="l">Sessions</div></div>
+        <div class="stat"><div class="n">99.9%</div><div class="l">Uptime</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT ============ -->
+  <div class="right">
+    <div class="right-inner">
+      <div style="display: flex; justify-content: flex-end;">
+        <div class="top-tag">⚡ Live Network</div>
+      </div>
+
+      <div class="car-wrap">
+        <div class="car-photo"></div>
+      </div>
+
+      <div class="hud">
+        <div class="hud-title">
+          <div class="l">Now Charging</div>
+          <div class="n">DC3001 · <em>22 kW</em></div>
+        </div>
+        <div class="hud-card">
+          <div class="row-mini"><span>Session #8142</span><span>72%</span></div>
+          <div class="bar"><i></i></div>
+          <div class="pill">Live · CP01 Perodua Bina</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

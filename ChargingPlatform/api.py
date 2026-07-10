@@ -36,7 +36,7 @@ from database import (
     AuditLog,
     Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
-    OTPVerification, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
+    OTPVerification, PartnerAPIKey, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
     Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db, get_hold_amount_rm,
@@ -1993,27 +1993,49 @@ def _get_or_create_guest_user(db: Session) -> int:
 # Auth: shared secret in `X-Partner-API-Key` header (env: PARTNER_API_KEY).
 # Generate via `openssl rand -hex 32` and share securely with the partner.
 
-def _require_partner_api_key(request: Request) -> str:
-    """Validate the partner shared-secret header. Returns a short partner label
-    used for audit logging. Raises 401 / 429 / 503 on failure.
+def _hash_partner_key(raw: str) -> str:
+    """Deterministic SHA-256 hex digest of a partner API key. Stored in DB so we
+    never have to persist the raw secret."""
+    import hashlib
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    Applies a per-IP rate limit of 300 requests/minute across all partner
-    endpoints to protect the OCPP layer from noisy partners.
+
+def _require_partner_api_key(request: Request, db: Session) -> str:
+    """Validate the partner shared-secret header against the partner_api_keys
+    table. Returns the partner_name for audit logging. Raises 401 / 429.
+
+    - Hashes the incoming X-Partner-API-Key header with SHA-256.
+    - Looks up an active row with matching key_hash.
+    - Updates last_used_at on success.
+    - Enforces a 300 req/min sliding-window rate limit per source IP across
+      all partner endpoints.
     """
-    expected = os.getenv("PARTNER_API_KEY", "").strip()
-    if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail="Partner API is not configured on the server (set PARTNER_API_KEY)",
-        )
     provided = request.headers.get("X-Partner-API-Key", "").strip()
-    if not provided or not secrets.compare_digest(provided, expected):
-        logger.warning("Rejected partner API call from %s — invalid API key", get_client_ip(request))
-        raise HTTPException(status_code=401, detail="Invalid or missing X-Partner-API-Key header")
-    # Global partner rate limit — 300 req/min per source IP across all partner endpoints
+    if not provided:
+        raise HTTPException(status_code=401, detail="Missing X-Partner-API-Key header")
+
+    key_hash = _hash_partner_key(provided)
+    row = (
+        db.query(PartnerAPIKey)
+        .filter(PartnerAPIKey.key_hash == key_hash, PartnerAPIKey.active.is_(True))
+        .first()
+    )
+    if not row:
+        logger.warning("Rejected partner API call from %s — invalid API key",
+                       get_client_ip(request))
+        raise HTTPException(status_code=401, detail="Invalid X-Partner-API-Key header")
+
+    # Rate limit — per source IP across all partner endpoints
     _enforce_rate_limit(request, "partner-any", max_requests=300, window_seconds=60)
-    # Optional friendly label for logs
-    return os.getenv("PARTNER_NAME", "partner")
+
+    # Best-effort last_used_at update — not fatal if commit fails
+    try:
+        row.last_used_at = _utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return row.partner_name
 
 
 def _enforce_charger_ownership(charger: "Charger", claimed_owner_id: Optional[str]) -> None:
@@ -2076,7 +2098,7 @@ async def partner_start_charging(
     Returns a `transaction_ref` the partner stores for later stop/status calls.
     Same auto-stop quota logic as guest /pay flow applies (kWh = amount/tariff).
     """
-    partner = _require_partner_api_key(request)
+    partner = _require_partner_api_key(request, db)
     client_ip = get_client_ip(request)
 
     # Validate charger
@@ -2189,7 +2211,7 @@ async def partner_stop_charging(
     (e.g. customer requested stop in the partner's app). We send OCPP
     RemoteStopTransaction. Idempotent — if session already stopped, returns
     200 with current status."""
-    partner = _require_partner_api_key(request)
+    partner = _require_partner_api_key(request, db)
 
     txn = (
         db.query(PaymentTransaction)
@@ -2282,7 +2304,7 @@ async def partner_get_session(
     `owner_id` query param is required — must match the charger's registered owner
     or the session details will not be disclosed.
     """
-    _require_partner_api_key(request)
+    _require_partner_api_key(request, db)
 
     txn = (
         db.query(PaymentTransaction)
@@ -2298,6 +2320,123 @@ async def partner_get_session(
             raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
         _enforce_charger_ownership(charger, owner_id)
     return {"success": True, "transaction": _serialize_sync_transaction(txn, db)}
+
+
+# ─── Partner key management (admin-only) ─────────────────────────────────────
+# Multi-tenant partner registry. Each partner (Perodua, bnb-ventures, future
+# integrators) has their own key stored as SHA-256 hash. Admin issues, lists,
+# rotates, and revokes keys through these endpoints. Raw keys are shown ONCE
+# at issue time and never again.
+
+class PartnerKeyCreateRequest(BaseModel):
+    partner_name: str = Field(..., min_length=2, max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=255)
+
+
+@app.post("/api/admin/partners")
+async def admin_create_partner_key(
+    req: PartnerKeyCreateRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Issue a new partner API key. The raw key is returned in the response
+    ONCE — store it securely, it cannot be retrieved later. Only the SHA-256
+    hash is persisted server-side.
+    """
+    if db.query(PartnerAPIKey).filter(PartnerAPIKey.partner_name == req.partner_name).first():
+        raise HTTPException(status_code=409, detail=f"Partner '{req.partner_name}' already exists")
+
+    raw = secrets.token_hex(32)  # 64 hex chars = 256-bit entropy
+    row = PartnerAPIKey(
+        partner_name=req.partner_name,
+        key_hash=_hash_partner_key(raw),
+        active=True,
+        notes=req.notes,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    logger.info(f"[admin] issued partner API key for '{req.partner_name}' (id={row.id})")
+    return {
+        "success": True,
+        "id": row.id,
+        "partner_name": row.partner_name,
+        "api_key": raw,
+        "notes": row.notes,
+        "created_at": row.created_at.isoformat(),
+        "warning": "Store this key now — it will not be shown again.",
+    }
+
+
+@app.get("/api/admin/partners")
+async def admin_list_partner_keys(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """List all registered partners. Raw keys are NEVER returned — only metadata."""
+    rows = db.query(PartnerAPIKey).order_by(PartnerAPIKey.id).all()
+    return {
+        "count": len(rows),
+        "partners": [
+            {
+                "id": r.id,
+                "partner_name": r.partner_name,
+                "active": r.active,
+                "notes": r.notes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "revoked_at": r.revoked_at.isoformat() if r.revoked_at else None,
+                "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+                "key_hint": r.key_hash[:8] + "…",
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/admin/partners/{partner_id}/rotate")
+async def admin_rotate_partner_key(
+    partner_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Rotate an existing partner key. The old key stops working immediately;
+    the new raw key is returned in the response ONCE.
+    """
+    row = db.query(PartnerAPIKey).filter(PartnerAPIKey.id == partner_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Partner id {partner_id} not found")
+    raw = secrets.token_hex(32)
+    row.key_hash = _hash_partner_key(raw)
+    row.active = True
+    row.revoked_at = None
+    db.commit()
+    logger.info(f"[admin] rotated partner API key for '{row.partner_name}' (id={row.id})")
+    return {
+        "success": True,
+        "id": row.id,
+        "partner_name": row.partner_name,
+        "api_key": raw,
+        "warning": "Store this key now — it will not be shown again.",
+    }
+
+
+@app.post("/api/admin/partners/{partner_id}/revoke")
+async def admin_revoke_partner_key(
+    partner_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Revoke a partner key. Sets active=false; subsequent calls with that key
+    return 401. Metadata retained for audit.
+    """
+    row = db.query(PartnerAPIKey).filter(PartnerAPIKey.id == partner_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Partner id {partner_id} not found")
+    row.active = False
+    row.revoked_at = _utcnow()
+    db.commit()
+    logger.info(f"[admin] revoked partner API key for '{row.partner_name}' (id={row.id})")
+    return {"success": True, "id": row.id, "partner_name": row.partner_name, "active": False}
 
 
 # ─── Partner ownership management ────────────────────────────────────────────
@@ -2331,7 +2470,7 @@ async def partner_assign_charger(
     - 409 if charger already owned by someone else (unless force=true)
     - 200 with the new ownership on success
     """
-    partner = _require_partner_api_key(request)
+    partner = _require_partner_api_key(request, db)
     charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
@@ -2377,7 +2516,7 @@ async def partner_unassign_charger(
 
     Requires the current `owner_id` to match, as a safety check.
     """
-    partner = _require_partner_api_key(request)
+    partner = _require_partner_api_key(request, db)
     charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
@@ -2407,7 +2546,7 @@ async def partner_get_ownership(
     No owner_id required — this is a read-only lookup, safe for partner to query
     any charger in the network.
     """
-    _require_partner_api_key(request)
+    _require_partner_api_key(request, db)
     charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
@@ -2434,7 +2573,7 @@ async def partner_list_owned_chargers(
     """List all chargers assigned to a given owner_id. Perodua calls this to
     render the user's 'my chargers' list on the P2 Superapp.
     """
-    _require_partner_api_key(request)
+    _require_partner_api_key(request, db)
     owner_id = owner_id.strip()
     if not owner_id:
         raise HTTPException(status_code=400, detail="owner_id query parameter is required")

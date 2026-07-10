@@ -377,6 +377,26 @@ class Charger(Base):
     bookings = relationship("ChargerBooking", back_populates="charger")
 
 
+class PartnerAPIKey(Base):
+    """Registered partner keys for the /api/partner/* server-to-server API.
+
+    Raw keys are never stored — only the SHA-256 hex digest, so an attacker with
+    read access to this table cannot forge a valid header. Partners identify by
+    hitting the API with the raw key; we hash the header and look it up here.
+    """
+    __tablename__ = "partner_api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    partner_name = Column(String(50), unique=True, nullable=False, index=True)
+    key_hash = Column(String(64), unique=True, nullable=False, index=True)  # sha256 hex
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    notes = Column(String(255), nullable=True)  # e.g. "Perodua P2 Superapp — issued 2026-07-10"
+
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+
+
 class ChargingSession(Base):
     __tablename__ = "charging_sessions"
     
