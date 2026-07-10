@@ -2138,7 +2138,11 @@ async def partner_start_charging(
     now = _utcnow()
     guest_user_id = _get_or_create_guest_user(db)
     stored_amount = float(req.amount) if req.amount is not None else 0.0
-    stored_email = (req.customer_email or "").strip() or None
+    real_email = (req.customer_email or "").strip() or None
+    # user_email is NOT NULL in the payments table — fall back to a synthetic
+    # per-partner placeholder so we can still record the txn when the partner
+    # is a pure OCPP relay that runs its own billing/notification stack.
+    stored_email = real_email or f"noemail+{partner}@partner.plagsini.local"
     txn = PaymentTransaction(
         transaction_ref=txn_ref,
         user_id=guest_user_id,  # external customer, no PlagSini account
@@ -2154,7 +2158,9 @@ async def partner_start_charging(
         purpose="charge_payment",
         charger_id=req.charger_id,
         connector_id=req.connector_id,
-        customer_email=stored_email,
+        # customer_email is only set when the partner actually provided one —
+        # this is what downstream receipt-sending logic checks before emailing.
+        customer_email=real_email,
         ip_address=client_ip,
         paid_at=now,
         created_at=now,
