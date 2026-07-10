@@ -2016,15 +2016,14 @@ def _hash_partner_key(raw: str) -> str:
 
 
 def _require_partner_api_key(request: Request, db: Session) -> str:
-    """Validate the partner shared-secret header against the partner_api_keys
-    table. Returns the partner_name for audit logging. Raises 401 / 429.
+    """Backwards-compat wrapper that returns just the partner_name.
+    New code should call _authenticate_partner() to get the whole row."""
+    return _authenticate_partner(request, db).partner_name
 
-    - Hashes the incoming X-Partner-API-Key header with SHA-256.
-    - Looks up an active row with matching key_hash.
-    - Updates last_used_at on success.
-    - Enforces a 300 req/min sliding-window rate limit per source IP across
-      all partner endpoints.
-    """
+
+def _authenticate_partner(request: Request, db: Session) -> "PartnerAPIKey":
+    """Validate the X-Partner-API-Key header against the partner_api_keys table
+    and return the matched row. Raises 401 / 429."""
     provided = request.headers.get("X-Partner-API-Key", "").strip()
     if not provided:
         raise HTTPException(status_code=401, detail="Missing X-Partner-API-Key header")
@@ -2040,17 +2039,28 @@ def _require_partner_api_key(request: Request, db: Session) -> str:
                        get_client_ip(request))
         raise HTTPException(status_code=401, detail="Invalid X-Partner-API-Key header")
 
-    # Rate limit — per source IP across all partner endpoints
     _enforce_rate_limit(request, "partner-any", max_requests=300, window_seconds=60)
 
-    # Best-effort last_used_at update — not fatal if commit fails
     try:
         row.last_used_at = _utcnow()
         db.commit()
     except Exception:
         db.rollback()
 
-    return row.partner_name
+    return row
+
+
+def _enforce_tenant_guard(partner: "PartnerAPIKey", charger: "Charger") -> None:
+    """403 if the key's controls_tenant is set and the charger belongs to a
+    different tenant. NULL keeps existing partners unrestricted."""
+    scope = (partner.controls_tenant or "").strip()
+    if not scope:
+        return  # unrestricted key — legacy partners keep working
+    if (charger.tenant or "") != scope:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Charger {charger.charge_point_id} not found",
+        )
 
 
 class PartnerStartChargingRequest(BaseModel):
@@ -2092,13 +2102,15 @@ async def partner_start_charging(
     Returns a `transaction_ref` the partner stores for later stop/status calls.
     Same auto-stop quota logic as guest /pay flow applies (kWh = amount/tariff).
     """
-    partner = _require_partner_api_key(request, db)
+    partner_row = _authenticate_partner(request, db)
+    partner = partner_row.partner_name
     client_ip = get_client_ip(request)
 
     # Validate charger
     charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
+    _enforce_tenant_guard(partner_row, charger)
     if charger.maintenance_mode:
         reason = (charger.maintenance_reason or "Under maintenance").strip()
         raise HTTPException(status_code=503, detail=f"Charger temporarily unavailable: {reason}")
@@ -2203,7 +2215,8 @@ async def partner_stop_charging(
     (e.g. customer requested stop in the partner's app). We send OCPP
     RemoteStopTransaction. Idempotent — if session already stopped, returns
     200 with current status."""
-    partner = _require_partner_api_key(request, db)
+    partner_row = _authenticate_partner(request, db)
+    partner = partner_row.partner_name
 
     txn = (
         db.query(PaymentTransaction)
@@ -2218,6 +2231,7 @@ async def partner_stop_charging(
     charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
+    _enforce_tenant_guard(partner_row, charger)
 
     # Find the active session linked to this txn
     if txn.paid_at:

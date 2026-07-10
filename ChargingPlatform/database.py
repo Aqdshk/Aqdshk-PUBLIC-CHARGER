@@ -399,6 +399,12 @@ class PartnerAPIKey(Base):
     active = Column(Boolean, nullable=False, default=True, index=True)
     notes = Column(String(255), nullable=True)  # e.g. "Perodua P2 Superapp — issued 2026-07-10"
 
+    # Tenant this key is scoped to. NULL = no restriction (backwards compatible
+    # for existing partners). When set, the guard rejects any request touching a
+    # charger whose chargers.tenant does not match this value. Prevents a partner
+    # from accidentally driving OCPP commands on another operator's fleet.
+    controls_tenant = Column(String(50), nullable=True, index=True)
+
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     revoked_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
