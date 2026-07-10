@@ -2179,16 +2179,9 @@ async def partner_start_charging(
     )
     return {
         "success": True,
-        "transaction_ref": txn_ref,
+        "message": "Charging started",
         "charger_id": req.charger_id,
-        "connector_id": req.connector_id,
-        "amount": req.amount,
-        "currency": "MYR",
-        "tariff_per_kwh": tariff,
-        "kwh_quota": kwh_quota,
-        "ocpp_status": ocpp_status,
-        "external_ref": req.external_ref,
-        "started_at": _iso_utc_naive_to_myt(now),
+        "transaction_ref": txn_ref,
     }
 
 
@@ -2251,10 +2244,9 @@ async def partner_stop_charging(
     if session.status == "completed":
         return {
             "success": True,
+            "message": "Charging already stopped",
+            "charger_id": charger.charge_point_id,
             "transaction_ref": txn.transaction_ref,
-            "session_status": "completed",
-            "message": "Session already completed",
-            "energy_consumed_kwh": float(session.energy_consumed or 0),
         }
 
     # Send OCPP RemoteStopTransaction
@@ -2279,11 +2271,9 @@ async def partner_stop_charging(
     )
     return {
         "success": ocpp_status == "Accepted",
-        "transaction_ref": txn.transaction_ref,
+        "message": "Charging stopped",
         "charger_id": charger.charge_point_id,
-        "ocpp_status": ocpp_status,
-        "session_transaction_id": session.transaction_id,
-        "message": "RemoteStop sent. Charger will emit its final StopTransaction over OCPP within a few seconds.",
+        "transaction_ref": txn.transaction_ref,
     }
 
 
