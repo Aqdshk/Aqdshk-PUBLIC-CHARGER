@@ -2283,9 +2283,10 @@ async def partner_stop_charging(
         f"txn={req.transaction_ref} caller={req.customer_id or '-'} "
         f"ocpp_status={ocpp_status}"
     )
+    accepted = ocpp_status == "Accepted"
     return {
-        "success": ocpp_status == "Accepted",
-        "message": "Charging stopped",
+        "success": accepted,
+        "message": "Charging stopped" if accepted else "Could not stop charging (session may not be active)",
         "charger_id": charger.charge_point_id,
         "transaction_ref": txn.transaction_ref,
     }
