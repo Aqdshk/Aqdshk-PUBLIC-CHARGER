@@ -621,6 +621,8 @@ class ChargerStatus(BaseModel):
     idle_fee_enabled: Optional[bool] = None
     idle_fee_per_min: Optional[float] = None
     idle_grace_minutes: Optional[int] = None
+    # Multi-tenant tag — drives sidebar filter + badge on the charger card
+    tenant: Optional[str] = None
 
     @field_serializer("last_heartbeat")
     def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
@@ -903,6 +905,10 @@ async def get_chargers(
         None,
         description="If 1/true: only chargers that are OCPP-online OR charging/preparing OR have an active transaction id.",
     ),
+    tenant: Optional[str] = Query(
+        None,
+        description="Filter chargers by tenant (fleet operator). Omit or pass 'all' for the combined view.",
+    ),
 ):
     """Get all chargers with their status. Use online_only=1 for dropdowns (metering, sessions, operations).
 
@@ -917,12 +923,21 @@ async def get_chargers(
     # response payload differs (stripped vs full). Splitting the cache key
     # avoids serving admin-only fields to an anonymous follow-up request.
     _is_admin = bool(request.headers.get("x-staff-token") or request.headers.get("authorization"))
-    _cache_key = ("online" if (online_only in ("1", "true", "True")) else "all") + ("|admin" if _is_admin else "|anon")
+    _tenant_norm = (tenant or "").strip().lower()
+    _tenant_key = _tenant_norm if _tenant_norm and _tenant_norm != "all" else "all"
+    _cache_key = (
+        ("online" if (online_only in ("1", "true", "True")) else "all")
+        + ("|admin" if _is_admin else "|anon")
+        + f"|t:{_tenant_key}"
+    )
     _cached = _CHARGERS_CACHE.get(_cache_key)
     if _cached and _cached["exp"] > _now:
         return _cached["data"]
 
-    chargers = db.query(Charger).all()
+    q = db.query(Charger)
+    if _tenant_key != "all":
+        q = q.filter(Charger.tenant == _tenant_key)
+    chargers = q.all()
 
     # Load pricing once: per-charger entries keyed by charger_id; fallback = charger_id IS NULL
     all_pricing = db.query(Pricing).filter(Pricing.is_active == True).all()

@@ -96,6 +96,85 @@ html, body, .sidebar, .top-header, .dashboard-container, .charger-item,
 .theme-toggle svg { flex: 0 0 auto; }
 .theme-toggle-label { flex: 1 1 auto; }
 
+/* ── Tenant switcher (injected by tenant.js, sits above the theme toggle) ── */
+.tenant-toggle-wrap {
+    padding: 8px 8px 0;
+}
+.tenant-toggle {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 8px 10px;
+    background: var(--bg-elevated, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-secondary);
+    cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+    text-align: left; transition: all var(--transition);
+}
+.tenant-toggle:hover {
+    background: var(--accent-dim); color: var(--accent);
+    border-color: var(--accent);
+}
+.tenant-toggle svg { flex: 0 0 auto; }
+.tenant-toggle-label {
+    flex: 1 1 auto; display: flex; align-items: center; gap: 6px;
+    min-width: 0; overflow: hidden;
+}
+.tenant-toggle-name {
+    flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.tenant-toggle-badge {
+    flex: 0 0 auto; padding: 1px 6px; border-radius: 999px;
+    background: var(--accent-dim); color: var(--accent);
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+    line-height: 1.4;
+}
+.tenant-toggle-caret {
+    flex: 0 0 auto; opacity: 0.6;
+    transform: rotate(180deg);   /* points UP because menu opens upward */
+}
+
+/* Popup menu — position:fixed so it can escape the sidebar overflow */
+.tenant-menu {
+    position: fixed; z-index: 3000;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.35),
+                0 2px 8px rgba(0,0,0,0.2);
+    padding: 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 240px;
+    animation: tenantMenuIn 0.14s ease-out;
+}
+@keyframes tenantMenuIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.tenant-menu-row {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 8px 10px;
+    background: transparent; border: 0; color: var(--text-primary);
+    border-radius: 4px; cursor: pointer;
+    font: inherit; font-size: 12px; text-align: left;
+    transition: background var(--transition);
+}
+.tenant-menu-row:hover { background: var(--accent-dim); }
+.tenant-menu-row.is-active { background: var(--accent-dim); color: var(--accent); }
+.tenant-menu-main {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.tenant-menu-label { font-weight: 600; }
+.tenant-menu-hint {
+    font-size: 10px; color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tenant-menu-badge {
+    flex: 0 0 auto; padding: 2px 8px; border-radius: 999px;
+    background: var(--accent-dim); color: var(--accent);
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+}
+
 body {
     font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg-base);

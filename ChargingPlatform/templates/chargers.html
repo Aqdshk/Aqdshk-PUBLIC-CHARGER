@@ -7,6 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=19">
     <script src="/static/theme.js?v=2"></script>
+    <script src="/static/tenant.js?v=1"></script>
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -436,12 +437,23 @@
             setInterval(loadChargerStatus, 5000);
         });
 
+        // Re-fetch immediately when the sidebar tenant switcher changes so the
+        // list reflects the new scope without waiting for the 5s poll.
+        window.addEventListener('tenantChange', () => {
+            _allChargers = [];  // clear stale rows during the fetch
+            loadChargerStatus();
+        });
+
         let _allChargers = [];
 
         async function loadChargerStatus() {
             try {
                 const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
-                const response = await fetch(`${API_BASE}/chargers`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
+                // Scope the list to the sidebar-selected tenant (skip param when 'all' /
+                // switcher hasn't loaded yet — server treats missing tenant as combined).
+                const _tenant = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                const _url = `${API_BASE}/chargers` + (_tenant && _tenant !== 'all' ? `?tenant=${encodeURIComponent(_tenant)}` : '');
+                const response = await fetch(_url, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 const chargers = await response.json();
                 const countEl = document.getElementById('chargerCount');
 

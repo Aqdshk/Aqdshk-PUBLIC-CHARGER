@@ -368,6 +368,13 @@ class Charger(Base):
     # Example values: "PERODUA_MY_PUB", "PERODUA_SANDBOX".
     partner_owner_id = Column(String(50), nullable=True, index=True)
 
+    # Tenant — the fleet operator this charger reports to. Coarser-grained than
+    # partner_owner_id (which identifies an individual owner within a tenant).
+    # Drives the admin dashboard's global tenant filter + per-tenant reporting.
+    # Seed values: "czero-tng" (walk-up + TNG), "perodua" (Perodua public network).
+    # Not FK'd — free-form string so new tenants can be added by seeding.
+    tenant = Column(String(50), nullable=False, default="czero-tng", server_default="czero-tng", index=True)
+
     # Relationships
     sessions = relationship("ChargingSession", back_populates="charger")
     meter_values = relationship("MeterValue", back_populates="charger")
