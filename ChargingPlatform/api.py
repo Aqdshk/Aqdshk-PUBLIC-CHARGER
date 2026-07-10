@@ -2053,42 +2053,14 @@ def _require_partner_api_key(request: Request, db: Session) -> str:
     return row.partner_name
 
 
-def _enforce_charger_ownership(charger: "Charger", claimed_owner_id: Optional[str]) -> None:
-    """Verify the caller's claimed owner_id matches the charger's registered owner.
-
-    Semantic: 'is the Perodua user calling this API actually the assigned owner
-    of this charger?'. Perodua maps their end-users to charger_ids on their side;
-    we just enforce the tag on every request.
-
-    - If charger has NO owner assigned yet (partner_owner_id IS NULL) → 403
-      with 'Charger not assigned'. Partner must first call the assign endpoint.
-    - If claimed_owner_id is empty → 400 'owner_id required'.
-    - If claimed_owner_id != charger.partner_owner_id → 403 'Ownership mismatch'.
-    """
-    if not claimed_owner_id or not claimed_owner_id.strip():
-        raise HTTPException(status_code=400, detail="owner_id is required")
-    if not charger.partner_owner_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Charger {charger.charge_point_id} is not assigned to any owner",
-        )
-    if charger.partner_owner_id != claimed_owner_id.strip():
-        raise HTTPException(
-            status_code=403,
-            detail=f"Ownership mismatch: charger {charger.charge_point_id} is not owned by {claimed_owner_id}",
-        )
-
-
 class PartnerStartChargingRequest(BaseModel):
-    charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001'")
-    owner_id: str = Field(..., min_length=1, max_length=50,
-                          description="Perodua user identifier that owns the charger "
-                                      "(e.g. 'P2-USER-100'). Must match charger.partner_owner_id "
-                                      "for a start to succeed.")
-    customer_id: str = Field(..., min_length=1, max_length=50,
-                             description="Perodua user identifier of the CALLER — the person "
-                                         "actually initiating the charge. May differ from owner_id "
-                                         "in shared-access scenarios. Recorded for audit.")
+    charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001' or '0748911403000093'")
+    customer_id: Optional[str] = Field(
+        default=None, max_length=50,
+        description="OPTIONAL. Partner-side user identifier (any format). Recorded in "
+                    "audit logs so partner support can trace which of their users initiated "
+                    "the session. PlagSini does not validate this value.",
+    )
     connector_id: int = Field(default=1, ge=1, le=10)
     amount: Optional[float] = Field(
         default=None, gt=0, le=500,
@@ -2127,7 +2099,6 @@ async def partner_start_charging(
     charger = db.query(Charger).filter(Charger.charge_point_id == req.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {req.charger_id} not found")
-    _enforce_charger_ownership(charger, req.owner_id)
     if charger.maintenance_mode:
         reason = (charger.maintenance_reason or "Under maintenance").strip()
         raise HTTPException(status_code=503, detail=f"Charger temporarily unavailable: {reason}")
@@ -2204,14 +2175,13 @@ async def partner_start_charging(
     logger.info(
         f"[partner:{partner}] start charging on {req.charger_id} c{req.connector_id} "
         f"RM{stored_amount if stored_amount > 0 else '—'} → txn {txn_ref} "
-        f"(caller={req.customer_id} owner={req.owner_id} external_ref={req.external_ref})"
+        f"(caller={req.customer_id or '-'} external_ref={req.external_ref})"
     )
     return {
         "success": True,
         "transaction_ref": txn_ref,
         "charger_id": req.charger_id,
         "connector_id": req.connector_id,
-        "owner_id": charger.partner_owner_id,
         "amount": req.amount,
         "currency": "MYR",
         "tariff_per_kwh": tariff,
@@ -2224,12 +2194,10 @@ async def partner_start_charging(
 
 class PartnerStopChargingRequest(BaseModel):
     transaction_ref: str = Field(..., min_length=3, max_length=50)
-    owner_id: str = Field(..., min_length=1, max_length=50,
-                          description="Perodua user identifier that owns the charger. "
-                                      "Must match the charger's registered owner.")
-    customer_id: str = Field(..., min_length=1, max_length=50,
-                             description="Perodua user identifier of the CALLER — the person "
-                                         "actually issuing the stop. Recorded for audit.")
+    customer_id: Optional[str] = Field(
+        default=None, max_length=50,
+        description="OPTIONAL. Partner-side user identifier for audit logging.",
+    )
 
 
 @app.post("/api/partner/charging/stop")
@@ -2257,7 +2225,6 @@ async def partner_stop_charging(
     charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
-    _enforce_charger_ownership(charger, req.owner_id)
 
     # Find the active session linked to this txn
     if txn.paid_at:
@@ -2307,14 +2274,13 @@ async def partner_stop_charging(
 
     logger.info(
         f"[partner:{partner}] stop charging on {charger.charge_point_id} "
-        f"txn={req.transaction_ref} caller={req.customer_id} owner={req.owner_id} "
+        f"txn={req.transaction_ref} caller={req.customer_id or '-'} "
         f"ocpp_status={ocpp_status}"
     )
     return {
         "success": ocpp_status == "Accepted",
         "transaction_ref": txn.transaction_ref,
         "charger_id": charger.charge_point_id,
-        "owner_id": charger.partner_owner_id,
         "ocpp_status": ocpp_status,
         "session_transaction_id": session.transaction_id,
         "message": "RemoteStop sent. Charger will emit its final StopTransaction over OCPP within a few seconds.",
@@ -2325,15 +2291,15 @@ async def partner_stop_charging(
 async def partner_get_session(
     transaction_ref: str,
     request: Request,
-    owner_id: str,
     db: Session = Depends(get_db),
 ):
     """Server-to-server: query current state of a partner-initiated session.
     Returns the same rich payload shape as /api/sync/transactions/{ref}.
     Use this to poll progress (kWh delivered, auto-stop reached, etc.).
 
-    `owner_id` query param is required — must match the charger's registered owner
-    or the session details will not be disclosed.
+    Trust is enforced by the X-Partner-API-Key header — any authenticated partner
+    call is allowed to inspect any session it created (transaction_ref is a
+    server-generated opaque string, so a partner cannot guess someone else's).
     """
     _require_partner_api_key(request, db)
 
@@ -2344,12 +2310,6 @@ async def partner_get_session(
     )
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    # Ownership guard — must confirm the caller owns the charger this session ran on
-    if txn.charger_id:
-        charger = db.query(Charger).filter(Charger.charge_point_id == txn.charger_id).first()
-        if not charger:
-            raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
-        _enforce_charger_ownership(charger, owner_id)
     return {"success": True, "transaction": _serialize_sync_transaction(txn, db)}
 
 
@@ -2470,169 +2430,12 @@ async def admin_revoke_partner_key(
     return {"success": True, "id": row.id, "partner_name": row.partner_name, "active": False}
 
 
-# ─── Partner ownership management ────────────────────────────────────────────
-# Perodua owns the user↔charger mapping on their side. We just store the tag
-# and enforce it on every partner request. These endpoints let Perodua bind,
-# transfer, or release a charger to/from a given owner_id.
-
-class PartnerAssignOwnerRequest(BaseModel):
-    owner_id: str = Field(..., min_length=1, max_length=50,
-                          description="The Perodua user identifier that will own this charger.")
-    customer_id: str = Field(..., min_length=1, max_length=50,
-                             description="Perodua user identifier of the CALLER performing this "
-                                         "assignment. Usually equals owner_id (self-claim), but "
-                                         "may be an admin acting on behalf. Recorded for audit.")
-    force: bool = Field(default=False,
-                        description="If true, overwrite an existing owner. Otherwise a charger "
-                                    "already assigned to someone else returns 409.")
-
-
-@app.post("/api/partner/chargers/{charger_id}/assign")
-async def partner_assign_charger(
-    charger_id: str,
-    req: PartnerAssignOwnerRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Bind a charger to a Perodua user (owner_id). Called when the user
-    'claims' a charger on the P2 Superapp side.
-
-    - 404 if charger not found
-    - 409 if charger already owned by someone else (unless force=true)
-    - 200 with the new ownership on success
-    """
-    partner = _require_partner_api_key(request, db)
-    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-    if not charger:
-        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
-
-    existing = (charger.partner_owner_id or "").strip()
-    new_owner = req.owner_id.strip()
-    if existing and existing != new_owner and not req.force:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Charger {charger_id} is already owned by {existing}. "
-                   f"Pass force=true to transfer.",
-        )
-
-    charger.partner_owner_id = new_owner
-    db.commit()
-    logger.info(f"[partner:{partner}] assigned charger {charger_id} → owner {new_owner} "
-                f"caller={req.customer_id} (was: {existing or 'none'})")
-    return {
-        "success": True,
-        "charger_id": charger_id,
-        "owner_id": new_owner,
-        "previous_owner_id": existing or None,
-    }
-
-
-class PartnerUnassignOwnerRequest(BaseModel):
-    owner_id: str = Field(..., min_length=1, max_length=50,
-                          description="The current owner must match — prevents accidental release.")
-    customer_id: str = Field(..., min_length=1, max_length=50,
-                             description="Perodua user identifier of the CALLER performing this "
-                                         "release. Recorded for audit.")
-
-
-@app.post("/api/partner/chargers/{charger_id}/unassign")
-async def partner_unassign_charger(
-    charger_id: str,
-    req: PartnerUnassignOwnerRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Release a charger from ownership. Called when a user unbinds the charger
-    on the P2 Superapp side (e.g. sold the property, returned the unit).
-
-    Requires the current `owner_id` to match, as a safety check.
-    """
-    partner = _require_partner_api_key(request, db)
-    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-    if not charger:
-        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
-
-    _enforce_charger_ownership(charger, req.owner_id)
-    previous = charger.partner_owner_id
-    charger.partner_owner_id = None
-    db.commit()
-    logger.info(f"[partner:{partner}] unassigned charger {charger_id} "
-                f"caller={req.customer_id} (was owner {previous})")
-    return {
-        "success": True,
-        "charger_id": charger_id,
-        "previous_owner_id": previous,
-    }
-
-
-@app.get("/api/partner/chargers/{charger_id}/ownership")
-async def partner_get_ownership(
-    charger_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Look up the current owner of a charger. Useful for the P2 Superapp to
-    check assignment state before rendering the 'claim' vs 'control' UI.
-
-    No owner_id required — this is a read-only lookup, safe for partner to query
-    any charger in the network.
-    """
-    _require_partner_api_key(request, db)
-    charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-    if not charger:
-        raise HTTPException(status_code=404, detail=f"Charger {charger_id} not found")
-    return {
-        "charger_id": charger.charge_point_id,
-        "owner_id": charger.partner_owner_id,
-        "assigned": bool(charger.partner_owner_id),
-        "charger_name": charger.name,
-        "vendor": charger.vendor,
-        "firmware": charger.firmware_version,
-        "connector_type": charger.connector_type,
-        "max_power_kw": charger.max_power_kw,
-        "status": charger.status,
-        "availability": charger.availability,
-    }
-
-
-@app.get("/api/partner/chargers")
-async def partner_list_owned_chargers(
-    request: Request,
-    owner_id: str,
-    db: Session = Depends(get_db),
-):
-    """List all chargers assigned to a given owner_id. Perodua calls this to
-    render the user's 'my chargers' list on the P2 Superapp.
-    """
-    _require_partner_api_key(request, db)
-    owner_id = owner_id.strip()
-    if not owner_id:
-        raise HTTPException(status_code=400, detail="owner_id query parameter is required")
-    chargers = (
-        db.query(Charger)
-        .filter(Charger.partner_owner_id == owner_id)
-        .order_by(Charger.charge_point_id)
-        .all()
-    )
-    return {
-        "owner_id": owner_id,
-        "count": len(chargers),
-        "chargers": [
-            {
-                "charger_id": c.charge_point_id,
-                "charger_name": c.name,
-                "vendor": c.vendor,
-                "firmware": c.firmware_version,
-                "connector_type": c.connector_type,
-                "max_power_kw": c.max_power_kw,
-                "status": c.status,
-                "availability": c.availability,
-                "location": c.location,
-                "last_heartbeat": c.last_heartbeat.isoformat() if c.last_heartbeat else None,
-            }
-            for c in chargers
-        ],
-    }
+# ─── Partner ownership management removed (v1.0) ────────────────────────────
+# Assign/unassign/lookup/list-by-owner endpoints removed. Perodua manages the
+# user↔charger mapping on their side; we act as a pure OCPP relay authenticated
+# by X-Partner-API-Key alone. The chargers.partner_owner_id column is retained
+# (nullable, unused for now) so we can re-introduce ownership guard in a future
+# release without another migration.
 
 
 # ─── Sync API for partner backends (Jeffrey's app) ───────────────────────────
@@ -2653,7 +2456,6 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
             charger_payload = {
                 "id": charger.charge_point_id,
                 "name": charger.name,
-                "owner_id": charger.partner_owner_id,
                 "connector_id": t.connector_id,
                 "connector_type": charger.connector_type,
                 "max_power_kw": charger.max_power_kw,
