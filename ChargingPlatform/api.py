@@ -3493,6 +3493,7 @@ async def create_charging_schedule(
         db.commit()
         db.refresh(existing)
         logger.info(f"Updated schedule #{existing.id} for user {current_user.id} / {charge_point_id}")
+        await _push_schedule_to_aion_charger(charge_point_id, payload)
         return existing
 
     row = ChargingSchedule(
@@ -3510,7 +3511,58 @@ async def create_charging_schedule(
     db.commit()
     db.refresh(row)
     logger.info(f"Created schedule #{row.id} for user {current_user.id} / {charge_point_id}")
+    # Push the schedule to the physical charger too — otherwise the DB row is
+    # a dead record. AION firmware >= V2.0.04 handles the actual timer.
+    await _push_schedule_to_aion_charger(charge_point_id, payload)
     return row
+
+
+async def _push_schedule_to_aion_charger(charge_point_id: str, payload) -> None:
+    """Write Sch_State / Sch_Day / Sch_StartTime / Sch_StopTime to the AION
+    charger via OCPP ChangeConfiguration. Best-effort — logs but doesn't fail
+    the API call if the charger is offline (DB row still saved so UI stays
+    consistent; next successful save will re-sync)."""
+    cp = get_active_charge_point(charge_point_id)
+    if cp is None:
+        logger.warning(f"[schedule-push] {charge_point_id} not connected — DB saved only, "
+                       f"charger will get the values on next save when online")
+        return
+
+    # AION Sch_Day accepts a single day (0=Sun…6=Sat). If the user picked
+    # multiple days (or "daily") we log and fall back to the first day.
+    dow = (payload.days_of_week or "").strip().lower()
+    if dow in ("", "daily", "everyday", "all"):
+        chosen_day = 0  # Sunday as sane default
+        if dow:
+            logger.warning(f"[schedule-push] {charge_point_id}: AION firmware supports "
+                           f"one day per schedule; requested '{dow}' → using Sunday (0)")
+    else:
+        try:
+            chosen_day = int(dow.split(",")[0].strip())
+        except (ValueError, IndexError):
+            chosen_day = 0
+        if "," in dow:
+            logger.warning(f"[schedule-push] {charge_point_id}: multi-day '{dow}' → "
+                           f"using first day ({chosen_day})")
+
+    updates = [
+        ("Sch_State",     "1" if payload.enabled else "0"),
+        ("Sch_Day",       str(chosen_day)),
+        ("Sch_StartTime", payload.start_time),
+        ("Sch_StopTime",  payload.stop_time),
+    ]
+    for key, value in updates:
+        try:
+            resp = await cp.change_configuration(key, value)
+            status = getattr(resp, "status", None) if resp else None
+            if status != "Accepted":
+                logger.warning(f"[schedule-push] {charge_point_id} {key}={value} → {status}")
+        except Exception as e:
+            logger.error(f"[schedule-push] {charge_point_id} {key}={value} failed: {e}")
+            return
+    logger.info(f"[schedule-push] {charge_point_id} schedule synced — "
+                f"enabled={payload.enabled} day={chosen_day} "
+                f"{payload.start_time}→{payload.stop_time}")
 
 
 @app.patch("/api/chargers/{charge_point_id}/schedules/{schedule_id}/toggle", response_model=ChargingScheduleResponse)
