@@ -3518,51 +3518,32 @@ async def create_charging_schedule(
 
 
 async def _push_schedule_to_aion_charger(charge_point_id: str, payload) -> None:
-    """Write Sch_State / Sch_Day / Sch_StartTime / Sch_StopTime to the AION
-    charger via OCPP ChangeConfiguration. Best-effort — logs but doesn't fail
-    the API call if the charger is offline (DB row still saved so UI stays
-    consistent; next successful save will re-sync)."""
+    """Disable the charger's built-in scheduler and let the backend
+    schedule_worker() loop drive RemoteStart / RemoteStop instead.
+
+    AION firmware V2.0.04 only supports one day per schedule and its
+    Sch_Day is a single 0..6 value — insufficient for the multi-day
+    (daily / weekdays / weekends) UI the AppEV exposes. We disable the
+    firmware timer (Sch_State=0) after every save so it can never fire
+    on its own; the authoritative schedule lives in the ChargingSchedule
+    DB rows and is enforced by schedule_worker() every minute.
+    """
     cp = get_active_charge_point(charge_point_id)
     if cp is None:
-        logger.warning(f"[schedule-push] {charge_point_id} not connected — DB saved only, "
-                       f"charger will get the values on next save when online")
+        logger.info(f"[schedule-push] {charge_point_id} offline — firmware timer stays as-is; "
+                    f"backend worker will drive the schedule when online")
         return
-
-    # AION Sch_Day accepts a single day (0=Sun…6=Sat). If the user picked
-    # multiple days (or "daily") we log and fall back to the first day.
-    dow = (payload.days_of_week or "").strip().lower()
-    if dow in ("", "daily", "everyday", "all"):
-        chosen_day = 0  # Sunday as sane default
-        if dow:
-            logger.warning(f"[schedule-push] {charge_point_id}: AION firmware supports "
-                           f"one day per schedule; requested '{dow}' → using Sunday (0)")
-    else:
-        try:
-            chosen_day = int(dow.split(",")[0].strip())
-        except (ValueError, IndexError):
-            chosen_day = 0
-        if "," in dow:
-            logger.warning(f"[schedule-push] {charge_point_id}: multi-day '{dow}' → "
-                           f"using first day ({chosen_day})")
-
-    updates = [
-        ("Sch_State",     "1" if payload.enabled else "0"),
-        ("Sch_Day",       str(chosen_day)),
-        ("Sch_StartTime", payload.start_time),
-        ("Sch_StopTime",  payload.stop_time),
-    ]
-    for key, value in updates:
-        try:
-            resp = await cp.change_configuration(key, value)
-            status = getattr(resp, "status", None) if resp else None
-            if status != "Accepted":
-                logger.warning(f"[schedule-push] {charge_point_id} {key}={value} → {status}")
-        except Exception as e:
-            logger.error(f"[schedule-push] {charge_point_id} {key}={value} failed: {e}")
-            return
-    logger.info(f"[schedule-push] {charge_point_id} schedule synced — "
-                f"enabled={payload.enabled} day={chosen_day} "
-                f"{payload.start_time}→{payload.stop_time}")
+    try:
+        resp = await cp.change_configuration("Sch_State", "0")
+        status = getattr(resp, "status", None) if resp else None
+        if status != "Accepted":
+            logger.warning(f"[schedule-push] {charge_point_id} could not disable firmware "
+                           f"Sch_State — status: {status}")
+        else:
+            logger.info(f"[schedule-push] {charge_point_id} firmware timer disabled; "
+                        f"backend now owns schedule")
+    except Exception as e:
+        logger.error(f"[schedule-push] {charge_point_id} disable Sch_State failed: {e}")
 
 
 @app.patch("/api/chargers/{charge_point_id}/schedules/{schedule_id}/toggle", response_model=ChargingScheduleResponse)
@@ -8514,6 +8495,157 @@ async def _start_ocpp_state_healer():
     in-memory active_charge_points pool and DB heartbeat. Saves admins
     from SSHing to fix 'DB says online, RemoteStart says not connected'."""
     asyncio.create_task(ocpp_state_healer_loop(interval_seconds=60))
+
+
+@app.on_event("startup")
+async def _start_schedule_worker():
+    """Background loop that drives the ChargingSchedule DB rows — fires
+    RemoteStart at start_time and RemoteStop at stop_time on each matched
+    day. Owns scheduling completely so the AppEV UI can offer daily /
+    weekdays / weekends without depending on AION firmware limitations."""
+    asyncio.create_task(_schedule_worker_loop())
+
+
+# ─── Charging Schedule Worker ────────────────────────────────────────────────
+# In-memory dedup: (schedule_id, "start"|"stop", YYYY-MM-DD HH:MM) → True
+# once fired for a given minute we don't re-fire until the minute rolls over.
+_SCHEDULE_FIRED: dict = {}
+_SCHEDULE_FIRED_MAX_ENTRIES = 2000  # bound the dict so it never grows unbounded
+
+
+def _schedule_matches_today(days_of_week: str, today_dow: int) -> bool:
+    """days_of_week format:
+       - "" or "daily"    → every day
+       - "weekdays"       → 1..5 (Mon..Fri)
+       - "weekends"       → 0, 6  (Sun, Sat)
+       - "0,1,3"          → comma list of ints 0..6 (0=Sun … 6=Sat)
+    """
+    dow = (days_of_week or "").strip().lower()
+    if dow in ("", "daily", "everyday", "all"):
+        return True
+    if dow == "weekdays":
+        return 1 <= today_dow <= 5
+    if dow == "weekends":
+        return today_dow in (0, 6)
+    try:
+        days = {int(x.strip()) for x in dow.split(",") if x.strip()}
+    except ValueError:
+        return False
+    return today_dow in days
+
+
+async def _schedule_worker_loop() -> None:
+    """Every 30s: scan enabled schedules; fire RemoteStart at start_time,
+    RemoteStop at stop_time when the current MYT day/time matches. Dedup
+    per (schedule_id, action, minute-bucket) so a slow tick doesn't double
+    fire within the same minute."""
+    await asyncio.sleep(20)  # let the app fully start
+    while True:
+        try:
+            now_my = datetime.now(MYT)
+            hhmm = now_my.strftime("%H:%M")
+            # Python weekday(): Mon=0..Sun=6. We use Sun=0..Sat=6 to match
+            # AION firmware convention, so remap.
+            today_dow = (now_my.weekday() + 1) % 7
+            minute_bucket = now_my.strftime("%Y-%m-%d %H:%M")
+
+            db = SessionLocal()
+            try:
+                due_start = (
+                    db.query(ChargingSchedule)
+                    .filter(
+                        ChargingSchedule.enabled.is_(True),
+                        ChargingSchedule.start_time == hhmm,
+                    )
+                    .all()
+                )
+                due_stop = (
+                    db.query(ChargingSchedule)
+                    .filter(
+                        ChargingSchedule.enabled.is_(True),
+                        ChargingSchedule.stop_time == hhmm,
+                    )
+                    .all()
+                )
+                for sch in due_start:
+                    if not _schedule_matches_today(sch.days_of_week, today_dow):
+                        continue
+                    dedup_key = (sch.id, "start", minute_bucket)
+                    if _SCHEDULE_FIRED.get(dedup_key):
+                        continue
+                    await _fire_scheduled_start(sch)
+                    _SCHEDULE_FIRED[dedup_key] = True
+                for sch in due_stop:
+                    if not _schedule_matches_today(sch.days_of_week, today_dow):
+                        continue
+                    dedup_key = (sch.id, "stop", minute_bucket)
+                    if _SCHEDULE_FIRED.get(dedup_key):
+                        continue
+                    await _fire_scheduled_stop(sch, db)
+                    _SCHEDULE_FIRED[dedup_key] = True
+
+                # Bound the dedup dict — drop oldest entries when large
+                if len(_SCHEDULE_FIRED) > _SCHEDULE_FIRED_MAX_ENTRIES:
+                    keep = dict(list(_SCHEDULE_FIRED.items())[-_SCHEDULE_FIRED_MAX_ENTRIES // 2:])
+                    _SCHEDULE_FIRED.clear()
+                    _SCHEDULE_FIRED.update(keep)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"[schedule-worker] tick failed: {e}", exc_info=True)
+        await asyncio.sleep(30)
+
+
+async def _fire_scheduled_start(sch: "ChargingSchedule") -> None:
+    """Fire OCPP RemoteStartTransaction for a scheduled row."""
+    cp = get_active_charge_point(sch.charge_point_id)
+    if cp is None:
+        logger.warning(f"[schedule-worker] schedule #{sch.id} start due on "
+                       f"{sch.charge_point_id} but charger offline — skipped")
+        return
+    try:
+        resp = await cp.remote_start_transaction(
+            connector_id=int(sch.connector_id or 1),
+            id_tag=sch.id_tag or "DASHBOARD_USER",
+        )
+        status = getattr(resp, "status", None) if resp else None
+        logger.info(f"[schedule-worker] schedule #{sch.id} START → "
+                    f"{sch.charge_point_id} c{sch.connector_id} status={status}")
+    except Exception as e:
+        logger.error(f"[schedule-worker] schedule #{sch.id} start on "
+                     f"{sch.charge_point_id} failed: {e}", exc_info=True)
+
+
+async def _fire_scheduled_stop(sch: "ChargingSchedule", db: Session) -> None:
+    """Fire OCPP RemoteStopTransaction for the active session on this
+    charger — best effort. No-op if there's no active session."""
+    cp = get_active_charge_point(sch.charge_point_id)
+    if cp is None:
+        logger.warning(f"[schedule-worker] schedule #{sch.id} stop due on "
+                       f"{sch.charge_point_id} but charger offline — skipped")
+        return
+    active = (
+        db.query(ChargingSession)
+        .filter(
+            ChargingSession.charger_id == sch.charger_id,
+            ChargingSession.transaction_id > 0,
+            ChargingSession.status.in_(["active", "interrupted", "stopping"]),
+        )
+        .order_by(ChargingSession.start_time.desc())
+        .first()
+    )
+    if not active:
+        logger.info(f"[schedule-worker] schedule #{sch.id} stop due on "
+                    f"{sch.charge_point_id} but no active session")
+        return
+    try:
+        resp = await cp.remote_stop_transaction(transaction_id=active.transaction_id)
+        status = getattr(resp, "status", None) if resp else None
+        logger.info(f"[schedule-worker] schedule #{sch.id} STOP → "
+                    f"{sch.charge_point_id} txn={active.transaction_id} status={status}")
+    except Exception as e:
+        logger.error(f"[schedule-worker] schedule #{sch.id} stop on "
+                     f"{sch.charge_point_id} failed: {e}", exc_info=True)
 
 
 @app.post("/api/admin/chargers/{charge_point_id}/force-reconnect")
