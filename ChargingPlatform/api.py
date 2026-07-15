@@ -541,8 +541,9 @@ async def audit_log_middleware(request, call_next):
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
 # OCPI 2.2.1 - CPO interface for roaming (TNG integration)
-from ocpi import router as ocpi_router
+from ocpi import router as ocpi_router, aion_router
 app.include_router(ocpi_router)
+app.include_router(aion_router)
 
 # Edge Sync - receive charger/session data pushed from local OCPP edge servers (Banana Pi)
 from edge_sync import router as edge_sync_router
