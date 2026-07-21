@@ -58,35 +58,139 @@
     .screen { display: none; flex: 1; flex-direction: column; padding: 18px 20px 20px; overflow: hidden; }
     .screen.active { display: flex; }
 
-    /* idle screen */
+    /* ─── idle screen — hero landing ─────────────────────────────────── */
+    #screen-idle {
+        position: relative;
+        background:
+            radial-gradient(ellipse 100% 60% at 50% 20%, rgba(0,255,136,0.18), transparent 55%),
+            radial-gradient(ellipse 80% 50% at 50% 100%, rgba(0,255,136,0.10), transparent 60%),
+            linear-gradient(180deg, #0a0d12 0%, #050708 100%);
+        overflow: hidden;
+    }
+    #screen-idle::before {
+        content: ''; position: absolute; inset: 0;
+        background:
+            linear-gradient(rgba(0,255,136,0.05) 1px, transparent 1px) 0 0 / 40px 40px,
+            linear-gradient(90deg, rgba(0,255,136,0.05) 1px, transparent 1px) 0 0 / 40px 40px;
+        mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black, transparent 70%);
+        -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black, transparent 70%);
+        pointer-events: none;
+    }
+
     #screen-idle .hero {
+        position: relative; z-index: 2;
         flex: 1; display: flex; flex-direction: column;
-        align-items: center; justify-content: center; gap: 20px;
-        text-align: center; padding: 20px;
+        align-items: center; justify-content: center;
+        text-align: center; padding: 32px 24px 40px; gap: 24px;
     }
-    #screen-idle .charge-icon {
-        width: 160px; height: 160px;
-        display: flex; align-items: center; justify-content: center;
-        animation: float 3s ease-in-out infinite;
-        filter: drop-shadow(0 16px 48px rgba(0,255,136,0.35));
+
+    /* Brand chip up top */
+    #screen-idle .brand-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 6px 14px; border-radius: 999px;
+        background: rgba(0,255,136,0.08);
+        border: 1px solid rgba(0,255,136,0.25);
+        font-size: 11px; font-weight: 700; letter-spacing: 2px;
+        color: var(--primary); text-transform: uppercase;
     }
-    #screen-idle .charge-icon img { width: 100%; height: 100%; object-fit: contain; }
-    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    #screen-idle h1 { font-size: 32px; font-weight: 900; letter-spacing: -0.5px; }
-    #screen-idle .subtitle { font-size: 15px; color: var(--text-dim); max-width: 320px; line-height: 1.5; }
-    #screen-idle .tap-cta {
-        margin-top: 20px;
-        padding: 18px 36px;
+    #screen-idle .brand-chip .dot {
+        width: 6px; height: 6px; border-radius: 50%;
         background: var(--primary);
+        box-shadow: 0 0 8px var(--primary);
+        animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* Scene — car + charger + energy cable */
+    #screen-idle .scene {
+        width: 100%; max-width: 480px; aspect-ratio: 16/10;
+        display: flex; align-items: center; justify-content: center;
+        filter: drop-shadow(0 20px 60px rgba(0,255,136,0.35));
+        animation: float 4s ease-in-out infinite;
+    }
+    #screen-idle .scene svg { width: 100%; height: 100%; }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+    /* Energy dots animation along the cable */
+    #screen-idle .flow-dot {
+        fill: #00ff88;
+        filter: drop-shadow(0 0 4px #00ff88);
+        animation: flow 1.8s linear infinite;
+    }
+    #screen-idle .flow-dot:nth-child(2) { animation-delay: 0.45s; }
+    #screen-idle .flow-dot:nth-child(3) { animation-delay: 0.9s; }
+    #screen-idle .flow-dot:nth-child(4) { animation-delay: 1.35s; }
+    @keyframes flow {
+        0%   { offset-distance: 0%;   opacity: 0; }
+        10%  { opacity: 1; }
+        90%  { opacity: 1; }
+        100% { offset-distance: 100%; opacity: 0; }
+    }
+
+    /* Headline block */
+    #screen-idle .headline {
+        display: flex; flex-direction: column; gap: 10px;
+        max-width: 380px;
+    }
+    #screen-idle h1 {
+        font-size: 38px; font-weight: 900; letter-spacing: -1.2px;
+        line-height: 1.05; margin: 0;
+    }
+    #screen-idle h1 .accent {
+        color: var(--primary);
+        text-shadow: 0 0 24px rgba(0,255,136,0.5);
+    }
+    #screen-idle .subtitle {
+        font-size: 15px; color: var(--text-dim);
+        max-width: 340px; line-height: 1.55; margin: 0 auto;
+    }
+
+    /* Trust chips row */
+    #screen-idle .trust-row {
+        display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+    }
+    #screen-idle .trust {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 12px; border-radius: 10px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 12px; font-weight: 600; color: #e5e7eb;
+    }
+    #screen-idle .trust svg { width: 14px; height: 14px; color: var(--primary); }
+
+    /* CTA — big glowing pill */
+    #screen-idle .tap-cta {
+        margin-top: 8px;
+        padding: 20px 48px;
+        background: linear-gradient(135deg, #00ff88 0%, #00cc6e 100%);
         color: #000;
         border: none;
         border-radius: 999px;
-        font-size: 17px; font-weight: 800;
+        font-size: 19px; font-weight: 900;
+        letter-spacing: 0.3px;
         cursor: pointer;
-        box-shadow: 0 8px 24px rgba(0,255,136,0.4);
+        box-shadow: 0 12px 36px rgba(0,255,136,0.45),
+                    inset 0 -3px 0 rgba(0,0,0,0.15);
         transition: transform 0.15s, box-shadow 0.15s;
+        display: inline-flex; align-items: center; gap: 10px;
+        position: relative;
     }
+    #screen-idle .tap-cta::after {
+        content: ''; position: absolute; inset: -3px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, rgba(0,255,136,0.35), transparent);
+        z-index: -1; filter: blur(12px);
+        animation: cta-glow 2s ease-in-out infinite;
+    }
+    @keyframes cta-glow { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
     #screen-idle .tap-cta:active { transform: scale(0.96); }
+
+    /* Footer bar */
+    #screen-idle .foot {
+        position: absolute; bottom: 16px; left: 0; right: 0;
+        text-align: center; font-size: 11px; color: rgba(255,255,255,0.35);
+        letter-spacing: 1.5px; z-index: 2;
+    }
 
     /* picker screen */
     .section-title { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin-bottom: 18px; padding-left: 4px; }
@@ -354,11 +458,128 @@
 <!-- IDLE -->
 <div class="screen active" id="screen-idle">
     <div class="hero">
-        <div class="charge-icon"><img src="/static/PLAGSINI%20LOGO.png" alt="PlagSini"></div>
-        <h1>Ready to charge?</h1>
-        <div class="subtitle">Tap below to pick a charger and pay with Touch 'n Go eWallet.</div>
-        <button class="tap-cta" onclick="goToPicker()">Start Charging</button>
+        <div class="brand-chip"><span class="dot"></span>PLAGSINI · EV NETWORK</div>
+
+        <!-- Charger + EV scene with animated energy flow -->
+        <div class="scene" aria-hidden="true">
+            <svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="carBody" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#f4f6f8"/>
+                        <stop offset="100%" stop-color="#c8ced4"/>
+                    </linearGradient>
+                    <linearGradient id="carWindow" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#1a2027"/>
+                        <stop offset="100%" stop-color="#2a323b"/>
+                    </linearGradient>
+                    <linearGradient id="chargerBody" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#e8ebef"/>
+                        <stop offset="100%" stop-color="#a8b0b8"/>
+                    </linearGradient>
+                    <path id="cablePath" d="M 118 200 C 130 240, 180 260, 220 240" fill="none"/>
+                    <radialGradient id="chargerGlow">
+                        <stop offset="0%" stop-color="rgba(0,255,136,0.5)"/>
+                        <stop offset="100%" stop-color="rgba(0,255,136,0)"/>
+                    </radialGradient>
+                </defs>
+
+                <!-- Ground shadow -->
+                <ellipse cx="240" cy="278" rx="180" ry="10" fill="#000" opacity="0.4"/>
+
+                <!-- Charging station -->
+                <g>
+                    <!-- Glow behind -->
+                    <circle cx="95" cy="140" r="90" fill="url(#chargerGlow)"/>
+                    <!-- Pillar -->
+                    <rect x="70" y="80" width="50" height="180" rx="8" fill="url(#chargerBody)"/>
+                    <!-- Screen -->
+                    <rect x="78" y="96" width="34" height="42" rx="4" fill="#0a0d12"/>
+                    <!-- Screen content: battery icon + % -->
+                    <rect x="83" y="104" width="24" height="12" rx="2" fill="none" stroke="#00ff88" stroke-width="1.5"/>
+                    <rect x="107" y="108" width="2" height="4" fill="#00ff88"/>
+                    <rect x="85" y="106" width="14" height="8" fill="#00ff88"/>
+                    <text x="95" y="132" text-anchor="middle" fill="#00ff88" font-family="monospace" font-size="7" font-weight="700">58%</text>
+                    <!-- Status LED strip -->
+                    <rect x="76" y="146" width="38" height="3" rx="1.5" fill="#00ff88" opacity="0.9">
+                        <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite"/>
+                    </rect>
+                    <!-- Cable connector housing -->
+                    <rect x="72" y="192" width="46" height="18" rx="4" fill="#1a2027"/>
+                    <circle cx="95" cy="201" r="4" fill="#00ff88" opacity="0.8"/>
+                    <!-- Base -->
+                    <rect x="60" y="255" width="70" height="10" rx="2" fill="#3a4149"/>
+                </g>
+
+                <!-- Cable (visible path) -->
+                <path d="M 118 200 C 130 240, 180 260, 220 240" fill="none" stroke="#2a2f36" stroke-width="7" stroke-linecap="round"/>
+                <path d="M 118 200 C 130 240, 180 260, 220 240" fill="none" stroke="#00ff88" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+
+                <!-- Energy flow dots along cable -->
+                <circle class="flow-dot" r="4" style="offset-path: path('M 118 200 C 130 240, 180 260, 220 240');"/>
+                <circle class="flow-dot" r="4" style="offset-path: path('M 118 200 C 130 240, 180 260, 220 240');"/>
+                <circle class="flow-dot" r="4" style="offset-path: path('M 118 200 C 130 240, 180 260, 220 240');"/>
+                <circle class="flow-dot" r="4" style="offset-path: path('M 118 200 C 130 240, 180 260, 220 240');"/>
+
+                <!-- Car (side view) -->
+                <g>
+                    <!-- Body lower -->
+                    <path d="M 200 230 L 200 200 Q 200 180, 220 175 L 260 168 Q 290 162, 320 165 L 380 175 Q 420 180, 440 200 L 445 220 L 445 250 L 200 250 Z" fill="url(#carBody)"/>
+                    <!-- Roof / cabin -->
+                    <path d="M 245 175 Q 260 138, 300 132 L 360 132 Q 400 138, 415 175 Z" fill="url(#carBody)"/>
+                    <!-- Windows -->
+                    <path d="M 255 172 Q 265 148, 295 142 L 355 142 Q 385 148, 400 172 Z" fill="url(#carWindow)"/>
+                    <!-- Window divider -->
+                    <line x1="325" y1="145" x2="325" y2="172" stroke="#0a0d12" stroke-width="2"/>
+                    <!-- Door line -->
+                    <line x1="325" y1="180" x2="325" y2="245" stroke="#8a929a" stroke-width="1.2" opacity="0.6"/>
+                    <!-- Handles -->
+                    <rect x="300" y="200" width="14" height="3" rx="1" fill="#5a6169"/>
+                    <rect x="342" y="200" width="14" height="3" rx="1" fill="#5a6169"/>
+                    <!-- Headlight -->
+                    <ellipse cx="438" cy="205" rx="6" ry="4" fill="#fff9c4"/>
+                    <!-- Charge port glow (side where cable plugs) -->
+                    <circle cx="220" cy="215" r="10" fill="rgba(0,255,136,0.3)"/>
+                    <rect x="215" y="210" width="10" height="10" rx="2" fill="#1a2027"/>
+                    <circle cx="220" cy="215" r="3" fill="#00ff88"/>
+                    <!-- Wheels -->
+                    <circle cx="245" cy="252" r="22" fill="#0a0d12"/>
+                    <circle cx="245" cy="252" r="12" fill="#3a4149"/>
+                    <circle cx="245" cy="252" r="4" fill="#5a6169"/>
+                    <circle cx="395" cy="252" r="22" fill="#0a0d12"/>
+                    <circle cx="395" cy="252" r="12" fill="#3a4149"/>
+                    <circle cx="395" cy="252" r="4" fill="#5a6169"/>
+                </g>
+            </svg>
+        </div>
+
+        <!-- Headline -->
+        <div class="headline">
+            <h1>Charge in <span class="accent">minutes.</span></h1>
+            <div class="subtitle">Tap Start, scan the QR, pay with Touch 'n Go. Your ride is powered up before you finish your coffee.</div>
+        </div>
+
+        <!-- Trust badges -->
+        <div class="trust-row">
+            <div class="trust">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Fast charging
+            </div>
+            <div class="trust">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Secure payment
+            </div>
+            <div class="trust">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/></svg>
+                TNG eWallet
+            </div>
+        </div>
+
+        <button class="tap-cta" onclick="goToPicker()">
+            Start Charging
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+        </button>
     </div>
+    <div class="foot">POWERED BY PLAGSINI · MADE IN MALAYSIA 🇲🇾</div>
 </div>
 
 <!-- PICKER -->
