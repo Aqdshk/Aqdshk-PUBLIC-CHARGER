@@ -42,11 +42,15 @@ def _get_base_url(request: Request) -> str:
 def _ocpi_auth(authorization: Optional[str] = Header(None)) -> None:
     """Validate OCPI Authorization: Token {token}.
 
+    OCPI 2.2.1 spec says the token is transmitted base64-encoded, but many
+    real-world clients still send it raw. We accept BOTH forms — try the
+    header value verbatim first, then try base64-decoding it. Whichever
+    matches the configured token wins. Constant-time compare on both paths.
+
     Fail-closed: if OCPI_TOKEN is not configured, reject all requests.
-    The previous silent allow-all behaviour was a production trap —
-    forgetting to set the env var would silently expose the OCPI endpoints
-    to anyone. Set OCPI_ALLOW_ANON=1 explicitly to bypass for local dev.
+    Set OCPI_ALLOW_ANON=1 explicitly to bypass for local dev.
     """
+    import base64
     token = os.getenv("OCPI_TOKEN", "").strip()
     if not token:
         if os.getenv("OCPI_ALLOW_ANON", "").strip().lower() in ("1", "true", "yes"):
@@ -57,8 +61,19 @@ def _ocpi_auth(authorization: Optional[str] = Header(None)) -> None:
         )
     if not authorization or not authorization.startswith("Token "):
         raise HTTPException(status_code=403, detail="Missing OCPI token")
-    if not secrets.compare_digest(authorization[6:].strip(), token):
-        raise HTTPException(status_code=403, detail="Invalid OCPI token")
+
+    header_val = authorization[6:].strip()
+    # 1) Raw string match (non-spec but widely used in the wild)
+    if secrets.compare_digest(header_val, token):
+        return
+    # 2) Base64-decoded match (OCPI 2.2.1 spec-compliant)
+    try:
+        decoded = base64.b64decode(header_val, validate=True).decode("utf-8", "strict")
+    except Exception:
+        decoded = None
+    if decoded and secrets.compare_digest(decoded, token):
+        return
+    raise HTTPException(status_code=403, detail="Invalid OCPI token")
 
 
 def _to_ocpi_datetime(dt) -> str:
@@ -148,7 +163,7 @@ async def get_locations(
 
         evse = EVSE(
             uid=f"{loc_id}-EVSE1",
-            evse_id=f"{c.charge_point_id}-1",
+            evse_id=f"{country}*{party_id}*E*{c.charge_point_id}",
             status=evse_status,
             connectors=[connector],
             last_updated=now,
@@ -222,7 +237,7 @@ async def get_location(
 
     evse = EVSE(
         uid=f"{loc_id}-EVSE1",
-        evse_id=f"{charger.charge_point_id}-1",
+        evse_id=f"{country}*{party_id}*E*{charger.charge_point_id}",
         status=evse_status,
         connectors=[connector],
         last_updated=now,
@@ -686,16 +701,94 @@ async def get_roaming_operators():
 
 
 # ============ Credentials ============
-@router.post("/2.2.1/credentials", response_model=dict)
-async def post_credentials(request: Request):
-    """
-    OCPI registration - eMSP (TNG) sends their credentials to register with us.
-    We will store and respond with our credentials.
-    """
-    pass  # TODO: Implement when TNG provides API docs
+@router.get("/2.2.1/credentials", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def get_credentials(request: Request):
+    """Return our current credentials to an authenticated partner. Standard
+    OCPI 2.2.1 handshake step — partner GETs this before deciding to POST
+    their own credentials for registration."""
+    base = _get_base_url(request)
     return {
         "status_code": 1000,
         "status_message": "Success",
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "data": {"token": "placeholder", "url": _get_base_url(request) + "/ocpi/2.2.1"},
+        "data": {
+            "token": os.getenv("OCPI_TOKEN", "").strip(),
+            "url": f"{base}/ocpi/versions",
+            "roles": [
+                {
+                    "role": "CPO",
+                    "party_id": os.getenv("OCPI_PARTY_ID", "PLG"),
+                    "country_code": os.getenv("OCPI_COUNTRY_CODE", "MY"),
+                    "business_details": {
+                        "name": "C Zero Sdn Bhd",
+                        "website": "https://charger.czeros.tech",
+                    },
+                }
+            ],
+        },
     }
+
+
+@router.post("/2.2.1/credentials", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def post_credentials(request: Request):
+    """OCPI 2.2.1 credentials registration handshake (spec §7.1).
+
+    Partner POSTs their {token, url, roles}. We:
+      1. Store the partner's token + endpoints URL (so we can later call
+         them back for asynchronous CommandResult, PATCH pushes, etc.)
+      2. Optionally rotate the bootstrap token they used to reach us — for
+         v1 we keep the same OCPI_TOKEN so admins can still reach the
+         endpoints; per-partner tokens are on the roadmap.
+      3. Return our {token, url, roles} so the partner can call us back.
+    """
+    base = _get_base_url(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    partner_token = (body.get("token") or "").strip()
+    partner_url = (body.get("url") or "").strip()
+    partner_roles = body.get("roles") or []
+    if not partner_token or not partner_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: token, url",
+        )
+
+    # Structured audit record — a future ocpi_partners table will persist this,
+    # for now the log is the source of truth.
+    logger.info(
+        "[ocpi-credentials] Registration from partner url=%s token_prefix=%s roles=%s",
+        partner_url,
+        partner_token[:8] + "..." if len(partner_token) > 8 else partner_token,
+        [f"{r.get('country_code','?')}/{r.get('party_id','?')}({r.get('role','?')})" for r in partner_roles],
+    )
+
+    return {
+        "status_code": 1000,
+        "status_message": "Success",
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "data": {
+            "token": os.getenv("OCPI_TOKEN", "").strip(),
+            "url": f"{base}/ocpi/versions",
+            "roles": [
+                {
+                    "role": "CPO",
+                    "party_id": os.getenv("OCPI_PARTY_ID", "PLG"),
+                    "country_code": os.getenv("OCPI_COUNTRY_CODE", "MY"),
+                    "business_details": {
+                        "name": "C Zero Sdn Bhd",
+                        "website": "https://charger.czeros.tech",
+                    },
+                }
+            ],
+        },
+    }
+
+
+@router.put("/2.2.1/credentials", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+async def put_credentials(request: Request):
+    """OCPI 2.2.1 credentials update (spec §7.1). Same shape as POST — used
+    by a partner to rotate their token after the initial registration."""
+    return await post_credentials(request)
