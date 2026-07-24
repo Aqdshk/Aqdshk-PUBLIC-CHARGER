@@ -169,8 +169,11 @@ async def get_locations(
             last_updated=now,
         )
         loc = Location(
+            country_code=country,
+            party_id=party_id,
             id=loc_id,
             publish=True,
+            type="OTHER",
             name=c.charge_point_id,
             address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
             city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
@@ -243,8 +246,11 @@ async def get_location(
         last_updated=now,
     )
     loc = Location(
+        country_code=country,
+        party_id=party_id,
         id=loc_id,
         publish=True,
+        type="OTHER",
         name=charger.charge_point_id,
         address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
         city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),

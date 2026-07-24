@@ -14,14 +14,12 @@
 | **Operator (Legal Entity)** | C Zero Sdn Bhd |
 | **Operator Registered Address** | 2, Jalan Gergaji 15/14, Seksyen 15, 40200 Shah Alam, Selangor, Malaysia |
 | **Trading Brand** | PlagSini |
-| **OCPI Party ID** | `CZS` (3-letter) |
+| **OCPI Party ID** | `PLG` (3-letter) |
 | **OCPI Country Code** | `MY` (ISO 3166-1 alpha-2) |
 | **OCPI Role** | CPO (Charge Point Operator) |
 | **Protocol Version** | OCPI 2.2.1 |
 | **Production Base URL** | `https://charger.czeros.tech/ocpi` |
 | **Sandbox Base URL** | Available on request after eRoaming agreement signed |
-| **Primary Contact** | Aqid — aqidishak28@gmail.com |
-| **Technical Contact** | engineering@plagsini.com |
 
 ---
 
@@ -48,10 +46,10 @@ All endpoints conform to the OCPI 2.2.1 specification published by the EVRoaming
 All authenticated endpoints require an HTTP header:
 
 ```
-Authorization: Token <base64-encoded-token>
+Authorization: Token <your-token>
 ```
 
-The token is exchanged during the OCPI credentials handshake (`POST /2.2.1/credentials`). Until the handshake completes, partners may use a pre-shared bootstrap token issued by C Zero Sdn Bhd upon agreement execution.
+The token may be sent either as a plain string or base64-encoded per OCPI 2.2.1 §7.1 — the server accepts both. It is exchanged during the OCPI credentials handshake (`POST /2.2.1/credentials`). Until the handshake completes, partners may use a pre-shared bootstrap token issued by C Zero Sdn Bhd upon agreement execution.
 
 **Token rotation:** supported per OCPI spec via subsequent `PUT /credentials`.
 
@@ -172,36 +170,36 @@ Paginated list of all charging locations operated by C Zero.
   "status_code": 1000,
   "data": [
     {
-      "id": "DC3001",
+      "id": "MYPLG-DC3001",
       "publish": true,
-      "name": "C Zero Guard House",
-      "address": "Tiang Depan Bilik Ozone",
-      "city": "Shah Alam",
-      "postal_code": "40200",
-      "country": "MYS",
-      "coordinates": { "latitude": 3.0738, "longitude": 101.5183 },
+      "name": "DC3001",
+      "address": "Charging Station",
+      "city": "Kuala Lumpur",
+      "postal_code": "50000",
+      "country": "MY",
+      "coordinates": { "latitude": 3.1390, "longitude": 101.6869 },
       "evses": [
         {
-          "uid": "DC3001",
-          "evse_id": "MY*CZS*E*DC3001",
+          "uid": "MYPLG-DC3001-EVSE1",
+          "evse_id": "MY*PLG*E*DC3001",
           "status": "AVAILABLE",
           "connectors": [
             {
               "id": "1",
-              "standard": "IEC_62196_T2_COMBO",
-              "format": "CABLE",
-              "power_type": "DC",
-              "max_electric_power": 30000,
-              "tariff_ids": ["default-dc"],
-              "last_updated": "2026-06-25T06:47:54Z"
+              "standard": "IEC_62196_T2",
+              "format": "SOCKET",
+              "power_type": "AC_1_PHASE",
+              "voltage": 230,
+              "amperage": 32,
+              "max_electric_power": 7360,
+              "last_updated": "2026-07-23T01:46:23Z"
             }
           ],
-          "last_updated": "2026-06-25T06:47:54Z"
+          "last_updated": "2026-07-23T01:46:23Z"
         }
       ],
       "time_zone": "Asia/Kuala_Lumpur",
-      "charging_when_closed": true,
-      "last_updated": "2026-06-25T06:47:54Z"
+      "last_updated": "2026-07-23T01:46:23Z"
     }
   ]
 }
@@ -345,7 +343,7 @@ Active and recently completed charging sessions.
         "contract_id": "VLT-CONTRACT-001"
       },
       "auth_method": "AUTH_REQUEST",
-      "location_id": "DC3001",
+      "location_id": "MYPLG-DC3001",
       "evse_uid": "DC3001",
       "connector_id": "1",
       "currency": "MYR",
@@ -379,7 +377,7 @@ Final billing records for completed sessions. CDRs are immutable; once created t
       "end_datetime": "2026-06-25T09:02:00Z",
       "auth_id": "ROAMING-VLT-001",
       "auth_method": "AUTH_REQUEST",
-      "location_id": "DC3001",
+      "location_id": "MYPLG-DC3001",
       "evse_uid": "DC3001",
       "connector_id": "1",
       "currency": "MYR",
@@ -429,7 +427,7 @@ Start a charging session remotely on behalf of an eMSP user.
     "whitelist": "ALWAYS",
     "last_updated": "2026-06-25T08:00:00Z"
   },
-  "location_id": "DC3001",
+  "location_id": "MYPLG-DC3001",
   "evse_uid": "DC3001",
   "connector_id": "1",
   "authorization_reference": "AUTH-REF-XYZ"
@@ -820,16 +818,7 @@ Typical onboarding timeline: **5–7 business days** from token issuance to prod
 |---|---|---|---|
 | 1.0 | 25 June 2026 | C Zero Engineering | Initial release covering 10 standard OCPI modules |
 | 1.1 | 15 July 2026 | C Zero Engineering | Added §5.13 AION Vendor Extension — 5 new modules (lights, display, credentials, schedule, lock) under `/ocpi/2.2.1/aion/*` for AION E7-A firmware ≥ TK-AMC003-LCD_V2.0.04 |
-
----
-
-## 9. Contact
-
-For technical questions, sandbox credentials, or integration support:
-
-- **Project Lead:** Aqid Ishak — aqid@c-zero.my
-- **Production endpoint:** https://charger.czeros.tech/ocpi
-- **Status page:** https://charger.czeros.tech/health
+| 1.2 | 23 July 2026 | C Zero Engineering | Accuracy sweep: Party ID corrected to `PLG`, EVSE / Location ID format aligned with live endpoint output (`MYPLG-<id>-EVSE1`, `MYPLG-<id>`), authentication note updated (plain-string token, not base64). |
 
 ---
 

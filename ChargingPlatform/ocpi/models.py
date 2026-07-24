@@ -66,8 +66,11 @@ class EVSE(BaseModel):
 
 
 class Location(BaseModel):
+    country_code: str  # OCPI 2.2.1 §8.2.1 — required (ISO 3166-1 alpha-2, e.g. "MY")
+    party_id: str      # OCPI 2.2.1 §8.2.1 — required (3-char party identifier, e.g. "PLG")
     id: str
     publish: bool = True
+    type: str = "OTHER"  # OCPI 2.2.1 LocationType enum — required
     name: Optional[str] = None
     address: str
     city: str
