@@ -100,7 +100,7 @@ async def get_versions(request: Request):
     }
 
 
-@router.get("/2.2.1", response_model=dict)
+@router.get("/2.2.1", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_version_details(request: Request):
     """OCPI 2.2.1 version details - lists supported modules and endpoints."""
     base = _get_base_url(request)
