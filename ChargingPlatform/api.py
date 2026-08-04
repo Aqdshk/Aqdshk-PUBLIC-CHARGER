@@ -615,8 +615,12 @@ class ChargerStatus(BaseModel):
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
     max_power_kw: Optional[float] = None
-    # Pricing (filled at query time)
+    # Pricing (filled at query time) — from the `pricing` table, used by
+    # analytics/reporting. Falls back to RM 0.50 when that table is empty.
     price_per_kwh: Optional[float] = None
+    # The rate the kiosk and OCPP auto-stop actually bill on. Editable per
+    # charger from the Payment Terminals page. Distinct from price_per_kwh above.
+    tariff_per_kwh: Optional[float] = None
     ws_connected: Optional[bool] = None  # True = live OCPP WebSocket in pool
     # Idle-fee config (terminal kiosk feature) — surfaced so admin UI can edit
     idle_fee_enabled: Optional[bool] = None
@@ -1029,6 +1033,7 @@ async def get_chargers(
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
             "price_per_kwh": price_per_kwh,
+            "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
         }
         result.append(ChargerStatus(**charger_dict))
@@ -1185,22 +1190,33 @@ async def update_charger_info(
     }
 
 
-@app.patch("/api/admin/chargers/{charge_point_id}/idle-fee")
+@app.patch("/api/admin/chargers/{charge_point_id}/pricing")
+@app.patch("/api/admin/chargers/{charge_point_id}/idle-fee")  # legacy path, same handler
 async def update_charger_idle_fee(
     charge_point_id: str,
     request: Request,
     admin_ctx: dict = Depends(require_admin_or_staff_admin),
     db: Session = Depends(get_db),
 ):
-    """Toggle / configure the post-charge idle fee on a single charger.
+    """Configure per-charger money settings: energy tariff and post-charge idle fee.
 
-    Body: { enabled?: bool, per_min?: float, grace_minutes?: int }
+    Body: { tariff_per_kwh?: float, enabled?: bool, per_min?: float, grace_minutes?: int }
     Only fields supplied are updated.
     """
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
     body = await request.json()
+    if "tariff_per_kwh" in body:
+        try:
+            v = float(body["tariff_per_kwh"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="tariff_per_kwh must be a number")
+        # 0 is allowed (free / promotional charging). Upper bound is a sanity
+        # guard — Malaysian market sits around RM 0.50–1.60/kWh.
+        if v < 0 or v > 10:
+            raise HTTPException(status_code=400, detail="tariff_per_kwh must be 0-10 RM")
+        charger.tariff_per_kwh = Decimal(str(round(v, 4)))
     if "enabled" in body:
         charger.idle_fee_enabled = bool(body["enabled"])
     if "per_min" in body:
@@ -1223,6 +1239,7 @@ async def update_charger_idle_fee(
     return {
         "success": True,
         "charge_point_id": charge_point_id,
+        "tariff_per_kwh": float(charger.tariff_per_kwh or 0),
         "idle_fee_enabled": bool(charger.idle_fee_enabled),
         "idle_fee_per_min": float(charger.idle_fee_per_min or 0),
         "idle_grace_minutes": int(charger.idle_grace_minutes or 0),
