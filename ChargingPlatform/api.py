@@ -606,6 +606,9 @@ class ChargerStatus(BaseModel):
     status: str
     availability: str
     connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
+    # Live transaction per gun, e.g. {"1": 252}. Lets the dashboard put a Stop
+    # button on the right connector of a multi-gun charger.
+    active_transactions: Optional[Dict[str, int]] = None
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None
     number_of_connectors: Optional[int] = None
@@ -961,7 +964,10 @@ async def get_chargers(
         # Include both active and recent pending sessions (within PENDING_SESSION_WINDOW_MINUTES)
         pending_cutoff = _utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
         # Include interrupted/stopping so Stop button still gets a real OCPP transaction id
-        active_session = db.query(ChargingSession).filter(
+        # .all() rather than .first(): a multi-gun charger can hold one live
+        # session per connector, and the dashboard needs a transaction id for
+        # each so Stop can target the right gun.
+        active_sessions = db.query(ChargingSession).filter(
             ChargingSession.charger_id == charger.id,
             ChargingSession.transaction_id > 0,
             or_(
@@ -971,7 +977,22 @@ async def get_chargers(
                     ChargingSession.start_time >= pending_cutoff
                 ),
             ),
-        ).order_by(desc(ChargingSession.start_time)).first()
+        ).order_by(desc(ChargingSession.start_time)).all()
+        active_session = active_sessions[0] if active_sessions else None
+
+        # {connector_id: transaction_id}. Sessions arrive newest-first, so the
+        # first hit per connector wins. Rows with no connector_id are skipped —
+        # they cannot be attributed to a gun.
+        active_txn_by_conn: dict[str, int] = {}
+        for _s in active_sessions:
+            if _s.connector_id is None:
+                continue
+            try:
+                _txn = int(_s.transaction_id)
+            except (TypeError, ValueError):
+                continue
+            if _txn > 0:
+                active_txn_by_conn.setdefault(str(int(_s.connector_id)), _txn)
 
         # Compute effective status: recent heartbeat = online.
         # active_charge_points is in-memory and can desync on race conditions;
@@ -1026,6 +1047,7 @@ async def get_chargers(
             "connector_status": _conn_status_dict(charger.connector_status),
             "last_heartbeat": charger.last_heartbeat,
             "active_transaction_id": active_txn_id,
+            "active_transactions": active_txn_by_conn or None,
             "number_of_connectors": charger.number_of_connectors,
             "location": charger.location,
             "latitude": charger.latitude,

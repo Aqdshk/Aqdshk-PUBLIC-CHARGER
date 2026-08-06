@@ -593,8 +593,6 @@
                     const availBadge = `badge-${availability}`;
                     const itemClass = status === 'offline' ? 'offline' : availability === 'charging' ? 'charging' : availability === 'faulted' ? 'faulted' : '';
                     const lastHB = charger.last_heartbeat ? formatKLTime(charger.last_heartbeat) : 'Never';
-                    const canStart = status === 'online' && (availability === 'available' || availability === 'preparing') && !hasActive;
-                    const canStop = availability === 'charging' || hasActive;
                     const statusDisplay = hasActive && status === 'offline' ? 'CHARGING (OFFLINE)' : status.toUpperCase();
                     // ws_connected=false on a charger DB-marked "online" = state mismatch (zombie heartbeat / dropped socket)
                     const wsMismatch = status === 'online' && charger.ws_connected === false;
@@ -610,6 +608,24 @@
                         const gun = i + 1;
                         const st = connMap[String(gun)] || 'unknown';
                         return `<span class="badge badge-${st}" title="Gun ${gun} — ${st}">${gun} · ${st.toUpperCase()}</span>`;
+                    }).join('');
+                    // One Start/Stop per gun. Each gun decides for itself from
+                    // its own socket state — the charger-level availability is
+                    // the best socket, which would light up the wrong button on
+                    // a unit where one gun is free and the other is charging.
+                    const txnByConn = charger.active_transactions || {};
+                    const gunButtons = Array.from({ length: connCount }, (_, i) => {
+                        const gun = i + 1;
+                        const st = connMap[String(gun)] || 'unknown';
+                        const txn = txnByConn[String(gun)];
+                        const label = connCount > 1 ? ` Gun ${gun}` : '';
+                        if (txn || st === 'charging' || st === 'finishing') {
+                            return `<button class="btn btn-danger btn-small" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;
+                        }
+                        if (status === 'online' && (st === 'available' || st === 'preparing')) {
+                            return `<button class="btn btn-success btn-small" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>`;
+                        }
+                        return '';
                     }).join('');
                     return `
                         <div class="charger-item ${itemClass}">
@@ -645,10 +661,7 @@
                                 <span class="info-label">Connectors (${connCount})</span>
                                 <div class="conn-chips">${connChips}</div>
                             </div>
-                            <div class="charger-actions">
-                                ${canStart ? `<button class="btn btn-success btn-small" onclick="startCharging('${charger.charge_point_id}')">▶ Start</button>` : ''}
-                                ${canStop ? `<button class="btn btn-danger btn-small" onclick="stopCharging('${charger.charge_point_id}',${charger.active_transaction_id||'null'})">⏹ Stop</button>` : ''}
-                            </div>
+                            <div class="charger-actions">${gunButtons}</div>
                         </div>`;
                 }).join('')}</div>`;
         }
@@ -937,12 +950,12 @@
             } catch(e) { alert(`❌ Error: ${e.message}`); }
         }
 
-        async function startCharging(cpId) {
-            if (!confirm(`Start charging for ${cpId}?`)) return;
+        async function startCharging(cpId, connectorId = 1) {
+            if (!confirm(`Start charging on ${cpId} gun ${connectorId}?`)) return;
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { alert('Please log in again.'); return; }
             try {
-                const res = await fetch(`${API_BASE}/charging/start`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({charger_id:cpId,connector_id:1,id_tag:'DASHBOARD_USER'}) });
+                const res = await fetch(`${API_BASE}/charging/start`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({charger_id:cpId,connector_id:connectorId,id_tag:'DASHBOARD_USER'}) });
                 const r = await res.json();
                 if (r.success) { alert(`✅ Started!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message||'Unknown error'}`); }
             } catch(e){ alert(`❌ Error: ${e.message}`); }
@@ -982,9 +995,10 @@
             }
         }
 
-        async function stopCharging(cpId, transactionIdFromCard) {
+        async function stopCharging(cpId, transactionIdFromCard, connectorId = null) {
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { alert('Please log in again.'); return; }
+            const gunTxt = connectorId ? ` gun ${connectorId}` : '';
             try {
                 let txId = 0;
                 const fromBtn = transactionIdFromCard != null && transactionIdFromCard !== 'null' && transactionIdFromCard !== ''
@@ -994,10 +1008,15 @@
                 } else {
                     const sessions = await (await fetch(`${API_BASE}/sessions`, { headers: {'X-Staff-Token': token} })).json();
                     const stoppable = ['active', 'pending', 'interrupted', 'stopping'];
-                    const active = sessions.find(s => s.charge_point_id === cpId && stoppable.includes((s.status || '').toLowerCase()));
+                    // Narrow to this gun when we know it — otherwise a dual-gun
+                    // charger can hand back the other gun's transaction.
+                    const active = sessions.find(s =>
+                        s.charge_point_id === cpId
+                        && stoppable.includes((s.status || '').toLowerCase())
+                        && (connectorId == null || s.connector_id == null || Number(s.connector_id) === Number(connectorId)));
                     txId = active?.transaction_id || 0;
                 }
-                if (!confirm(txId ? `Stop ${cpId}? Transaction #${txId}` : `No transaction id in UI — send stop for ${cpId}? (server will look up)`)) return;
+                if (!confirm(txId ? `Stop ${cpId}${gunTxt}? Transaction #${txId}` : `No transaction id in UI — send stop for ${cpId}${gunTxt}? (server will look up)`)) return;
                 const res = await fetch(`${API_BASE}/charging/stop`, { method:'POST', headers:{'Content-Type':'application/json','X-Staff-Token':token}, body:JSON.stringify({transaction_id: txId, charger_id: cpId}) });
                 const r = await res.json();
                 if (r.success) { alert(`✅ Stop requested!\n${r.message}`); loadChargerStatus(); } else { alert(`❌ Failed:\n${r.message}`); }
