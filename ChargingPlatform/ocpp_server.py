@@ -477,6 +477,21 @@ class ChargePoint(cp):
                 if connector_id and connector_id >= 1:
                     conn_map[str(connector_id)] = status_map.get(status, 'unknown')
                     charger.connector_status = _json.dumps(conn_map)
+                    # Let the charger declare its own gun count. Without this the
+                    # column keeps its default of 1 and /charging/start rejects
+                    # any connector_id > 1 — a 2-gun DC unit looks single-gun.
+                    # Grow only: a socket that stops reporting for a while must
+                    # not shrink the count and lock the operator out of it.
+                    try:
+                        highest = max(int(k) for k in conn_map if str(k).isdigit())
+                        if highest > (charger.number_of_connectors or 1):
+                            charger.number_of_connectors = highest
+                            logger.info(
+                                f"[{self.id}] connector count raised to {highest} "
+                                f"(reported connectors: {sorted(conn_map)})"
+                            )
+                    except ValueError:
+                        pass
                     _rank = {'available': 0, 'preparing': 1, 'charging': 2,
                              'finishing': 3, 'reserved': 4, 'unavailable': 5,
                              'faulted': 6, 'unknown': 7}
