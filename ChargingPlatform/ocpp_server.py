@@ -578,11 +578,24 @@ class ChargePoint(cp):
             if charger:
                 start_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 
-                # Check if a pending/active session already exists (created by RemoteStart)
+                # Check if a pending/active session already exists (created by RemoteStart).
+                # Must be scoped to THIS connector: on a multi-gun charger an
+                # unscoped lookup lets gun 2's StartTransaction adopt gun 1's
+                # live session and overwrite its connector_id, collapsing both
+                # guns onto one connector in the session and metering history.
                 existing_session = self.db.query(ChargingSession).filter(
                     ChargingSession.charger_id == charger.id,
+                    ChargingSession.connector_id == connector_id,
                     ChargingSession.status.in_(["pending", "active"])
                 ).order_by(desc(ChargingSession.start_time)).first()
+                if existing_session is None:
+                    # Fall back to a session whose connector was never recorded
+                    # (RemoteStart placeholders, and rows from before this fix).
+                    existing_session = self.db.query(ChargingSession).filter(
+                        ChargingSession.charger_id == charger.id,
+                        ChargingSession.connector_id.is_(None),
+                        ChargingSession.status.in_(["pending", "active"])
+                    ).order_by(desc(ChargingSession.start_time)).first()
                 
                 if existing_session:
                     existing_session.status = "active"

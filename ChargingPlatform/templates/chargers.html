@@ -810,29 +810,38 @@
                 </div>`;
         }
 
-        // Latest meter values for the active charger — power, energy, V, A, SOC.
+        // Latest meter values per gun. A dual-gun charger reports one stream
+        // per connector, so this renders a block each rather than a single
+        // set of numbers that flips between guns as readings arrive.
         async function loadOpsMetering(cpId) {
             const body = document.getElementById('opsMeterBody');
             body.innerHTML = '<div style="color:var(--text-secondary);">Loading…</div>';
             try {
                 const _tok = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
-                const res = await fetch(`/api/metering/${encodeURIComponent(cpId)}/latest`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
+                const res = await fetch(`/api/metering/${encodeURIComponent(cpId)}/latest-by-connector`, { headers: _tok ? {'X-Staff-Token': _tok} : {} });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const m = await res.json();
-                if (!m) {
+                const readings = await res.json();
+                if (!Array.isArray(readings) || readings.length === 0) {
                     body.innerHTML = '<div style="color:var(--text-secondary);">No readings yet — charger has not sent MeterValues.</div>';
                     return;
                 }
                 const fmt = (v, unit, digits=2) => (v == null ? '—' : `${Number(v).toFixed(digits)} ${unit}`);
-                body.innerHTML = `
-                    <div class="ops-status-grid">
-                        <span class="k">Power</span><span class="v">${fmt(m.power_kw, 'kW')}</span>
-                        <span class="k">Energy (session)</span><span class="v">${fmt(m.energy_kwh, 'kWh', 3)}</span>
-                        <span class="k">Voltage</span><span class="v">${fmt(m.voltage, 'V', 1)}</span>
-                        <span class="k">Current</span><span class="v">${fmt(m.current, 'A', 2)}</span>
-                        <span class="k">SOC</span><span class="v">${m.soc != null ? m.soc + ' %' : '—'}</span>
-                        <span class="k">Reading at</span><span class="v">${m.timestamp ? formatKLTime(m.timestamp) : '—'}</span>
-                    </div>`;
+                body.innerHTML = readings.map((m, i) => {
+                    const title = m.connector_id
+                        ? `Gun ${m.connector_id}${m.transaction_id ? ` · txn #${m.transaction_id}` : ''}`
+                        : 'Unassigned reading';
+                    return `
+                        ${i > 0 ? '<div style="height:1px;background:var(--border);margin:10px 0;"></div>' : ''}
+                        ${readings.length > 1 || m.connector_id
+                            ? `<div style="font-weight:600;font-size:11px;color:var(--accent);margin-bottom:4px;">${title}</div>` : ''}
+                        <div class="ops-status-grid">
+                            <span class="k">Power</span><span class="v">${fmt(m.power_kw, 'kW')}</span>
+                            <span class="k">Energy (session)</span><span class="v">${fmt(m.energy_kwh, 'kWh', 3)}</span>
+                            <span class="k">Voltage</span><span class="v">${fmt(m.voltage, 'V', 1)}</span>
+                            <span class="k">Current</span><span class="v">${fmt(m.current, 'A', 2)}</span>
+                            <span class="k">Reading at</span><span class="v">${m.timestamp ? formatKLTime(m.timestamp) : '—'}</span>
+                        </div>`;
+                }).join('');
             } catch (e) {
                 body.innerHTML = `<div style="color:#ef4444;">⚠ ${e.message}</div>`;
             }

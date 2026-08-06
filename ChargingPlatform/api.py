@@ -680,6 +680,23 @@ class MeterValueResponse(BaseModel):
         return out if out is not None else ""
 
 
+class ConnectorMeterReading(BaseModel):
+    """Latest meter reading for one gun of a charger.
+
+    MeterValue has no connector_id — it is tied to a transaction — so the gun
+    is resolved through the session that owns that transaction. Field names
+    carry their unit because the stored columns do not: `power` is already kW
+    and `total_kwh` is kWh (ocpp_server normalises both on ingest).
+    """
+    connector_id: Optional[int] = None
+    transaction_id: Optional[int] = None
+    voltage: Optional[float] = None
+    current: Optional[float] = None
+    power_kw: Optional[float] = None
+    energy_kwh: Optional[float] = None
+    timestamp: Optional[str] = None
+
+
 class FaultResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1469,6 +1486,60 @@ async def get_latest_metering(
     # Graceful empty: 200 with null body, NOT a 404. The frontend treats null
     # as "no readings yet" and keeps any cached state instead of flashing red.
     return meter_value
+
+
+@app.get("/api/metering/{charge_point_id}/latest-by-connector",
+         response_model=List[ConnectorMeterReading])
+async def get_latest_metering_by_connector(
+    charge_point_id: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Latest meter reading for each gun of a charger.
+
+    /latest returns a single row for the whole charger, so on a dual-gun unit
+    whichever gun reported most recently hides the other. This resolves each
+    reading to its connector via the session that owns its transaction and
+    returns one entry per gun, newest reading per gun.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    conn_by_txn: dict[int, int] = {}
+    for txn, conn in db.query(
+        ChargingSession.transaction_id, ChargingSession.connector_id
+    ).filter(
+        ChargingSession.charger_id == charger.id,
+        ChargingSession.transaction_id > 0,
+        ChargingSession.connector_id.isnot(None),
+    ).all():
+        conn_by_txn[int(txn)] = int(conn)
+
+    # Newest first, then keep the first hit per connector. The window is
+    # bounded so a long-running charger does not scan its whole history;
+    # at one sample per gun per minute this still covers a few hours.
+    rows = db.query(MeterValue).filter(
+        MeterValue.charger_id == charger.id
+    ).order_by(desc(MeterValue.timestamp)).limit(400).all()
+
+    seen: dict[Optional[int], ConnectorMeterReading] = {}
+    for mv in rows:
+        conn = conn_by_txn.get(int(mv.transaction_id)) if mv.transaction_id else None
+        if conn in seen:
+            continue
+        seen[conn] = ConnectorMeterReading(
+            connector_id=conn,
+            transaction_id=mv.transaction_id,
+            voltage=mv.voltage,
+            current=mv.current,
+            power_kw=mv.power,
+            energy_kwh=mv.total_kwh,
+            timestamp=_iso_myt_naive_local(mv.timestamp),
+        )
+
+    # Named guns first in order, then any reading we could not attribute.
+    return sorted(seen.values(), key=lambda r: (r.connector_id is None, r.connector_id or 0))
 
 
 @app.get("/api/faults", response_model=List[FaultResponse])
