@@ -468,6 +468,9 @@ body {
 .info-item { display:flex; flex-direction:column; }
 .info-label { color:var(--text-muted); font-size:9px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:1px; }
 .info-value { color:var(--text-secondary); font-size:11px; }
+.charger-conns { margin-bottom:6px; }
+.charger-conns .conn-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
+.charger-conns .badge { font-size:9px; }
 .charger-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
 
 /* ============= SESSION ITEMS ============= */

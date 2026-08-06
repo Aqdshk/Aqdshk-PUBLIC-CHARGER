@@ -599,6 +599,18 @@
                     // ws_connected=false on a charger DB-marked "online" = state mismatch (zombie heartbeat / dropped socket)
                     const wsMismatch = status === 'online' && charger.ws_connected === false;
                     const cpEsc = (charger.charge_point_id || '').replace(/'/g, "\\'");
+                    // Per-gun view. connector_status is what each socket last
+                    // reported over OCPP; number_of_connectors is the declared
+                    // count. Take the larger of the two so a gun that has not
+                    // sent a StatusNotification yet still shows up as a slot.
+                    const connMap = charger.connector_status || {};
+                    const connIds = Object.keys(connMap).map(k => parseInt(k, 10)).filter(n => n > 0);
+                    const connCount = Math.max(charger.number_of_connectors || 0, ...connIds, 1);
+                    const connChips = Array.from({ length: connCount }, (_, i) => {
+                        const gun = i + 1;
+                        const st = connMap[String(gun)] || 'unknown';
+                        return `<span class="badge badge-${st}" title="Gun ${gun} — ${st}">${gun} · ${st.toUpperCase()}</span>`;
+                    }).join('');
                     return `
                         <div class="charger-item ${itemClass}">
                             <div class="charger-header">
@@ -628,6 +640,10 @@
                                 <div class="info-item"><span class="info-label">Vendor</span><span class="info-value">${charger.vendor||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">Model</span><span class="info-value">${charger.model||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">Firmware</span><span class="info-value">${charger.firmware_version||'N/A'}</span></div>
+                            </div>
+                            <div class="charger-conns">
+                                <span class="info-label">Connectors (${connCount})</span>
+                                <div class="conn-chips">${connChips}</div>
                             </div>
                             <div class="charger-actions">
                                 ${canStart ? `<button class="btn btn-success btn-small" onclick="startCharging('${charger.charge_point_id}')">▶ Start</button>` : ''}
