@@ -892,6 +892,7 @@ class ChargePoint(cp):
             
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
+                connector_id=connector_id,
                 transaction_id=transaction_id,
                 timestamp=timestamp,
                 voltage=voltage,

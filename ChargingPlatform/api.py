@@ -1525,7 +1525,12 @@ async def get_latest_metering_by_connector(
 
     seen: dict[Optional[int], ConnectorMeterReading] = {}
     for mv in rows:
-        conn = conn_by_txn.get(int(mv.transaction_id)) if mv.transaction_id else None
+        # The reading's own connector is authoritative. Fall back to the
+        # owning session only for rows written before connector_id existed.
+        conn = mv.connector_id
+        if conn is None and mv.transaction_id:
+            conn = conn_by_txn.get(int(mv.transaction_id))
+        conn = int(conn) if conn is not None else None
         if conn in seen:
             continue
         seen[conn] = ConnectorMeterReading(
@@ -3465,6 +3470,25 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             txn_id_for_stop = int(session.transaction_id)
         elif request.transaction_id and request.transaction_id > 0:
             txn_id_for_stop = int(request.transaction_id)
+        if txn_id_for_stop <= 0:
+            # Desync recovery. Our session can be closed while the charger is
+            # still running — a missed StopTransaction, a dropped socket, or a
+            # StatusNotification that never came. The charger keeps stamping
+            # its live transaction id on every MeterValues, so the newest
+            # reading is direct evidence of what it still believes is open.
+            recent_mv = db.query(MeterValue).filter(
+                MeterValue.charger_id == charger.id,
+                MeterValue.transaction_id.isnot(None),
+                MeterValue.transaction_id > 0,
+                MeterValue.timestamp >= _utcnow() - timedelta(minutes=30),
+            ).order_by(desc(MeterValue.timestamp)).first()
+            if recent_mv:
+                txn_id_for_stop = int(recent_mv.transaction_id)
+                logger.warning(
+                    f"RemoteStop desync recovery on {charger.charge_point_id}: no open session, "
+                    f"using transaction_id={txn_id_for_stop} from a meter reading at {recent_mv.timestamp}"
+                )
+
         if txn_id_for_stop <= 0:
             logger.error(
                 f"Cannot RemoteStop: no transaction id (charger={charger.charge_point_id}, session={session})"

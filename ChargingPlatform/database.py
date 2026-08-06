@@ -523,11 +523,16 @@ class MeterValue(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
+    # Which gun the reading came from. MeterValues.req always carries
+    # connectorId, but transactionId is optional — clock-aligned readings
+    # arrive with no transaction at all. Without this column those readings
+    # cannot be attributed to a gun on a multi-connector charger.
+    connector_id = Column(Integer, nullable=True, index=True)
     transaction_id = Column(Integer, nullable=True)
     timestamp = Column(DateTime, default=_utcnow, nullable=False)
     voltage = Column(Float)  # in V
     current = Column(Float)  # in A
-    power = Column(Float)  # in W
+    power = Column(Float)  # kW — ocpp_server normalises W → kW on ingest
     total_kwh = Column(Float)  # in kWh
     
     charger = relationship("Charger", back_populates="meter_values")
