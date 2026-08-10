@@ -342,6 +342,15 @@ class ChargePoint201(cp201):
                     f"opened session {session.id} to retain the readings"
                 )
 
+            # A TransactionEvent naming an EVSE is proof that EVSE exists, so
+            # treat it as a second source for the gun count alongside
+            # StatusNotification. Relying on StatusNotification alone is what
+            # left gun 2 unreachable on the 1.6 side: the platform only learns
+            # of a socket once that socket happens to report, and a charger
+            # that reports sparsely stays understated indefinitely.
+            self._note_evse(charger, evse_id, info.get("charging_state")
+                            or info.get("chargingState"), event_type)
+
             latest_kwh = self._store_meter_values(
                 charger, session, meter_values, evse_id, connector_id
             )
@@ -373,6 +382,49 @@ class ChargePoint201(cp201):
             logger.error(f"[v201] TransactionEvent failed for {self.id}: {e}", exc_info=True)
 
         return call_result.TransactionEvent()
+
+    def _note_evse(self, charger, evse_id, charging_state, event_type):
+        """Record a gun seen on a transaction, and reflect its live state.
+
+        Keeps the same slot map StatusNotification writes, so the dashboard
+        renders 2.0.1 chargers through the existing per-gun display.
+        """
+        if not evse_id:
+            return
+        try:
+            slot = str(int(evse_id))
+        except (TypeError, ValueError):
+            return
+
+        conn_map: Dict[str, str] = {}
+        if charger.connector_status:
+            try:
+                conn_map = json.loads(charger.connector_status) or {}
+            except Exception:
+                conn_map = {}
+
+        if event_type == "Ended":
+            conn_map[slot] = "available"
+        elif charging_state in ("SuspendedEV", "SuspendedEVSE"):
+            conn_map[slot] = "charging"   # paused mid-session, bay still taken
+        elif charging_state == "EVConnected":
+            conn_map[slot] = "preparing"
+        elif charging_state == "Idle":
+            conn_map[slot] = "available"
+        else:
+            conn_map[slot] = "charging"
+
+        charger.connector_status = json.dumps(conn_map)
+
+        slots = len(conn_map)
+        highest_plain = max((int(k) for k in conn_map if str(k).isdigit()), default=0)
+        detected = max(slots, highest_plain)
+        if detected > (charger.number_of_connectors or 1):
+            charger.number_of_connectors = detected
+
+        best = min(conn_map.values(), key=lambda s: _RANK.get(s, 7), default=None)
+        if best:
+            charger.availability = best
 
     def _store_meter_values(self, charger, session, meter_values, evse_id, connector_id):
         """Persist readings, returning the newest cumulative kWh seen.
