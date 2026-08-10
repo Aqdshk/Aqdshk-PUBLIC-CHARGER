@@ -25,12 +25,13 @@ Where 2.0.1 differs from 1.6, and why this file cannot just reuse the old one:
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ocpp.routing import on
 from ocpp.v201 import ChargePoint as cp201
-from ocpp.v201 import call_result
+from ocpp.v201 import call, call_result
 from ocpp.v201.enums import AuthorizationStatusEnumType, RegistrationStatusEnumType
 
 from database import Charger, ChargingSession, MeterValue, SessionLocal
@@ -474,23 +475,101 @@ class ChargePoint201(cp201):
                 newest_kwh = total_kwh
         return newest_kwh
 
-    # ── Guards for 1.6-only operations ────────────────────────────────────
-    # active_charge_points holds both handler types, so existing code paths
-    # can hand a 2.0.1 charger to a caller expecting 1.6 method names. Those
-    # would otherwise die on AttributeError deep in a request. Fail loudly and
-    # say why instead. 2.0.1 equivalents arrive in phases 2–4.
+    # ── CSMS → Charger ────────────────────────────────────────────────────
+
+    async def request_start_transaction(
+        self,
+        evse_id: int = 1,
+        id_token: str = "APP_USER",
+        remote_start_id: Optional[int] = None,
+    ):
+        """RequestStartTransaction — 2.0.1's remote start.
+
+        remote_start_id is how the charger ties the resulting TransactionEvent
+        back to this request, so it must be unique per call rather than fixed.
+        """
+        try:
+            if remote_start_id is None:
+                remote_start_id = int(uuid.uuid4().int % 2_000_000_000)
+            logger.info(
+                f"[v201] RequestStartTransaction → {self.id}: evse={evse_id} "
+                f"token={id_token} remote_start_id={remote_start_id}"
+            )
+            resp = await self.call(
+                call.RequestStartTransaction(
+                    id_token={"id_token": id_token, "type": "Central"},
+                    remote_start_id=remote_start_id,
+                    evse_id=evse_id,
+                )
+            )
+            logger.info(f"[v201] RequestStartTransaction {self.id} → {getattr(resp, 'status', None)}")
+            return resp
+        except Exception as e:
+            logger.error(f"[v201] RequestStartTransaction failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def request_stop_transaction(self, transaction_id: str):
+        """RequestStopTransaction — 2.0.1's remote stop. Takes the charger's
+        own string transaction id, not our internal integer."""
+        try:
+            logger.info(f"[v201] RequestStopTransaction → {self.id}: txn={transaction_id}")
+            resp = await self.call(
+                call.RequestStopTransaction(transaction_id=str(transaction_id))
+            )
+            logger.info(f"[v201] RequestStopTransaction {self.id} → {getattr(resp, 'status', None)}")
+            return resp
+        except Exception as e:
+            logger.error(f"[v201] RequestStopTransaction failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    # ── 1.6-shaped adapters ───────────────────────────────────────────────
+    # Ten call sites across the API, OCPI router and scheduler reach for the
+    # 1.6 method names on whatever comes out of active_charge_points, which
+    # now holds either handler. Translating here keeps every one of them
+    # working untouched, rather than sprinkling version checks through code
+    # that has no business knowing the protocol version. Both return the
+    # native 2.0.1 response, whose `.status` is "Accepted"/"Rejected" just
+    # like the 1.6 one, so existing result handling needs no change either.
+
+    async def remote_start_transaction(self, connector_id: int = 1, id_tag: str = "APP_USER"):
+        """1.6-shaped remote start. 1.6's connector_id maps to 2.0.1's evse_id:
+        on the DC units in the fleet each gun is its own EVSE, so the numbering
+        lines up."""
+        return await self.request_start_transaction(evse_id=connector_id, id_token=id_tag)
+
+    async def remote_stop_transaction(self, transaction_id: int):
+        """1.6-shaped remote stop.
+
+        Callers hold our internal integer transaction id; the charger only
+        knows the string it minted. Resolve one to the other before sending.
+        """
+        ocpp_txn = None
+        try:
+            session = (
+                self.db.query(ChargingSession)
+                .filter(ChargingSession.transaction_id == int(transaction_id))
+                .first()
+            )
+            if session:
+                ocpp_txn = session.ocpp_transaction_id
+        except Exception as e:
+            logger.error(f"[v201] could not resolve transaction {transaction_id} for {self.id}: {e}")
+
+        if not ocpp_txn:
+            logger.error(
+                f"[v201] cannot stop transaction {transaction_id} on {self.id}: "
+                f"no ocpp_transaction_id recorded for it"
+            )
+            return None
+        return await self.request_stop_transaction(ocpp_txn)
+
+    # ── Still unimplemented ───────────────────────────────────────────────
 
     def _unsupported(self, op: str, equivalent: str):
         raise NotImplementedError(
             f"{op} is an OCPP 1.6 operation and {self.id} is connected over OCPP 2.0.1. "
             f"The 2.0.1 equivalent is {equivalent}, which is not implemented yet."
         )
-
-    async def remote_start_transaction(self, *a, **kw):
-        self._unsupported("RemoteStartTransaction", "RequestStartTransaction")
-
-    async def remote_stop_transaction(self, *a, **kw):
-        self._unsupported("RemoteStopTransaction", "RequestStopTransaction")
 
     async def get_configuration(self, *a, **kw):
         self._unsupported("GetConfiguration", "GetVariables")
