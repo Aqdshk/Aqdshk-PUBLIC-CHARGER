@@ -241,12 +241,16 @@ async def get_location(
     db: Session = Depends(get_db),
 ):
     """Get single location by ID."""
-    # Parse location_id format: MYPLG-ESP32-CP-01 or similar
-    parts = location_id.split("-", 2)
-    if len(parts) >= 3:
-        cp_id = parts[2]
-    else:
-        cp_id = location_id
+    # Location ids are built as "{country}{party}-{charge_point_id}" — one
+    # dash, whatever the charge point id contains. The previous parse split on
+    # dashes and took the third field, which only lined up when the charge
+    # point id happened to contain a dash itself: "MYPLG-DC3001" has two
+    # fields, so it fell through to matching the whole string against
+    # charge_point_id and never found anything. Strip the known prefix instead.
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    prefix = f"{country}{party_id}-"
+    cp_id = location_id[len(prefix):] if location_id.startswith(prefix) else location_id
     # Same publication rule as the list endpoint. A charger we deliberately do
     # not list must not be reachable by guessing its id either, or a partner
     # could cache it and keep showing a charge point we withdrew.
