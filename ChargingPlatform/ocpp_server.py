@@ -165,6 +165,10 @@ def utc_now_iso_z() -> str:
 #          StopTransaction, MeterValues, Heartbeat, FirmwareStatusNotification,
 #          DiagnosticsStatusNotification
 class ChargePoint(cp):
+    # active_charge_points can now hold 1.6 or 2.0.1 handlers. Callers that
+    # care which protocol they are talking to check this.
+    ocpp_version = "1.6"
+
     def __init__(self, id, connection):
         super().__init__(id, connection)
         self.db = SessionLocal()
@@ -1542,8 +1546,18 @@ async def on_connect(websocket):
         except Exception as e:
             logger.warning(f"Could not update heartbeat on connect for {charge_point_id}: {e}")
         
-        # Create charge point instance and start handling messages
-        charge_point = ChargePoint(charge_point_id, websocket)
+        # Create charge point instance and start handling messages.
+        # The charger picked its OCPP version during the WebSocket handshake;
+        # route to the matching handler. Anything that is not 2.0.1 — including
+        # a client that negotiated nothing — falls through to the 1.6 handler,
+        # which is how every charger in the fleet connects today.
+        negotiated = getattr(websocket, "subprotocol", None)
+        if negotiated == "ocpp2.0.1":
+            from ocpp_server_v201 import ChargePoint201
+            charge_point = ChargePoint201(charge_point_id, websocket)
+            logger.info(f"[on_connect] {charge_point_id}: OCPP 2.0.1 session")
+        else:
+            charge_point = ChargePoint(charge_point_id, websocket)
 
         # If a previous connection for this charger is still in the pool
         # (e.g. firmware opened a second WS without closing the first), tear

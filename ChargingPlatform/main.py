@@ -153,7 +153,9 @@ async def ocpp_server() -> None:
         on_connect,
         "0.0.0.0",
         9000,
-        subprotocols=["ocpp1.6"],
+        # Order matters: the library picks the first entry the charger also
+        # offers, so 1.6 stays preferred for anything that speaks both.
+        subprotocols=["ocpp1.6", "ocpp2.0.1"],
         ping_interval=60,   # send WS ping every 60s — detects dead/powered-off chargers
         ping_timeout=30,    # if no pong within 30s, close connection
         close_timeout=10,

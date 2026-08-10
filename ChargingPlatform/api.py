@@ -8975,7 +8975,7 @@ async def _dev_auto_init():
         async def _ocpp():
             async with serve(
                 on_connect, "0.0.0.0", 9000,
-                subprotocols=["ocpp1.6"],
+                subprotocols=["ocpp1.6", "ocpp2.0.1"],
                 ping_interval=None, close_timeout=10, compression=None,
             ):
                 await asyncio.Future()
