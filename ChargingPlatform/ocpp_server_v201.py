@@ -563,16 +563,144 @@ class ChargePoint201(cp201):
             return None
         return await self.request_stop_transaction(ocpp_txn)
 
-    # ── Still unimplemented ───────────────────────────────────────────────
+    # ── Device model ──────────────────────────────────────────────────────
 
-    def _unsupported(self, op: str, equivalent: str):
-        raise NotImplementedError(
-            f"{op} is an OCPP 1.6 operation and {self.id} is connected over OCPP 2.0.1. "
-            f"The 2.0.1 equivalent is {equivalent}, which is not implemented yet."
+    async def get_variables(self, items):
+        """GetVariables. `items` is a list of (component, variable) pairs."""
+        try:
+            data = [
+                {"component": {"name": comp}, "variable": {"name": var}}
+                for comp, var in items
+            ]
+            logger.info(f"[v201] GetVariables → {self.id}: {items}")
+            return await self.call(call.GetVariables(get_variable_data=data))
+        except Exception as e:
+            logger.error(f"[v201] GetVariables failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def set_variables(self, items):
+        """SetVariables. `items` is a list of (component, variable, value)."""
+        try:
+            data = [
+                {"component": {"name": comp}, "variable": {"name": var},
+                 "attribute_value": str(value)}
+                for comp, var, value in items
+            ]
+            logger.info(f"[v201] SetVariables → {self.id}: {items}")
+            return await self.call(call.SetVariables(set_variable_data=data))
+        except Exception as e:
+            logger.error(f"[v201] SetVariables failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def get_base_report(self, report_base: str = "ConfigurationInventory"):
+        """Ask the charger to publish its device model.
+
+        This is 2.0.1's answer to "GetConfiguration with no keys". The reply
+        here only acknowledges the request — the content arrives afterwards as
+        one or more NotifyReport calls, which the handler below logs.
+        """
+        try:
+            request_id = int(uuid.uuid4().int % 2_000_000_000)
+            logger.info(f"[v201] GetBaseReport → {self.id}: {report_base} (request_id={request_id})")
+            return await self.call(
+                call.GetBaseReport(request_id=request_id, report_base=report_base)
+            )
+        except Exception as e:
+            logger.error(f"[v201] GetBaseReport failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    @on("NotifyReport")
+    async def on_notify_report(self, request_id: int, generated_at: str, seq_no: int, **kwargs):
+        """Device model contents, streamed in response to GetBaseReport."""
+        data = kwargs.get("report_data") or kwargs.get("reportData") or []
+        more = kwargs.get("tbc") or kwargs.get("tbC") or False
+        logger.info(
+            f"[v201] NotifyReport from {self.id}: request_id={request_id} seq={seq_no} "
+            f"entries={len(data)} more_to_come={more}"
         )
+        for entry in data:
+            comp = (entry.get("component") or {}).get("name")
+            var = (entry.get("variable") or {}).get("name")
+            attrs = entry.get("variable_attribute") or entry.get("variableAttribute") or []
+            value = attrs[0].get("value") if attrs else None
+            logger.info(f"[v201]   {comp}.{var} = {value}")
+        return call_result.NotifyReport()
 
-    async def get_configuration(self, *a, **kw):
-        self._unsupported("GetConfiguration", "GetVariables")
+    # ── 1.6-shaped adapters over the device model ─────────────────────────
+    # 1.6 has a flat key space; 2.0.1 addresses (component, variable). There
+    # is no lossless translation, so this maps the handful of keys the
+    # platform actually asks for and otherwise expects the caller to pass
+    # "Component.Variable". Anything it cannot place is reported back as an
+    # unknown key rather than silently guessed at.
 
-    async def change_configuration(self, *a, **kw):
-        self._unsupported("ChangeConfiguration", "SetVariables")
+    _KEY_MAP = {
+        "heartbeatinterval": ("OCPPCommCtrlr", "HeartbeatInterval"),
+        "websocketpinginterval": ("OCPPCommCtrlr", "WebSocketPingInterval"),
+        "resetretries": ("OCPPCommCtrlr", "ResetRetries"),
+        "authorizeremotetxrequests": ("AuthCtrlr", "AuthorizeRemoteStart"),
+        "localauthlistenabled": ("LocalAuthListCtrlr", "Enabled"),
+        "metervaluesampleinterval": ("SampledDataCtrlr", "TxUpdatedInterval"),
+        "connectiontimeout": ("TxCtrlr", "EVConnectionTimeOut"),
+    }
+
+    def _resolve_key(self, key: str):
+        """1.6 key → (component, variable), or None if it cannot be placed."""
+        if "." in key:
+            comp, _, var = key.partition(".")
+            return comp, var
+        return self._KEY_MAP.get(key.strip().lower())
+
+    async def get_configuration(self, keys=None):
+        """1.6-shaped read. Returns an object exposing configuration_key and
+        unknown_key so the existing /configuration endpoint works unchanged."""
+
+        class _Result:
+            def __init__(self, configuration_key, unknown_key):
+                self.configuration_key = configuration_key
+                self.unknown_key = unknown_key
+
+        if not keys:
+            # 2.0.1 has no "give me everything" on GetVariables — that is what
+            # GetBaseReport is for, and it answers asynchronously. Say so
+            # rather than returning an empty list that reads as "no config".
+            logger.info(f"[v201] {self.id}: full-config read requested — issuing GetBaseReport")
+            await self.get_base_report()
+            return _Result([], ["<full inventory requested via GetBaseReport; "
+                                "contents arrive asynchronously in the log>"])
+
+        resolved, unknown = [], []
+        for k in keys:
+            pair = self._resolve_key(k)
+            if pair:
+                resolved.append((k, pair))
+            else:
+                unknown.append(k)
+
+        config_key = []
+        if resolved:
+            resp = await self.get_variables([p for _, p in resolved])
+            results = getattr(resp, "get_variable_result", None) or []
+            for (orig, _pair), item in zip(resolved, results):
+                status = item.get("attribute_status") or item.get("attributeStatus")
+                if status == "Accepted":
+                    config_key.append({
+                        "key": orig,
+                        "readonly": False,
+                        "value": item.get("attribute_value") or item.get("attributeValue"),
+                    })
+                else:
+                    unknown.append(orig)
+
+        return _Result(config_key, unknown)
+
+    async def change_configuration(self, key: str, value: str):
+        """1.6-shaped write, translated to SetVariables."""
+        pair = self._resolve_key(key)
+        if not pair:
+            logger.error(
+                f"[v201] cannot set {key!r} on {self.id}: no component known for it. "
+                f"Pass it as 'Component.Variable'."
+            )
+            return None
+        comp, var = pair
+        return await self.set_variables([(comp, var, value)])
