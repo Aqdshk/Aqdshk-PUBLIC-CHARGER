@@ -416,7 +416,17 @@ class ChargingSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
     transaction_id = Column(Integer, unique=True, index=True, nullable=False)
+    # OCPP 2.0.1 lets the *charger* mint the transaction id, and it is a string
+    # (up to 36 chars) rather than the integer the Central System assigns in
+    # 1.6. Rather than widen transaction_id — which every billing, metering,
+    # idle-fee and OCPI query reads as an int — 2.0.1 sessions keep a generated
+    # integer for internal use and record the charger's own id here. NULL for
+    # every 1.6 session.
+    ocpp_transaction_id = Column(String(64), nullable=True, index=True)
     connector_id = Column(Integer, nullable=True)  # OCPP StartTransaction connector
+    # 2.0.1 addresses a socket as (evse_id, connector_id); 1.6 has only the
+    # connector. NULL for 1.6 sessions.
+    evse_id = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     stop_time = Column(DateTime)
     energy_consumed = Column(Float, default=0.0)  # in kWh

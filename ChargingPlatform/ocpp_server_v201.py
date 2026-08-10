@@ -31,9 +31,9 @@ from typing import Any, Dict, Optional
 from ocpp.routing import on
 from ocpp.v201 import ChargePoint as cp201
 from ocpp.v201 import call_result
-from ocpp.v201.enums import RegistrationStatusEnumType
+from ocpp.v201.enums import AuthorizationStatusEnumType, RegistrationStatusEnumType
 
-from database import Charger, SessionLocal
+from database import Charger, ChargingSession, MeterValue, SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,26 @@ def _utcnow() -> datetime:
 
 def _now_iso_z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_ts(value: Optional[str]) -> datetime:
+    """OCPP timestamps are ISO-8601 with a zone; the DB columns are naive UTC."""
+    if not value:
+        return _utcnow()
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return _utcnow()
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _token_of(id_token: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Pull the raw token string out of 2.0.1's IdTokenType wrapper."""
+    if not id_token:
+        return None
+    return id_token.get("id_token") or id_token.get("idToken")
 
 
 # 2.0.1 reports occupancy through transactions, not through the connector
@@ -210,6 +230,197 @@ class ChargePoint201(cp201):
             logger.error(f"[v201] StatusNotification failed for {self.id}: {e}", exc_info=True)
 
         return call_result.StatusNotification()
+
+    @on("Authorize")
+    async def on_authorize(self, id_token: Dict[str, Any], **kwargs):
+        """RFID / token presented at the charger.
+
+        There is still no tag registry on the platform, so this mirrors the
+        1.6 handler: accept the tokens the platform itself issues, reject the
+        rest. Building a real registry is tracked separately — until then a
+        physical card cannot start a session on either protocol version.
+        """
+        token = (id_token or {}).get("id_token") or (id_token or {}).get("idToken") or ""
+        logger.info(f"[v201] Authorize from {self.id}: token={token!r}")
+
+        known = ("APP_USER", "DASHBOARD_USER", "LOCAL_CHARGING", "")
+        status = (
+            AuthorizationStatusEnumType.accepted
+            if token in known
+            else AuthorizationStatusEnumType.invalid
+        )
+        if status != AuthorizationStatusEnumType.accepted:
+            logger.warning(f"[v201] {self.id}: token {token!r} not recognised — no tag registry yet")
+
+        return call_result.Authorize(id_token_info={"status": status})
+
+    @on("TransactionEvent")
+    async def on_transaction_event(
+        self,
+        event_type: str,
+        timestamp: str,
+        trigger_reason: str,
+        seq_no: int,
+        transaction_info: Dict[str, Any],
+        **kwargs,
+    ):
+        """The whole charging lifecycle, in one message.
+
+        2.0.1 folds 1.6's StartTransaction, MeterValues and StopTransaction
+        into this single call, distinguished by event_type:
+          Started  → open a session
+          Updated  → periodic meter readings while charging
+          Ended    → close the session
+
+        The reply may carry idTokenInfo and totalCost. We keep it minimal for
+        now; pricing is settled platform-side from the stored meter data, the
+        same way the 1.6 path works.
+        """
+        info = transaction_info or {}
+        ocpp_txn = info.get("transaction_id") or info.get("transactionId")
+        evse = kwargs.get("evse") or {}
+        evse_id = evse.get("id")
+        connector_id = evse.get("connector_id") or evse.get("connectorId") or 1
+        meter_values = kwargs.get("meter_value") or kwargs.get("meterValue") or []
+
+        logger.info(
+            f"[v201] TransactionEvent {self.id}: {event_type} txn={ocpp_txn} "
+            f"evse={evse_id} conn={connector_id} trigger={trigger_reason} seq={seq_no}"
+        )
+
+        try:
+            charger = self._charger()
+            if not charger or not ocpp_txn:
+                return call_result.TransactionEvent()
+
+            session = (
+                self.db.query(ChargingSession)
+                .filter(
+                    ChargingSession.charger_id == charger.id,
+                    ChargingSession.ocpp_transaction_id == str(ocpp_txn),
+                )
+                .first()
+            )
+
+            if event_type == "Started" and session is None:
+                session = ChargingSession(
+                    charger_id=charger.id,
+                    transaction_id=0,  # replaced with the DB id below
+                    ocpp_transaction_id=str(ocpp_txn),
+                    evse_id=evse_id,
+                    connector_id=connector_id,
+                    start_time=_parse_ts(timestamp),
+                    status="active",
+                    user_id=_token_of(kwargs.get("id_token")),
+                )
+                self.db.add(session)
+                self.db.flush()  # populate session.id
+                # Mirror the 1.6 convention: the integer key the rest of the
+                # platform joins on is the row id.
+                session.transaction_id = session.id
+                logger.info(f"[v201] opened session {session.id} for charger txn {ocpp_txn}")
+
+            if session is None:
+                # Updated/Ended for a transaction we never saw start — the
+                # charger was mid-session when we came up. Recording it beats
+                # dropping the energy on the floor.
+                session = ChargingSession(
+                    charger_id=charger.id,
+                    transaction_id=0,
+                    ocpp_transaction_id=str(ocpp_txn),
+                    evse_id=evse_id,
+                    connector_id=connector_id,
+                    start_time=_parse_ts(timestamp),
+                    status="active",
+                    user_id=_token_of(kwargs.get("id_token")),
+                )
+                self.db.add(session)
+                self.db.flush()
+                session.transaction_id = session.id
+                logger.warning(
+                    f"[v201] {self.id}: {event_type} for unknown txn {ocpp_txn} — "
+                    f"opened session {session.id} to retain the readings"
+                )
+
+            latest_kwh = self._store_meter_values(
+                charger, session, meter_values, evse_id, connector_id
+            )
+            if latest_kwh is not None:
+                if session.meter_start is None:
+                    session.meter_start = int(latest_kwh * 1000)
+                session.energy_consumed = max(
+                    0.0, latest_kwh - (session.meter_start or 0) / 1000.0
+                )
+
+            if event_type == "Ended":
+                session.status = "completed"
+                session.stop_time = _parse_ts(timestamp)
+                session.stop_reason = (
+                    info.get("stopped_reason") or info.get("stoppedReason") or trigger_reason
+                )
+                if latest_kwh is not None:
+                    session.meter_stop = int(latest_kwh * 1000)
+                logger.info(
+                    f"[v201] closed session {session.id} — {session.energy_consumed:.3f} kWh, "
+                    f"reason={session.stop_reason}"
+                )
+
+            charger.last_heartbeat = _utcnow()
+            charger.status = "online"
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"[v201] TransactionEvent failed for {self.id}: {e}", exc_info=True)
+
+        return call_result.TransactionEvent()
+
+    def _store_meter_values(self, charger, session, meter_values, evse_id, connector_id):
+        """Persist readings, returning the newest cumulative kWh seen.
+
+        2.0.1 nests the unit under unitOfMeasure rather than a flat `unit`
+        field, and sends value as a number rather than a string. Everything is
+        normalised to the same canonical units the 1.6 path stores — power in
+        kW, energy in kWh — so the dashboard and billing read one shape.
+        """
+        newest_kwh = None
+        for mv in meter_values or []:
+            ts = _parse_ts(mv.get("timestamp"))
+            samples = mv.get("sampled_value") or mv.get("sampledValue") or []
+
+            voltage = current = power = total_kwh = None
+            for sv in samples:
+                try:
+                    value = float(sv.get("value", 0) or 0)
+                except (ValueError, TypeError):
+                    continue
+                measurand = sv.get("measurand") or "Energy.Active.Import.Register"
+                uom = sv.get("unit_of_measure") or sv.get("unitOfMeasure") or {}
+                unit = (uom.get("unit") or "").strip().lower()
+
+                if measurand == "Voltage":
+                    voltage = value
+                elif measurand == "Current.Import":
+                    current = value
+                elif measurand == "Power.Active.Import":
+                    power = value / 1000.0 if (unit == "w" or (not unit and value > 1000)) else value
+                elif measurand == "Energy.Active.Import.Register":
+                    total_kwh = value if unit == "kwh" else value / 1000.0
+
+            self.db.add(
+                MeterValue(
+                    charger_id=charger.id,
+                    connector_id=connector_id,
+                    transaction_id=session.transaction_id,
+                    timestamp=ts,
+                    voltage=voltage,
+                    current=current,
+                    power=power,
+                    total_kwh=total_kwh,
+                )
+            )
+            if total_kwh is not None:
+                newest_kwh = total_kwh
+        return newest_kwh
 
     # ── Guards for 1.6-only operations ────────────────────────────────────
     # active_charge_points holds both handler types, so existing code paths
