@@ -1548,9 +1548,10 @@ async def on_connect(websocket):
         
         # Create charge point instance and start handling messages.
         # The charger picked its OCPP version during the WebSocket handshake;
-        # route to the matching handler. Anything that is not 2.0.1 — including
-        # a client that negotiated nothing — falls through to the 1.6 handler,
-        # which is how every charger in the fleet connects today.
+        # route to the matching handler. A client that offers no subprotocol
+        # never reaches here — the websockets library rejects it during the
+        # handshake — so this only ever chooses between the two we advertise,
+        # and anything other than 2.0.1 takes the 1.6 path the fleet uses.
         negotiated = getattr(websocket, "subprotocol", None)
         if negotiated == "ocpp2.0.1":
             from ocpp_server_v201 import ChargePoint201

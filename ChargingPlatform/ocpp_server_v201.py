@@ -167,10 +167,15 @@ class ChargePoint201(cp201):
             mapped = _STATUS_MAP.get(connector_status, "unknown")
 
             # Reuse the 1.6 connector_status column so the dashboard renders
-            # 2.0.1 chargers with no changes. Single-EVSE units key on the
-            # connector alone; multi-EVSE units get an "evse:connector" key so
-            # two EVSEs cannot overwrite each other's slot 1.
-            key = str(connector_id) if int(evse_id) <= 1 else f"{evse_id}:{connector_id}"
+            # 2.0.1 chargers unchanged. The dashboard keys slots "1", "2", "3",
+            # so flatten to that wherever it is unambiguous.
+            #
+            # Nearly every DC unit is N EVSEs with one connector each, and
+            # 2.0.1 numbers EVSEs from 1 — so the EVSE id *is* the gun number
+            # and maps straight onto a plain slot key. Only an EVSE carrying
+            # more than one connector needs the compound "evse:connector" form,
+            # which the dashboard shows as an extra slot rather than losing it.
+            key = str(evse_id) if int(connector_id) <= 1 else f"{evse_id}:{connector_id}"
 
             conn_map: Dict[str, str] = {}
             if charger.connector_status:
@@ -183,11 +188,15 @@ class ChargePoint201(cp201):
 
             # Grow-only, same rule as the 1.6 path: a socket that goes quiet
             # must not shrink the count and lock the operator out of it.
-            numeric = [int(k) for k in conn_map if str(k).isdigit()]
-            if numeric:
-                highest = max(numeric)
-                if highest > (charger.number_of_connectors or 1):
-                    charger.number_of_connectors = highest
+            # Count every slot, not just the plainly-numbered ones — counting
+            # only numeric keys would report a multi-connector EVSE as a
+            # single-gun charger, which is the exact fault that made gun 2
+            # unreachable on the 1.6 side.
+            slots = len(conn_map)
+            highest_plain = max((int(k) for k in conn_map if str(k).isdigit()), default=0)
+            detected = max(slots, highest_plain)
+            if detected > (charger.number_of_connectors or 1):
+                charger.number_of_connectors = detected
 
             best = min(conn_map.values(), key=lambda s: _RANK.get(s, 7), default=None)
             if best:
