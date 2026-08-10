@@ -614,6 +614,19 @@
                     // its own socket state — the charger-level availability is
                     // the best socket, which would light up the wrong button on
                     // a unit where one gun is free and the other is charging.
+                    // Whether roaming partners currently see this charger. Mirrors
+                    // the server rule in ocpi/router.py: explicit override wins,
+                    // otherwise it comes down to how stale the heartbeat is.
+                    const roam = (() => {
+                        if (charger.is_public === true)  return {label:'✓ Always published', hint:'Forced on — published even while offline'};
+                        if (charger.is_public === false) return {label:'✗ Hidden',           hint:'Forced off — never published to roaming partners'};
+                        const hbAge = charger.last_heartbeat
+                            ? (Date.now() - new Date(charger.last_heartbeat).getTime()) / 86400000
+                            : Infinity;
+                        return hbAge <= 7
+                            ? {label:'✓ Published (auto)', hint:'Seen within 7 days, so published automatically'}
+                            : {label:'— Not published',    hint:'No heartbeat in over 7 days, so withheld from roaming partners'};
+                    })();
                     const txnByConn = charger.active_transactions || {};
                     const gunButtons = Array.from({ length: connCount }, (_, i) => {
                         const gun = i + 1;
@@ -644,6 +657,7 @@
                                             <button onclick="window.location='/metering?charger_id=${encodeURIComponent(charger.charge_point_id)}'">⚡ View metering</button>
                                             <button onclick="openOpsPanel('${cpEsc}')">🎛 OCPP Operations</button>
                                             <div class="menu-sep"></div>
+                                            <button onclick="setPublish('${cpEsc}')" title="Control whether roaming partners (OCPI) see this charger">🌐 Roaming visibility</button>
                                             <button onclick="forceReconnect('${cpEsc}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>
                                             <button onclick="disableCharger('${cpEsc}')">🔇 Disable temporarily</button>
                                             <div class="menu-sep"></div>
@@ -658,6 +672,7 @@
                                 <div class="info-item"><span class="info-label">Model</span><span class="info-value">${charger.model||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">Firmware</span><span class="info-value">${charger.firmware_version||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">OCPP</span><span class="info-value">${charger.ocpp_version ? charger.ocpp_version + (charger.ocpp_version === '2.0.1' ? ' (JSON)' : 'J') : '—'}</span></div>
+                                <div class="info-item"><span class="info-label">Roaming (OCPI)</span><span class="info-value" title="${roam.hint}">${roam.label}</span></div>
                             </div>
                             <div class="charger-conns">
                                 <span class="info-label">Connectors (${connCount})</span>
@@ -941,6 +956,40 @@
             // TODO: wire to DELETE /api/admin/chargers/{id} once the endpoint
             // exists with a cascade-safety check (no active sessions).
             alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
+        }
+
+        // Roaming (OCPI) visibility. Three states rather than a toggle, so a
+        // prompt: on / off are operator overrides, auto defers to heartbeat age.
+        async function setPublish(cpId) {
+            const cur = (_allChargers.find(c => c.charge_point_id === cpId) || {}).is_public;
+            const now = cur === true ? 'always published'
+                      : cur === false ? 'hidden'
+                      : 'automatic (published while the heartbeat is recent)';
+            const ans = prompt(
+                `Roaming visibility for ${cpId}\n\n` +
+                `Currently: ${now}\n\n` +
+                `Type one of:\n` +
+                `  auto  — publish only while seen in the last 7 days (default)\n` +
+                `  on    — always publish, even while offline\n` +
+                `  off   — never publish to roaming partners`,
+                cur === true ? 'on' : cur === false ? 'off' : 'auto');
+            if (ans === null) return;
+            const key = ans.trim().toLowerCase();
+            const map = { auto: null, on: true, off: false };
+            if (!(key in map)) { alert('Type auto, on or off.'); return; }
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+            try {
+                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(cpId)}/publish`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type':'application/json','X-Staff-Token':token},
+                    body: JSON.stringify({ is_public: map[key] }),
+                });
+                const r = await res.json();
+                if (!res.ok) throw new Error(r.detail || 'Failed');
+                showToast('🌐 Roaming visibility updated', `<b>${cpId}</b><br>${r.mode}`, 'online', 6000);
+                loadChargerStatus();
+            } catch (e) { alert(`❌ ${e.message}`); }
         }
 
         async function forceReconnect(cpId) {

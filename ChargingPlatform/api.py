@@ -605,6 +605,8 @@ class ChargerStatus(BaseModel):
     firmware_version: Optional[str]
     # OCPP version negotiated at the last handshake — "1.6" or "2.0.1".
     ocpp_version: Optional[str] = None
+    # OCPI publication override: True always, False never, None automatic.
+    is_public: Optional[bool] = None
     status: str
     availability: str
     connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
@@ -1074,6 +1076,7 @@ async def get_chargers(
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
             "ocpp_version": charger.ocpp_version,
+            "is_public": charger.is_public,
             "price_per_kwh": price_per_kwh,
             "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
@@ -1230,6 +1233,38 @@ async def update_charger_info(
         "connector_type": eff_connector,
         "max_power_kw": eff_power,
     }
+
+
+@app.patch("/api/admin/chargers/{charge_point_id}/publish")
+async def set_charger_ocpi_publication(
+    charge_point_id: str,
+    request: Request,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Control whether a charger is published to OCPI roaming partners.
+
+    Body: { "is_public": true | false | null }
+      true  → always publish, even while offline
+      false → never publish
+      null  → automatic: publish only while the heartbeat is recent
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    body = await request.json()
+    if "is_public" not in body:
+        raise HTTPException(status_code=400, detail="is_public is required (true, false or null)")
+    value = body["is_public"]
+    if value is not None and not isinstance(value, bool):
+        raise HTTPException(status_code=400, detail="is_public must be true, false or null")
+
+    charger.is_public = value
+    db.commit()
+    mode = {True: "always published", False: "never published", None: "automatic (by heartbeat)"}[value]
+    logger.info(f"OCPI publication for {charge_point_id} set to {mode}")
+    return {"success": True, "charge_point_id": charge_point_id, "is_public": value, "mode": mode}
 
 
 @app.patch("/api/admin/chargers/{charge_point_id}/pricing")

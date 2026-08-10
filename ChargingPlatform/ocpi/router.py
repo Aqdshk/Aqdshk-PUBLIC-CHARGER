@@ -29,6 +29,38 @@ router = APIRouter(prefix="/ocpi", tags=["OCPI 2.2.1"])
 # OCPI_COUNTRY_CODE: Our country code (2 chars, e.g. MY)
 
 
+# How stale a charger's heartbeat may be before we stop publishing it to
+# roaming partners. Long enough that a flaky link or an overnight power cut
+# does not pull a real charge point off the map, short enough that units which
+# have genuinely gone away disappear. Override with OCPI_PUBLISH_MAX_AGE_DAYS.
+_PUBLISH_MAX_AGE_DAYS = int(os.getenv("OCPI_PUBLISH_MAX_AGE_DAYS", "7"))
+
+
+def _publishable(query, cutoff: Optional[datetime] = None):
+    """Restrict a Charger query to what may be published over OCPI.
+
+    A roaming partner republishes whatever we hand them straight to drivers,
+    so anything listed here has to be a charge point someone could actually
+    drive to. The chargers table does not clear itself — it holds every unit
+    that ever connected, including hundreds that reported once months ago —
+    so publication is opt-out by staleness, with explicit operator overrides:
+
+        is_public = True   → always published, even while offline
+        is_public = False  → never published
+        is_public = NULL   → published only if seen within the age window
+    """
+    if cutoff is None:
+        cutoff = datetime.utcnow() - timedelta(days=_PUBLISH_MAX_AGE_DAYS)
+    return query.filter(
+        (Charger.is_public.is_(True))
+        | (
+            Charger.is_public.is_(None)
+            & Charger.last_heartbeat.isnot(None)
+            & (Charger.last_heartbeat >= cutoff)
+        )
+    )
+
+
 def _get_base_url(request: Request) -> str:
     """Build base URL for OCPI endpoints."""
     base = os.getenv("OCPI_BASE_URL", "").strip()
@@ -137,7 +169,13 @@ async def get_locations(
     db: Session = Depends(get_db),
 ):
     """Get list of charging locations (from chargers)."""
-    chargers = db.query(Charger).offset(offset).limit(limit or 100).all()
+    chargers = (
+        _publishable(db.query(Charger))
+        .order_by(Charger.id)
+        .offset(offset)
+        .limit(limit or 100)
+        .all()
+    )
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
 
@@ -209,7 +247,14 @@ async def get_location(
         cp_id = parts[2]
     else:
         cp_id = location_id
-    charger = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
+    # Same publication rule as the list endpoint. A charger we deliberately do
+    # not list must not be reachable by guessing its id either, or a partner
+    # could cache it and keep showing a charge point we withdrew.
+    charger = (
+        _publishable(db.query(Charger))
+        .filter(Charger.charge_point_id == cp_id)
+        .first()
+    )
     if not charger:
         return {
             "status_code": 2003,

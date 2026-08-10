@@ -333,6 +333,15 @@ class Charger(Base):
     # dashboard can still say what a charger speaks while it is offline.
     ocpp_version = Column(String(16), nullable=True)
 
+    # Whether this charger is published over OCPI to roaming partners.
+    #   None  → decide automatically from heartbeat age (the default)
+    #   True  → always publish, even while offline
+    #   False → never publish
+    # The automatic default exists because the table accumulates chargers that
+    # connected once and were never seen again; publishing those sends roaming
+    # users to charge points that are not there.
+    is_public = Column(Boolean, nullable=True)
+
     # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
     name = Column(String(255), nullable=True)            # e.g. "Bangsar Mall L2 Bay 3"
     supported_vehicle = Column(String(255), nullable=True)  # e.g. "Tesla, BYD, Ora — Type 2"
