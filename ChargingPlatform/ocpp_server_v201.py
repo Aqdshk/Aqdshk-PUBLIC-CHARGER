@@ -129,6 +129,7 @@ class ChargePoint201(cp201):
                     model=model,
                     firmware_version=firmware,
                     status="online",
+                    ocpp_version=self.ocpp_version,
                     last_heartbeat=_utcnow(),
                 )
                 self.db.add(charger)
@@ -138,6 +139,9 @@ class ChargePoint201(cp201):
                 charger.model = model
                 charger.firmware_version = firmware
                 charger.status = "online"
+                # on_connect also records this, but a charger seen for the very
+                # first time has no row until right here.
+                charger.ocpp_version = self.ocpp_version
                 charger.last_heartbeat = _utcnow()
 
             if modem:

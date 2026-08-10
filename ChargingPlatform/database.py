@@ -328,6 +328,11 @@ class Charger(Base):
     connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
     max_power_kw = Column(Float, nullable=True)          # e.g. 7.4, 22, 50
 
+    # OCPP version negotiated on the WebSocket handshake ("1.6" or "2.0.1"),
+    # recorded on every connect. Persisted rather than read live so the
+    # dashboard can still say what a charger speaks while it is offline.
+    ocpp_version = Column(String(16), nullable=True)
+
     # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
     name = Column(String(255), nullable=True)            # e.g. "Bangsar Mall L2 Bay 3"
     supported_vehicle = Column(String(255), nullable=True)  # e.g. "Tesla, BYD, Ora — Type 2"

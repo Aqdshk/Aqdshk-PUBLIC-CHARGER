@@ -603,6 +603,8 @@ class ChargerStatus(BaseModel):
     vendor: Optional[str]
     model: Optional[str]
     firmware_version: Optional[str]
+    # OCPP version negotiated at the last handshake — "1.6" or "2.0.1".
+    ocpp_version: Optional[str] = None
     status: str
     availability: str
     connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
@@ -1071,6 +1073,7 @@ async def get_chargers(
             "longitude": charger.longitude,
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
+            "ocpp_version": charger.ocpp_version,
             "price_per_kwh": price_per_kwh,
             "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,

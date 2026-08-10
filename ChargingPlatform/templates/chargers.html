@@ -83,7 +83,7 @@
             </div>
             <!-- Sticky search bar — stays visible while the list scrolls -->
             <div style="margin-bottom:12px;flex-shrink:0;">
-                <input type="text" id="chargerSearch" placeholder="🔍 Search by charger ID, vendor or model..." oninput="renderChargers()" autocomplete="off"
+                <input type="text" id="chargerSearch" placeholder="🔍 Search by charger ID, vendor, model or OCPP version..." oninput="renderChargers()" autocomplete="off"
                     style="width:100%;padding:11px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:14px;box-sizing:border-box;outline:none;">
             </div>
             <!-- Scrollable list — list scrolls internally, page itself stays put -->
@@ -545,7 +545,8 @@
                 list = list.filter(c =>
                     (c.charge_point_id || '').toLowerCase().includes(q) ||
                     (c.vendor || '').toLowerCase().includes(q) ||
-                    (c.model || '').toLowerCase().includes(q));
+                    (c.model || '').toLowerCase().includes(q) ||
+                    (c.ocpp_version || '').toLowerCase().includes(q));
             }
 
             // Sort: ONLINE chargers on top, then alphabetically by charge point id
@@ -656,6 +657,7 @@
                                 <div class="info-item"><span class="info-label">Vendor</span><span class="info-value">${charger.vendor||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">Model</span><span class="info-value">${charger.model||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">Firmware</span><span class="info-value">${charger.firmware_version||'N/A'}</span></div>
+                                <div class="info-item"><span class="info-label">OCPP</span><span class="info-value">${charger.ocpp_version ? charger.ocpp_version + (charger.ocpp_version === '2.0.1' ? ' (JSON)' : 'J') : '—'}</span></div>
                             </div>
                             <div class="charger-conns">
                                 <span class="info-label">Connectors (${connCount})</span>

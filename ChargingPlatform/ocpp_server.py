@@ -192,6 +192,7 @@ class ChargePoint(cp):
                     model=charge_point_model,
                     firmware_version=kwargs.get('firmware_version', 'Unknown'),
                     status="online",
+                    ocpp_version=self.ocpp_version,
                     last_heartbeat=_utcnow()
                 )
                 self.db.add(charger)
@@ -200,6 +201,9 @@ class ChargePoint(cp):
                 charger.model = charge_point_model
                 charger.firmware_version = kwargs.get('firmware_version', charger.firmware_version)
                 charger.status = "online"
+                # on_connect also records this, but a charger seen for the very
+                # first time has no row until right here.
+                charger.ocpp_version = self.ocpp_version
                 charger.last_heartbeat = _utcnow()
                 
                 # BootNotification means charger just rebooted — any active/pending sessions
@@ -1559,6 +1563,21 @@ async def on_connect(websocket):
             logger.info(f"[on_connect] {charge_point_id}: OCPP 2.0.1 session")
         else:
             charge_point = ChargePoint(charge_point_id, websocket)
+
+        # Record what this charger speaks so the dashboard can show it even
+        # once the charger drops off and the pool no longer holds a handler.
+        try:
+            db = SessionLocal()
+            row = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+            if row is not None and row.ocpp_version != charge_point.ocpp_version:
+                row.ocpp_version = charge_point.ocpp_version
+                db.commit()
+                logger.info(
+                    f"[on_connect] {charge_point_id}: recorded OCPP version {charge_point.ocpp_version}"
+                )
+            db.close()
+        except Exception as e:
+            logger.warning(f"[on_connect] could not record OCPP version for {charge_point_id}: {e}")
 
         # If a previous connection for this charger is still in the pool
         # (e.g. firmware opened a second WS without closing the first), tear
