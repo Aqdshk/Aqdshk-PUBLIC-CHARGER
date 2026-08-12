@@ -41,6 +41,14 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 
 
+class OcppOperationUnsupported(NotImplementedError):
+    """Raised when a 1.6 operation has no 2.0.1 implementation behind it.
+
+    Distinct from a plain NotImplementedError so the API layer can turn it
+    into a clear message for the operator rather than a generic 500.
+    """
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -1022,3 +1030,34 @@ class ChargePoint201(cp201):
         except Exception as e:
             logger.error(f"[v201] GetChargingProfiles failed for {self.id}: {e}", exc_info=True)
             return None
+
+    # ── Not implemented yet ───────────────────────────────────────────────
+    # active_charge_points holds both handler types, so an operator picking a
+    # 2.0.1 charger in the console reaches these by the 1.6 name. Without a
+    # stub that is an AttributeError surfacing as a 500 with no explanation.
+    # Raise something that says which operation is missing and what the 2.0.1
+    # equivalent is called, so the message reaching the operator is useful.
+
+    def _unsupported(self, op: str, equivalent: str):
+        raise OcppOperationUnsupported(
+            f"{op} is not implemented for OCPP 2.0.1 yet "
+            f"({self.id} is connected over 2.0.1). The 2.0.1 equivalent is {equivalent}."
+        )
+
+    async def clear_cache(self, *a, **kw):
+        self._unsupported("ClearCache", "ClearCache — same name, not wired up")
+
+    async def get_diagnostics(self, *a, **kw):
+        self._unsupported("GetDiagnostics", "GetLog")
+
+    async def get_local_list_version(self, *a, **kw):
+        self._unsupported("GetLocalListVersion", "GetLocalListVersion — same name, not wired up")
+
+    async def send_local_list(self, *a, **kw):
+        self._unsupported("SendLocalList", "SendLocalList — same name, not wired up")
+
+    async def reserve_now(self, *a, **kw):
+        self._unsupported("ReserveNow", "ReserveNow — same name, not wired up")
+
+    async def cancel_reservation(self, *a, **kw):
+        self._unsupported("CancelReservation", "CancelReservation — same name, not wired up")

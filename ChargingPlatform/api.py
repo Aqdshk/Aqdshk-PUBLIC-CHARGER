@@ -43,6 +43,7 @@ from database import (
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_ticket_notification_to_staff, send_charging_receipt
 from ocpp_server import get_active_charge_point, active_charge_points, firmware_events, force_close_charge_point, ocpp_state_healer_loop
+from ocpp_server_v201 import OcppOperationUnsupported
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -576,6 +577,22 @@ async def health_check() -> dict:
     except Exception as e:
         logger.error("Health check failed: %s", e)
         raise HTTPException(status_code=503, detail="Service unavailable")
+
+
+@app.exception_handler(OcppOperationUnsupported)
+async def _ocpp_unsupported_handler(request: Request, exc: OcppOperationUnsupported) -> Any:
+    """An OCPP operation the 2.0.1 handler does not implement yet.
+
+    The console offers one button per 1.6 operation regardless of which
+    protocol the selected charger speaks, so this is reachable by ordinary
+    use. Answering 501 with the reason tells the operator the platform is
+    missing the feature — a generic 500 would read as the charger failing.
+    """
+    logger.info(f"Unsupported OCPP operation requested: {exc}")
+    return JSONResponse(
+        status_code=501,
+        content={"success": False, "message": str(exc), "detail": str(exc)},
+    )
 
 
 @app.exception_handler(Exception)

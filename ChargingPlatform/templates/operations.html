@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCPP 1.6 Operations - Plag Sini</title>
+    <title>OCPP Operations - Plag Sini</title>
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=18">
     <script src="/static/theme.js?v=2"></script>
@@ -51,6 +51,14 @@
             border-radius: 6px;
             border: 1px solid transparent;
             transition: all .12s;
+        }
+        /* Operation the selected charger's protocol version cannot service.
+           Dimmed rather than hidden so the operator can see it exists and,
+           via the tooltip, why it is unavailable right now. */
+        .ops-item.ops-blocked { opacity: .35; }
+        .ops-item.ops-blocked::after {
+            content: '2.0.1 ✗'; margin-left: auto; font-size: 8px;
+            letter-spacing: .04em; color: var(--red); white-space: nowrap;
         }
         .ops-item:hover {
             background: rgba(255,255,255,0.03);
@@ -231,7 +239,7 @@
         <header class="top-header">
             <div class="header-left">
                 <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
-                <h1 class="page-title"><span>🎛️</span> OCPP 1.6 Operations</h1>
+                <h1 class="page-title"><span>🎛️</span> OCPP Operations</h1>
             </div>
         </header>
 
@@ -276,7 +284,7 @@
                     <div class="no-op">
                         <div class="ico">🎛️</div>
                         <h3>Operations Control Centre</h3>
-                        <p>Send OCPP 1.6 commands directly to any connected charge point — reset, configure, diagnose, schedule.</p>
+                        <p>Send OCPP commands directly to any connected charge point — reset, configure, diagnose, schedule.</p>
                         <div class="no-op-hints">
                             <div><b>1.</b> Pick a charger from the bar above</div>
                             <div><b>2.</b> Choose an operation from the left panel</div>
@@ -311,15 +319,87 @@
                     o.textContent = '— No chargers online —';
                     sel.appendChild(o);
                 }
-                cs.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=`${c.charge_point_id} (${c.vendor||'N/A'} — ${c.model||'N/A'})`; o.dataset.status=c.status; sel.appendChild(o); });
+                cs.forEach(c => { const o=document.createElement('option'); o.value=c.charge_point_id; o.textContent=`${c.charge_point_id} (${c.vendor||'N/A'} — ${c.model||'N/A'})`; o.dataset.status=c.status; o.dataset.ocpp=c.ocpp_version||''; sel.appendChild(o); });
                 if (prev && [...sel.options].some(opt => opt.value === prev)) sel.value = prev;
+                applyVersionContext();
             } catch(e){}
+        }
+
+        // Which protocol the selected charger speaks. The console offers one
+        // button per 1.6 operation, but a 2.0.1 charger does not answer all of
+        // them and wants a different charging-profile shape — so the page has
+        // to know, rather than letting the operator find out from an error.
+        let SELECTED_OCPP = '1.6';
+
+        // The two versions do not share a charging-profile shape: 2.0.1 renames
+        // charging_profile_id to id and makes charging_schedule a list whose
+        // entries carry their own id. Sending the 1.6 body to a 2.0.1 charger
+        // fails schema validation, so the form starts from the right one.
+        const PROFILE_TEMPLATE = {
+            '1.6': `{
+  "charging_profile_id": 1,
+  "stack_level": 0,
+  "charging_profile_purpose": "TxDefaultProfile",
+  "charging_profile_kind": "Absolute",
+  "charging_schedule": {
+    "charging_rate_unit": "W",
+    "charging_schedule_period": [
+      { "start_period": 0, "limit": 11000.0 }
+    ]
+  }
+}`,
+            '2.0.1': `{
+  "id": 1,
+  "stack_level": 0,
+  "charging_profile_purpose": "TxDefaultProfile",
+  "charging_profile_kind": "Absolute",
+  "charging_schedule": [
+    {
+      "id": 1,
+      "charging_rate_unit": "W",
+      "charging_schedule_period": [
+        { "start_period": 0, "limit": 11000.0 }
+      ]
+    }
+  ]
+}`,
+        };
+
+        const V201_UNSUPPORTED = {
+            'clear-cache':            'ClearCache',
+            'get-diagnostics':        'GetDiagnostics (2.0.1 uses GetLog)',
+            'get-local-list-version': 'GetLocalListVersion',
+            'send-local-list':        'SendLocalList',
+            'reserve-now':            'ReserveNow',
+            'cancel-reservation':     'CancelReservation',
+        };
+
+        function applyVersionContext() {
+            const sel = document.getElementById('chargerSelect');
+            const opt = sel.options[sel.selectedIndex];
+            SELECTED_OCPP = (opt && opt.dataset.ocpp) || '';
+            const is201 = SELECTED_OCPP === '2.0.1';
+
+            document.querySelectorAll('.ops-item').forEach(el => {
+                const op = el.dataset.op;
+                const blocked = is201 && op in V201_UNSUPPORTED;
+                el.classList.toggle('ops-blocked', blocked);
+                el.title = blocked
+                    ? `${V201_UNSUPPORTED[op]} is not implemented for OCPP 2.0.1 yet`
+                    : '';
+            });
         }
 
         document.getElementById('chargerSelect').addEventListener('change', function(){
             const opt=this.options[this.selectedIndex], dot=document.getElementById('chargerDot'), txt=document.getElementById('chargerStatusText');
             if(!this.value){ dot.style.background='#555'; txt.textContent='No charger selected'; }
-            else { const st=opt.dataset.status||'unknown'; dot.style.background=st==='online'?'var(--accent)':'var(--red)'; txt.textContent=st==='online'?'Connected':'Offline'; }
+            else {
+                const st=opt.dataset.status||'unknown';
+                const ver=opt.dataset.ocpp||'unknown';
+                dot.style.background=st==='online'?'var(--accent)':'var(--red)';
+                txt.textContent=(st==='online'?'Connected':'Offline') + ` · OCPP ${ver}`;
+            }
+            applyVersionContext();
         });
 
         const OPS = {
@@ -377,6 +457,11 @@
                 // Auto-fill defaults for known fields
                 if (!val && f.type === 'datetime-local') val = _dtDefaultFor(f.name);
                 if (!val && opKey === 'update-firmware' && f.name === 'location') val = _defaultFwUrl;
+                // Charging profiles are shaped differently per protocol version,
+                // so seed the textarea from the one the selected charger speaks.
+                if (f.name === 'cs_charging_profiles') {
+                    val = PROFILE_TEMPLATE[SELECTED_OCPP] || PROFILE_TEMPLATE['1.6'];
+                }
 
                 let inp='';
                 if(f.type==='select'){ inp=`<select id="field_${f.name}">${f.options.map(o=>`<option value="${o}" ${o===f.value?'selected':''}>${o||'-- Select --'}</option>`).join('')}</select>`; }
