@@ -188,6 +188,34 @@ def _extract_ws_token(
             return password.strip() or None
     return None
 
+def _auth_method_used(websocket: Any, raw_path: str) -> str:
+    """Name how the charger presented credentials, for the observation log.
+
+    Which mechanism a charger uses decides whether enforcement can be turned
+    on for it, so the log has to say more than pass/fail. Basic is the one the
+    OCPP security profiles mandate; the others are tolerated for older units.
+    """
+    if "?" in raw_path and "token=" in raw_path.split("?", 1)[1]:
+        return "query-string"
+
+    headers = None
+    req = getattr(websocket, "request", None)
+    if req and hasattr(req, "headers"):
+        headers = req.headers
+    if not headers:
+        headers = getattr(websocket, "request_headers", None)
+    if headers:
+        if headers.get("X-CP-Token"):
+            return "X-CP-Token header"
+        auth = headers.get("Authorization") or ""
+        low = auth.lower()
+        if low.startswith("basic "):
+            return "HTTP Basic (OCPP security profile)"
+        if low.startswith("bearer "):
+            return "Bearer header"
+    return "none"
+
+
 def utc_now_iso_z() -> str:
     """RFC3339 timestamp — uses Malaysia time (UTC+8) so charger display shows correct local time."""
     myt = timezone(timedelta(hours=8))
@@ -1550,6 +1578,29 @@ async def on_connect(websocket):
                 provided_token = _extract_ws_token(
                     websocket, getattr(req, "uri", "") or "", charge_point_id
                 )
+
+        # Observation pass. Enforcement is off across the fleet and cannot be
+        # switched on blind: some chargers may not present credentials at all,
+        # and turning it on for them would drop them the moment they reconnect.
+        # So record what each charger actually offers, and whether it would
+        # have been accepted, without acting on it. Once the log shows every
+        # live charger authenticating, enforcement becomes a safe change.
+        try:
+            would_expect = charger_tokens.get(charge_point_id) or shared_token
+            if provided_token:
+                verdict = (
+                    "would PASS" if would_expect and secrets.compare_digest(provided_token, would_expect)
+                    else "would FAIL (token does not match)"
+                )
+            else:
+                verdict = "would FAIL (no credentials offered)"
+            logger.info(
+                "[auth-observe] %s: method=%s %s | enforcement=%s",
+                charge_point_id, _auth_method_used(websocket, raw_path), verdict,
+                "on" if require_auth else "off",
+            )
+        except Exception as e:
+            logger.debug(f"[auth-observe] could not classify {charge_point_id}: {e}")
 
         if require_auth:
             expected_token = charger_tokens.get(charge_point_id) or shared_token
