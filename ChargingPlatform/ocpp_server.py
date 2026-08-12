@@ -13,6 +13,7 @@ Outbound (server → charger): RemoteStart/Stop, ChangeAvailability, Reset,
 Auth: OCPP_REQUIRE_AUTH, OCPP_SHARED_TOKEN, OCPP_CHARGER_TOKENS.
 """
 import asyncio
+import base64
 import logging
 import os
 import re
@@ -117,8 +118,17 @@ def _parse_token_map(raw_tokens: str) -> Dict[str, str]:
     return token_map
 
 
-def _extract_ws_token(websocket: Any, raw_path: str) -> Optional[str]:
-    """Extract charger token from query string or headers."""
+def _extract_ws_token(
+    websocket: Any, raw_path: str, expected_identity: Optional[str] = None
+) -> Optional[str]:
+    """Extract the charger's token from the handshake.
+
+    Accepts several shapes because chargers differ: a query parameter, a
+    vendor header, a Bearer token, and HTTP Basic — the last being what the
+    OCPP 2.0.1 security profiles actually mandate. `expected_identity` is the
+    charge point id from the URL, used to reject Basic credentials presented
+    under a different name.
+    """
     # 1) Query string: ws://host:9000/CP001?token=xxx
     # Note: MicroOcpp may append /charge_point_id to path, giving token=xxx/CP001
     token = None
@@ -152,6 +162,30 @@ def _extract_ws_token(websocket: Any, raw_path: str) -> Optional[str]:
         auth_header = headers.get("Authorization")
         if auth_header and auth_header.lower().startswith("bearer "):
             return auth_header[7:].strip()
+
+        # 4) Authorization: Basic base64(identity:password)
+        #    This is what OCPP 2.0.1 security profiles 1 and 2 actually
+        #    specify: the charge point identity as the username and its
+        #    configured BasicAuthPassword as the password. A charger built to
+        #    the spec sends only this, so without it a by-the-book 2.0.1 unit
+        #    is rejected at the handshake no matter how the token is set up.
+        #    The password is the token; the username is checked against the
+        #    identity in the URL so a per-charger token cannot be replayed
+        #    under someone else's name.
+        if auth_header and auth_header.lower().startswith("basic "):
+            try:
+                decoded = base64.b64decode(auth_header[6:].strip()).decode("utf-8", "strict")
+            except Exception:
+                logger.warning("Malformed Basic credentials in OCPP handshake")
+                return None
+            identity, _, password = decoded.partition(":")
+            if expected_identity and identity and identity != expected_identity:
+                logger.warning(
+                    "OCPP Basic auth identity %r does not match charge point %r — rejecting",
+                    identity, expected_identity,
+                )
+                return None
+            return password.strip() or None
     return None
 
 def utc_now_iso_z() -> str:
@@ -1503,15 +1537,19 @@ async def on_connect(websocket):
         require_auth = os.getenv("OCPP_REQUIRE_AUTH", "1").strip().lower() not in ("0", "false", "no")
         shared_token = os.getenv("OCPP_SHARED_TOKEN", "").strip()
         charger_tokens = _parse_token_map(os.getenv("OCPP_CHARGER_TOKENS", ""))
-        provided_token = _extract_ws_token(websocket, raw_path)
+        provided_token = _extract_ws_token(websocket, raw_path, charge_point_id)
 
         # Fallback: try full request target if path lacks query (some clients send it separately)
         if not provided_token and hasattr(websocket, "request"):
             req = websocket.request
             if hasattr(req, "request_target"):
-                provided_token = _extract_ws_token(websocket, getattr(req, "request_target", "") or "")
+                provided_token = _extract_ws_token(
+                    websocket, getattr(req, "request_target", "") or "", charge_point_id
+                )
             elif hasattr(req, "uri"):
-                provided_token = _extract_ws_token(websocket, getattr(req, "uri", "") or "")
+                provided_token = _extract_ws_token(
+                    websocket, getattr(req, "uri", "") or "", charge_point_id
+                )
 
         if require_auth:
             expected_token = charger_tokens.get(charge_point_id) or shared_token
