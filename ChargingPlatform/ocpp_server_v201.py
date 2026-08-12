@@ -523,26 +523,42 @@ class ChargePoint201(cp201):
             for ev in event_data or []:
                 component = (ev.get("component") or {}).get("name") or "Unknown"
                 variable = (ev.get("variable") or {}).get("name") or ""
-                trigger = ev.get("trigger") or ev.get("triggerReason") or ""
+                trigger = ev.get("trigger") or ""
                 actual = ev.get("actual_value") or ev.get("actualValue") or ""
-                # ProblemDetected is 2.0.1's "this is a fault"; the rest are
-                # informational state changes we only need in the log.
-                is_fault = (ev.get("event_notification_type")
-                            or ev.get("eventNotificationType")) == "HardWiredNotification" \
-                           or bool(ev.get("cleared") is False and trigger == "Alerting")
-                severity = ev.get("severity")
+                cause = ev.get("cause") or ""
+                tech_code = ev.get("tech_code") or ev.get("techCode") or ""
+                tech_info = ev.get("tech_info") or ev.get("techInfo") or ""
+                cleared = bool(ev.get("cleared"))
 
-                line = f"{component}.{variable} = {actual} (trigger={trigger}, severity={severity})"
+                # "Alerting" is the trigger the spec uses when a monitored
+                # value crossed a threshold — that is the problem signal.
+                # Delta and Periodic are ordinary reporting. `cleared` marks
+                # the recovery event for a fault reported earlier.
+                # (Severity is not part of EventData; it belongs to the
+                # monitor definition, so there is nothing to read here.)
+                is_fault = trigger == "Alerting" and not cleared
+
+                detail = f"{component}.{variable} = {actual} (trigger={trigger}"
+                if cause:
+                    detail += f", cause={cause}"
+                if tech_code:
+                    detail += f", techCode={tech_code}"
+                if tech_info:
+                    detail += f", techInfo={tech_info}"
+                detail += ")"
+
                 if is_fault:
-                    logger.warning(f"[v201] {self.id} FAULT: {line}")
+                    logger.warning(f"[v201] {self.id} FAULT: {detail}")
                     self.db.add(Fault(
                         charger_id=charger.id,
                         fault_type=f"{component}.{variable}" if variable else component,
-                        message=line,
+                        message=detail,
                         timestamp=_parse_ts(generated_at),
                     ))
+                elif cleared:
+                    logger.warning(f"[v201] {self.id} fault cleared: {detail}")
                 else:
-                    logger.info(f"[v201] {self.id} event: {line}")
+                    logger.info(f"[v201] {self.id} event: {detail}")
 
             charger.last_heartbeat = _utcnow()
             self.db.commit()
