@@ -34,7 +34,7 @@ from ocpp.v201 import ChargePoint as cp201
 from ocpp.v201 import call, call_result
 from ocpp.v201.enums import AuthorizationStatusEnumType, RegistrationStatusEnumType
 
-from database import Charger, ChargingSession, MeterValue, SessionLocal
+from database import Charger, ChargingSession, Fault, MeterValue, SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +434,10 @@ class ChargePoint201(cp201):
     def _store_meter_values(self, charger, session, meter_values, evse_id, connector_id):
         """Persist readings, returning the newest cumulative kWh seen.
 
+        `session` may be None: standalone MeterValues arrive outside any
+        transaction, and those readings are still worth keeping — they just
+        have no transaction to attribute to.
+
         2.0.1 nests the unit under unitOfMeasure rather than a flat `unit`
         field, and sends value as a number rather than a string. Everything is
         normalised to the same canonical units the 1.6 path stores — power in
@@ -466,8 +470,10 @@ class ChargePoint201(cp201):
             self.db.add(
                 MeterValue(
                     charger_id=charger.id,
-                    connector_id=connector_id,
-                    transaction_id=session.transaction_id,
+                    # 2.0.1 addresses by EVSE; each gun is its own EVSE on the
+                    # DC units here, so that is the slot number to record.
+                    connector_id=evse_id or connector_id,
+                    transaction_id=session.transaction_id if session else None,
                     timestamp=ts,
                     voltage=voltage,
                     current=current,
@@ -478,6 +484,110 @@ class ChargePoint201(cp201):
             if total_kwh is not None:
                 newest_kwh = total_kwh
         return newest_kwh
+
+    @on("MeterValues")
+    async def on_meter_values(self, evse_id: int, meter_value: list, **kwargs):
+        """Readings sent outside a transaction — clock-aligned samples and the
+        like. TransactionEvent carries readings during a session, so without
+        this handler everything reported between sessions was discarded.
+        """
+        logger.info(f"[v201] MeterValues from {self.id}: evse={evse_id} batches={len(meter_value or [])}")
+        try:
+            charger = self._charger()
+            if charger:
+                self._store_meter_values(charger, None, meter_value, evse_id, 1)
+                charger.last_heartbeat = _utcnow()
+                self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"[v201] MeterValues failed for {self.id}: {e}", exc_info=True)
+        return call_result.MeterValues()
+
+    @on("NotifyEvent")
+    async def on_notify_event(self, generated_at: str, seq_no: int, event_data: list, **kwargs):
+        """Component-level events: over-temperature, RCD trip, contactor
+        failure and so on.
+
+        1.6 packed a fault code into StatusNotification. 2.0.1 splits them:
+        StatusNotification says a connector is Faulted, NotifyEvent says what
+        actually failed and how badly. Without this the dashboard could show
+        that something is wrong but never what — the difference between
+        sending a technician and sending one with the right part.
+        """
+        logger.info(f"[v201] NotifyEvent from {self.id}: {len(event_data or [])} event(s)")
+        try:
+            charger = self._charger()
+            if not charger:
+                return call_result.NotifyEvent()
+
+            for ev in event_data or []:
+                component = (ev.get("component") or {}).get("name") or "Unknown"
+                variable = (ev.get("variable") or {}).get("name") or ""
+                trigger = ev.get("trigger") or ev.get("triggerReason") or ""
+                actual = ev.get("actual_value") or ev.get("actualValue") or ""
+                # ProblemDetected is 2.0.1's "this is a fault"; the rest are
+                # informational state changes we only need in the log.
+                is_fault = (ev.get("event_notification_type")
+                            or ev.get("eventNotificationType")) == "HardWiredNotification" \
+                           or bool(ev.get("cleared") is False and trigger == "Alerting")
+                severity = ev.get("severity")
+
+                line = f"{component}.{variable} = {actual} (trigger={trigger}, severity={severity})"
+                if is_fault:
+                    logger.warning(f"[v201] {self.id} FAULT: {line}")
+                    self.db.add(Fault(
+                        charger_id=charger.id,
+                        fault_type=f"{component}.{variable}" if variable else component,
+                        message=line,
+                        timestamp=_parse_ts(generated_at),
+                    ))
+                else:
+                    logger.info(f"[v201] {self.id} event: {line}")
+
+            charger.last_heartbeat = _utcnow()
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"[v201] NotifyEvent failed for {self.id}: {e}", exc_info=True)
+        return call_result.NotifyEvent()
+
+    @on("FirmwareStatusNotification")
+    async def on_firmware_status_notification(self, status: str, **kwargs):
+        """Progress of an UpdateFirmware run."""
+        logger.info(f"[v201] FirmwareStatus from {self.id}: {status} (request_id={kwargs.get('request_id')})")
+        return call_result.FirmwareStatusNotification()
+
+    @on("DataTransfer")
+    async def on_data_transfer(self, vendor_id: str, **kwargs):
+        """Vendor-specific payloads. Accepted and logged rather than acted on:
+        the platform has no 2.0.1 vendor extensions of its own yet, and
+        rejecting would make a charger think its message failed."""
+        logger.info(
+            f"[v201] DataTransfer from {self.id}: vendor={vendor_id} "
+            f"message_id={kwargs.get('message_id')}"
+        )
+        return call_result.DataTransfer(status="Accepted")
+
+    @on("ReportChargingProfiles")
+    async def on_report_charging_profiles(self, request_id: int, charging_limit_source: str,
+                                          charging_profile: list, evse_id: int, **kwargs):
+        """Profiles currently installed, in reply to GetChargingProfiles."""
+        logger.info(
+            f"[v201] ReportChargingProfiles from {self.id}: evse={evse_id} "
+            f"source={charging_limit_source} profiles={len(charging_profile or [])}"
+        )
+        for p in charging_profile or []:
+            logger.info(f"[v201]   profile id={p.get('id')} purpose={p.get('charging_profile_purpose')}")
+        return call_result.ReportChargingProfiles()
+
+    @on("NotifyChargingLimit")
+    async def on_notify_charging_limit(self, charging_limit: Dict[str, Any], **kwargs):
+        """An external system (not us) imposed a limit on the charger."""
+        logger.warning(
+            f"[v201] NotifyChargingLimit from {self.id}: evse={kwargs.get('evse_id')} "
+            f"source={charging_limit.get('charging_limit_source')} limit={charging_limit}"
+        )
+        return call_result.NotifyChargingLimit()
 
     # ── CSMS → Charger ────────────────────────────────────────────────────
 
@@ -708,3 +818,182 @@ class ChargePoint201(cp201):
             return None
         comp, var = pair
         return await self.set_variables([(comp, var, value)])
+
+    # ── Everyday operations ───────────────────────────────────────────────
+    # Same names and signatures as the 1.6 handler, so the OCPP console, the
+    # ops panel and the scheduler all work against a 2.0.1 charger without
+    # knowing the difference.
+
+    async def reset(self, type: str = "Soft", evse_id: Optional[int] = None):
+        """Reboot. 2.0.1 can target a single EVSE; 1.6 could only reset the
+        whole station, so evse_id stays optional."""
+        try:
+            logger.info(f"[v201] Reset → {self.id}: type={type} evse={evse_id}")
+            kw: Dict[str, Any] = {"type": type}
+            if evse_id:
+                kw["evse_id"] = evse_id
+            return await self.call(call.Reset(**kw))
+        except Exception as e:
+            logger.error(f"[v201] Reset failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def change_availability(self, connector_id: int = 0, type: str = "Operative"):
+        """Take a socket in or out of service.
+
+        1.6 said Operative/Inoperative with a connector id where 0 meant the
+        whole station. 2.0.1 keeps the two words but addresses an EVSE object,
+        and omitting it means the station — so connector 0 maps to leaving
+        `evse` out entirely.
+        """
+        try:
+            logger.info(f"[v201] ChangeAvailability → {self.id}: {type} connector={connector_id}")
+            kw: Dict[str, Any] = {"operational_status": type}
+            if connector_id:
+                kw["evse"] = {"id": connector_id}
+            return await self.call(call.ChangeAvailability(**kw))
+        except Exception as e:
+            logger.error(f"[v201] ChangeAvailability failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def unlock_connector(self, connector_id: int = 1):
+        """Release a latched cable. 2.0.1 needs the EVSE and the connector
+        within it; one connector per EVSE makes the inner id 1."""
+        try:
+            logger.info(f"[v201] UnlockConnector → {self.id}: evse={connector_id}")
+            return await self.call(
+                call.UnlockConnector(evse_id=connector_id, connector_id=1)
+            )
+        except Exception as e:
+            logger.error(f"[v201] UnlockConnector failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def trigger_message(self, requested_message: str, connector_id: Optional[int] = None):
+        """Ask the charger to send something now rather than wait for it."""
+        try:
+            logger.info(f"[v201] TriggerMessage → {self.id}: {requested_message}")
+            kw: Dict[str, Any] = {"requested_message": requested_message}
+            if connector_id:
+                kw["evse"] = {"id": connector_id}
+            return await self.call(call.TriggerMessage(**kw))
+        except Exception as e:
+            logger.error(f"[v201] TriggerMessage failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def data_transfer(self, vendor_id: str, message_id: Optional[str] = None,
+                            data: Optional[Any] = None):
+        """Vendor extension channel — how the AION-specific features are
+        driven on the 1.6 side."""
+        try:
+            kw: Dict[str, Any] = {"vendor_id": vendor_id}
+            if message_id is not None:
+                kw["message_id"] = message_id
+            if data is not None:
+                kw["data"] = data
+            logger.info(f"[v201] DataTransfer → {self.id}: vendor={vendor_id} msg={message_id}")
+            return await self.call(call.DataTransfer(**kw))
+        except Exception as e:
+            logger.error(f"[v201] DataTransfer failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def update_firmware(self, location: str, retrieve_date: str,
+                              retries: Optional[int] = None,
+                              retry_interval: Optional[int] = None):
+        """Over-the-air update.
+
+        1.6 took a bare URL and date. 2.0.1 wraps them in a firmware object
+        and adds a request_id, which is what ties the FirmwareStatusNotification
+        stream back to this particular request.
+        """
+        try:
+            request_id = int(uuid.uuid4().int % 2_000_000_000)
+            kw: Dict[str, Any] = {
+                "request_id": request_id,
+                "firmware": {"location": location, "retrieve_date_time": retrieve_date},
+            }
+            if retries is not None:
+                kw["retries"] = retries
+            if retry_interval is not None:
+                kw["retry_interval"] = retry_interval
+            logger.info(f"[v201] UpdateFirmware → {self.id}: {location} (request_id={request_id})")
+            return await self.call(call.UpdateFirmware(**kw))
+        except Exception as e:
+            logger.error(f"[v201] UpdateFirmware failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    # ── Smart charging ────────────────────────────────────────────────────
+
+    async def set_charging_profile(self, connector_id: int, cs_charging_profiles: Dict):
+        """Impose a power or current limit.
+
+        Argument names follow the 1.6 handler because the existing endpoint
+        passes a profile dict straight through. The dict must already be in
+        2.0.1 shape: the two schemas differ enough that quietly translating
+        would hand the charger a profile the operator did not write.
+        """
+        try:
+            logger.info(f"[v201] SetChargingProfile → {self.id}: evse={connector_id}")
+            return await self.call(
+                call.SetChargingProfile(
+                    evse_id=connector_id, charging_profile=cs_charging_profiles
+                )
+            )
+        except Exception as e:
+            logger.error(f"[v201] SetChargingProfile failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def clear_charging_profile(self, id: Optional[int] = None,
+                                     connector_id: Optional[int] = None,
+                                     charging_profile_purpose: Optional[str] = None,
+                                     stack_level: Optional[int] = None):
+        """Remove one profile by id, or everything matching the criteria."""
+        try:
+            kw: Dict[str, Any] = {}
+            if id is not None:
+                kw["charging_profile_id"] = id
+            criteria: Dict[str, Any] = {}
+            if connector_id is not None:
+                criteria["evse_id"] = connector_id
+            if charging_profile_purpose:
+                criteria["charging_profile_purpose"] = charging_profile_purpose
+            if stack_level is not None:
+                criteria["stack_level"] = stack_level
+            if criteria:
+                kw["charging_profile_criteria"] = criteria
+            logger.info(f"[v201] ClearChargingProfile → {self.id}: {kw}")
+            return await self.call(call.ClearChargingProfile(**kw))
+        except Exception as e:
+            logger.error(f"[v201] ClearChargingProfile failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def get_composite_schedule(self, connector_id: int, duration: int,
+                                     charging_rate_unit: Optional[str] = None):
+        """Ask what limit the charger will actually apply once every stacked
+        profile is resolved — the answer that matters when profiles overlap,
+        and the one to check against real meter readings."""
+        try:
+            kw: Dict[str, Any] = {"evse_id": connector_id, "duration": duration}
+            if charging_rate_unit:
+                kw["charging_rate_unit"] = charging_rate_unit
+            logger.info(f"[v201] GetCompositeSchedule → {self.id}: evse={connector_id} {duration}s")
+            return await self.call(call.GetCompositeSchedule(**kw))
+        except Exception as e:
+            logger.error(f"[v201] GetCompositeSchedule failed for {self.id}: {e}", exc_info=True)
+            return None
+
+    async def get_charging_profiles(self, evse_id: Optional[int] = None,
+                                    charging_profile: Optional[Dict] = None):
+        """List installed profiles. The contents arrive asynchronously as
+        ReportChargingProfiles, the same pattern GetBaseReport uses."""
+        try:
+            request_id = int(uuid.uuid4().int % 2_000_000_000)
+            kw: Dict[str, Any] = {
+                "request_id": request_id,
+                "charging_profile": charging_profile or {},
+            }
+            if evse_id is not None:
+                kw["evse_id"] = evse_id
+            logger.info(f"[v201] GetChargingProfiles → {self.id} (request_id={request_id})")
+            return await self.call(call.GetChargingProfiles(**kw))
+        except Exception as e:
+            logger.error(f"[v201] GetChargingProfiles failed for {self.id}: {e}", exc_info=True)
+            return None
