@@ -1593,21 +1593,24 @@ async def on_connect(websocket):
         # So record what each charger actually offers, and whether it would
         # have been accepted, without acting on it. Once the log shows every
         # live charger authenticating, enforcement becomes a safe change.
+        observed_method, observed_ok = None, None
         try:
             would_expect = charger_tokens.get(charge_point_id) or shared_token
+            observed_method = _auth_method_used(websocket, raw_path)
             if provided_token:
-                verdict = (
-                    "would PASS" if would_expect and secrets.compare_digest(provided_token, would_expect)
-                    else "would FAIL (token does not match)"
+                observed_ok = bool(
+                    would_expect and secrets.compare_digest(provided_token, would_expect)
                 )
+                verdict = "would PASS" if observed_ok else "would FAIL (token does not match)"
             else:
+                observed_ok = False
                 verdict = "would FAIL (no credentials offered)"
             # WARNING, not INFO: INFO from this module does not reach the
             # container's stdout, and a diagnostic nobody can read is not a
             # diagnostic. Drop the level again once enforcement is decided.
             logger.warning(
                 "[auth-observe] %s: method=%s %s | enforcement=%s",
-                charge_point_id, _auth_method_used(websocket, raw_path), verdict,
+                charge_point_id, observed_method, verdict,
                 "on" if require_auth else "off",
             )
         except Exception as e:
@@ -1664,20 +1667,28 @@ async def on_connect(websocket):
         else:
             charge_point = ChargePoint(charge_point_id, websocket)
 
-        # Record what this charger speaks so the dashboard can show it even
-        # once the charger drops off and the pool no longer holds a handler.
+        # Record what this charger speaks, and how it authenticated, so the
+        # dashboard can show both even once the charger drops off and the pool
+        # no longer holds a handler.
         try:
             db = SessionLocal()
             row = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
-            if row is not None and row.ocpp_version != charge_point.ocpp_version:
-                row.ocpp_version = charge_point.ocpp_version
-                db.commit()
-                logger.info(
-                    f"[on_connect] {charge_point_id}: recorded OCPP version {charge_point.ocpp_version}"
-                )
+            if row is not None:
+                changed = False
+                if row.ocpp_version != charge_point.ocpp_version:
+                    row.ocpp_version = charge_point.ocpp_version
+                    changed = True
+                if observed_method is not None and row.auth_method != observed_method:
+                    row.auth_method = observed_method
+                    changed = True
+                if observed_ok is not None and row.auth_ok != observed_ok:
+                    row.auth_ok = observed_ok
+                    changed = True
+                if changed:
+                    db.commit()
             db.close()
         except Exception as e:
-            logger.warning(f"[on_connect] could not record OCPP version for {charge_point_id}: {e}")
+            logger.warning(f"[on_connect] could not record handshake details for {charge_point_id}: {e}")
 
         # If a previous connection for this charger is still in the pool
         # (e.g. firmware opened a second WS without closing the first), tear

@@ -607,6 +607,10 @@ class ChargerStatus(BaseModel):
     ocpp_version: Optional[str] = None
     # OCPI publication override: True always, False never, None automatic.
     is_public: Optional[bool] = None
+    # How the charger authenticated on its last handshake, and whether it
+    # would survive enforcement being switched on.
+    auth_method: Optional[str] = None
+    auth_ok: Optional[bool] = None
     status: str
     availability: str
     connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
@@ -1077,6 +1081,8 @@ async def get_chargers(
             "max_power_kw": eff_power,
             "ocpp_version": charger.ocpp_version,
             "is_public": charger.is_public,
+            "auth_method": charger.auth_method,
+            "auth_ok": charger.auth_ok,
             "price_per_kwh": price_per_kwh,
             "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,

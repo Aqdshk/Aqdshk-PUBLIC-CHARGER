@@ -627,6 +627,15 @@
                             ? {label:'✓ Published (auto)', hint:'Seen within 7 days, so published automatically'}
                             : {label:'— Not published',    hint:'No heartbeat in over 7 days, so withheld from roaming partners'};
                     })();
+                    // Auth readiness. Enforcement is off fleet-wide, so this
+                    // answers "would this charger survive us turning it on"
+                    // rather than describing anything happening today.
+                    const auth = (() => {
+                        if (!charger.auth_method) return {label:'—', hint:'No handshake observed since auth logging was added'};
+                        if (charger.auth_ok)      return {label:`✓ ${charger.auth_method}`, hint:'Credentials match — would pass if enforcement were switched on'};
+                        if (charger.auth_method === 'none') return {label:'✗ none sent', hint:'Sends no credentials — would be rejected if enforcement were switched on'};
+                        return {label:`✗ ${charger.auth_method}`, hint:'Credentials sent but do not match the configured token — would be rejected'};
+                    })();
                     const txnByConn = charger.active_transactions || {};
                     const gunButtons = Array.from({ length: connCount }, (_, i) => {
                         const gun = i + 1;
@@ -673,6 +682,7 @@
                                 <div class="info-item"><span class="info-label">Firmware</span><span class="info-value">${charger.firmware_version||'N/A'}</span></div>
                                 <div class="info-item"><span class="info-label">OCPP</span><span class="info-value">${charger.ocpp_version ? charger.ocpp_version + (charger.ocpp_version === '2.0.1' ? ' (JSON)' : 'J') : '—'}</span></div>
                                 <div class="info-item"><span class="info-label">Roaming (OCPI)</span><span class="info-value" title="${roam.hint}">${roam.label}</span></div>
+                                <div class="info-item"><span class="info-label">Auth</span><span class="info-value" title="${auth.hint}">${auth.label}</span></div>
                             </div>
                             <div class="charger-conns">
                                 <span class="info-label">Connectors (${connCount})</span>

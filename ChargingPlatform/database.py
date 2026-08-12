@@ -333,6 +333,15 @@ class Charger(Base):
     # dashboard can still say what a charger speaks while it is offline.
     ocpp_version = Column(String(16), nullable=True)
 
+    # How the charger presented credentials on its last handshake, and whether
+    # they would be accepted if enforcement were switched on. Enforcement is
+    # currently off fleet-wide and cannot be enabled blind — a charger that
+    # sends nothing would drop the moment it reconnects. Recording the verdict
+    # here turns "can we turn auth on yet" into something readable on the
+    # dashboard instead of a log-grepping exercise.
+    auth_method = Column(String(48), nullable=True)   # e.g. "HTTP Basic", "query-string", "none"
+    auth_ok = Column(Boolean, nullable=True)          # True = would pass enforcement
+
     # Whether this charger is published over OCPI to roaming partners.
     #   None  → decide automatically from heartbeat age (the default)
     #   True  → always publish, even while offline
