@@ -179,12 +179,20 @@ def _extract_ws_token(
                 logger.warning("Malformed Basic credentials in OCPP handshake")
                 return None
             identity, _, password = decoded.partition(":")
+            # The spec says the username is the charge point identity, but
+            # vendors disagree: an AION unit sends its model string
+            # ("HC-AION7KW-1010") while the URL carries the serial. Rejecting
+            # on that mismatch would lock out working hardware, and it buys
+            # nothing — the expected token is looked up by the id in the URL,
+            # so one charger's password cannot authenticate as another
+            # regardless of what username accompanies it. Note it and move on;
+            # the password is what authenticates.
             if expected_identity and identity and identity != expected_identity:
                 logger.warning(
-                    "OCPP Basic auth identity %r does not match charge point %r — rejecting",
+                    "OCPP Basic auth username %r differs from charge point %r "
+                    "(accepted — the password is what is checked)",
                     identity, expected_identity,
                 )
-                return None
             return password.strip() or None
     return None
 
@@ -1594,7 +1602,10 @@ async def on_connect(websocket):
                 )
             else:
                 verdict = "would FAIL (no credentials offered)"
-            logger.info(
+            # WARNING, not INFO: INFO from this module does not reach the
+            # container's stdout, and a diagnostic nobody can read is not a
+            # diagnostic. Drop the level again once enforcement is decided.
+            logger.warning(
                 "[auth-observe] %s: method=%s %s | enforcement=%s",
                 charge_point_id, _auth_method_used(websocket, raw_path), verdict,
                 "on" if require_auth else "off",
