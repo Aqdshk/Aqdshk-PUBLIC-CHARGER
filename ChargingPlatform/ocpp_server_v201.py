@@ -525,7 +525,10 @@ class ChargePoint201(cp201):
                 variable = (ev.get("variable") or {}).get("name") or ""
                 trigger = ev.get("trigger") or ""
                 actual = ev.get("actual_value") or ev.get("actualValue") or ""
-                cause = ev.get("cause") or ""
+                # `cause` is an integer referencing the eventId that led to
+                # this one, not a description. The human-readable part lives
+                # in techCode and techInfo.
+                cause = ev.get("cause")
                 tech_code = ev.get("tech_code") or ev.get("techCode") or ""
                 tech_info = ev.get("tech_info") or ev.get("techInfo") or ""
                 cleared = bool(ev.get("cleared"))
@@ -539,8 +542,8 @@ class ChargePoint201(cp201):
                 is_fault = trigger == "Alerting" and not cleared
 
                 detail = f"{component}.{variable} = {actual} (trigger={trigger}"
-                if cause:
-                    detail += f", cause={cause}"
+                if cause is not None:
+                    detail += f", causedByEvent={cause}"
                 if tech_code:
                     detail += f", techCode={tech_code}"
                 if tech_info:
