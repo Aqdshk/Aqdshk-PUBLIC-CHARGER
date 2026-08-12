@@ -843,12 +843,18 @@ class ChargePoint201(cp201):
     # ops panel and the scheduler all work against a 2.0.1 charger without
     # knowing the difference.
 
+    # The two versions do not share reset vocabulary: 1.6 says Soft/Hard,
+    # 2.0.1 says OnIdle/Immediate. Callers pass whatever the 1.6 console sends,
+    # so translate. Soft waits for the station to be idle; Hard reboots now.
+    _RESET_TYPES = {"soft": "OnIdle", "hard": "Immediate"}
+
     async def reset(self, type: str = "Soft", evse_id: Optional[int] = None):
         """Reboot. 2.0.1 can target a single EVSE; 1.6 could only reset the
         whole station, so evse_id stays optional."""
         try:
-            logger.info(f"[v201] Reset → {self.id}: type={type} evse={evse_id}")
-            kw: Dict[str, Any] = {"type": type}
+            mapped = self._RESET_TYPES.get(str(type).strip().lower(), type)
+            logger.info(f"[v201] Reset → {self.id}: type={type} -> {mapped} evse={evse_id}")
+            kw: Dict[str, Any] = {"type": mapped}
             if evse_id:
                 kw["evse_id"] = evse_id
             return await self.call(call.Reset(**kw))
