@@ -3470,10 +3470,17 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
         # question that actually matters is whether *this* connector is busy.
         # Only fall back to the charger-wide verdict for states that really do
         # affect the whole unit (faulted, unavailable).
+        #
+        # A session whose connector is unknown counts as busy on every gun. The
+        # TNG kiosk opens its pending session without one, and a paid session
+        # must never be the reason this check decides a gun is free.
         if charger.availability not in ["available", "preparing"]:
             connector_busy = db.query(ChargingSession).filter(
                 ChargingSession.charger_id == charger.id,
-                ChargingSession.connector_id == request.connector_id,
+                or_(
+                    ChargingSession.connector_id == request.connector_id,
+                    ChargingSession.connector_id.is_(None),
+                ),
                 ChargingSession.status.in_(["active", "pending"]),
             ).first()
             if charger.availability == "charging" and not connector_busy:
@@ -7754,10 +7761,15 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
     # Either Accepted, or no response (charger may still start locally).
     # Create a pending ChargingSession so the live screen / banner can pick it up.
     try:
+        # Scoped to the gun that was paid for. Unscoped, a customer paying at
+        # gun 2 while gun 1 already has a pending session would have their
+        # money attached to gun 1's session — wrong quota, wrong receipt, and
+        # gun 2 left with no session of its own.
         existing_pending = (
             db.query(ChargingSession)
             .filter(
                 ChargingSession.charger_id == charger.id,
+                ChargingSession.connector_id == connector_id,
                 ChargingSession.status == "pending",
             )
             .first()
@@ -7778,6 +7790,7 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         if not existing_pending:
             session = ChargingSession(
                 charger_id=charger.id,
+                connector_id=connector_id,
                 transaction_id=0,  # placeholder, replaced below
                 start_time=datetime.now(MYT).replace(tzinfo=None),
                 status="pending",
