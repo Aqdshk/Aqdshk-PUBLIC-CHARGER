@@ -296,6 +296,15 @@ class ChargePoint201(cp201):
         connector_id = evse.get("connector_id") or evse.get("connectorId") or 1
         meter_values = kwargs.get("meter_value") or kwargs.get("meterValue") or []
 
+        # Which gun this is, in the flat numbering the rest of the platform
+        # uses. On a dual-gun 2.0.1 charger each gun is its own EVSE and every
+        # one of them reports connectorId 1, so storing the connector id would
+        # file both guns' sessions under gun 1 — the same mix-up the 1.6 path
+        # hit during the Gresying test. The EVSE id is what actually addresses
+        # a socket, and it is already what the outbound commands and the meter
+        # values use, so follow that convention here too.
+        gun_id = evse_id or connector_id
+
         logger.info(
             f"[v201] TransactionEvent {self.id}: {event_type} txn={ocpp_txn} "
             f"evse={evse_id} conn={connector_id} trigger={trigger_reason} seq={seq_no}"
@@ -321,7 +330,7 @@ class ChargePoint201(cp201):
                     transaction_id=0,  # replaced with the DB id below
                     ocpp_transaction_id=str(ocpp_txn),
                     evse_id=evse_id,
-                    connector_id=connector_id,
+                    connector_id=gun_id,
                     start_time=_parse_ts(timestamp),
                     status="active",
                     user_id=_token_of(kwargs.get("id_token")),
@@ -342,7 +351,7 @@ class ChargePoint201(cp201):
                     transaction_id=0,
                     ocpp_transaction_id=str(ocpp_txn),
                     evse_id=evse_id,
-                    connector_id=connector_id,
+                    connector_id=gun_id,
                     start_time=_parse_ts(timestamp),
                     status="active",
                     user_id=_token_of(kwargs.get("id_token")),
