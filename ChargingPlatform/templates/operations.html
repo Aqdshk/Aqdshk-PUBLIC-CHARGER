@@ -56,8 +56,12 @@
            Dimmed rather than hidden so the operator can see it exists and,
            via the tooltip, why it is unavailable right now. */
         .ops-item.ops-blocked { opacity: .35; }
+        /* An operation can be unavailable for either of two opposite reasons —
+           it has no 2.0.1 implementation, or it is 2.0.1-only and the selected
+           charger speaks 1.6 — so the badge carries its own text rather than
+           one hardcoded string that is right only half the time. */
         .ops-item.ops-blocked::after {
-            content: '2.0.1 ✗'; margin-left: auto; font-size: 8px;
+            content: attr(data-blocked); margin-left: auto; font-size: 8px;
             letter-spacing: .04em; color: var(--red); white-space: nowrap;
         }
         .ops-item:hover {
@@ -397,11 +401,16 @@
                 const blocked201 = is201 && op in V201_UNSUPPORTED;
                 const blocked16  = !is201 && op in V16_UNSUPPORTED;
                 el.classList.toggle('ops-blocked', blocked201 || blocked16);
-                el.title = blocked201
-                    ? `${V201_UNSUPPORTED[op]} is not implemented for OCPP 2.0.1 yet`
-                    : blocked16
-                        ? `${V16_UNSUPPORTED[op]} — this charger speaks OCPP ${SELECTED_OCPP || '1.6'}`
-                        : '';
+                if (blocked201) {
+                    el.dataset.blocked = 'no 2.0.1';
+                    el.title = `${V201_UNSUPPORTED[op]} is not implemented for OCPP 2.0.1 yet`;
+                } else if (blocked16) {
+                    el.dataset.blocked = 'needs 2.0.1';
+                    el.title = `${V16_UNSUPPORTED[op]} — this charger speaks OCPP ${SELECTED_OCPP || '1.6'}`;
+                } else {
+                    delete el.dataset.blocked;
+                    el.title = '';
+                }
             });
         }
 
