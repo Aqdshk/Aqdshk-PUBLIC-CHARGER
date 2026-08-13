@@ -1884,6 +1884,28 @@ class GetCompositeScheduleRequest(BaseModel):
     charging_rate_unit: Optional[str] = None  # W or A
 
 
+class VariableRef(BaseModel):
+    """One (component, variable) address in the 2.0.1 device model."""
+    component: str
+    variable: str
+
+
+class GetVariablesRequest(BaseModel):
+    items: List[VariableRef]
+
+
+class VariableAssignment(VariableRef):
+    value: str
+
+
+class SetVariablesRequest(BaseModel):
+    items: List[VariableAssignment]
+
+
+class GetBaseReportRequest(BaseModel):
+    report_base: str = "ConfigurationInventory"
+
+
 class ClearChargingProfileRequest(BaseModel):
     id: Optional[int] = None
     connector_id: Optional[int] = None
@@ -3236,8 +3258,110 @@ async def ocpp_get_composite_schedule(charge_point_id: str, request: GetComposit
     if not resp:
         return OcppOperationResponse(success=False, message="No response from charger.")
     status = getattr(resp, "status", "Unknown")
+    # 1.6 returns the periods under charging_schedule; 2.0.1 wraps them in a
+    # CompositeSchedule and calls the field `schedule`. Reading only the 1.6
+    # name handed back a null schedule for every 2.0.1 charger, which defeats
+    # the point of the call — this is how you confirm the limit that will
+    # actually be applied.
     schedule = getattr(resp, "charging_schedule", None)
+    if schedule is None:
+        schedule = getattr(resp, "schedule", None)
     return OcppOperationResponse(success=status == "Accepted", message=f"Status: {status}", data={"status": status, "charging_schedule": schedule})
+
+
+# ── OCPP 2.0.1 device model ──
+# 2.0.1 replaces GetConfiguration/ChangeConfiguration with an addressed device
+# model: every setting is a (component, variable) pair. There is no 1.6
+# equivalent, so these three are the only operations in the console that are
+# 2.0.1-only — the guard below is the mirror image of the ones in the 2.0.1
+# handler that reject 1.6-only operations.
+
+def _all_attributes_accepted(results: list) -> bool:
+    """The library hands back the wire payload untouched, and chargers differ on
+    whether they send attributeStatus or attribute_status. Accept either."""
+    if not results:
+        return False
+    return all(
+        (r or {}).get("attributeStatus", (r or {}).get("attribute_status")) == "Accepted"
+        for r in results
+    )
+
+
+def _require_v201(cp: Any, charge_point_id: str, operation: str) -> None:
+    if getattr(cp, "ocpp_version", "1.6") != "2.0.1":
+        raise OcppOperationUnsupported(
+            f"{operation} is an OCPP 2.0.1 operation and {charge_point_id} is "
+            f"connected over OCPP {getattr(cp, 'ocpp_version', '1.6')}"
+        )
+
+
+@app.post("/api/ocpp/{charge_point_id}/get-variables", response_model=OcppOperationResponse)
+async def ocpp_get_variables(charge_point_id: str, request: GetVariablesRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 GetVariables — read settings out of the device model."""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "GetVariables")
+    resp = await cp.get_variables([(i.component, i.variable) for i in request.items])
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    results = getattr(resp, "get_variable_result", None) or []
+    accepted = _all_attributes_accepted(results)
+    return OcppOperationResponse(
+        success=accepted,
+        message=f"{len(results)} variable(s) read",
+        data={"get_variable_result": results},
+    )
+
+
+@app.post("/api/ocpp/{charge_point_id}/set-variables", response_model=OcppOperationResponse)
+async def ocpp_set_variables(charge_point_id: str, request: SetVariablesRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 SetVariables — write settings into the device model."""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "SetVariables")
+    resp = await cp.set_variables([(i.component, i.variable, i.value) for i in request.items])
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    results = getattr(resp, "set_variable_result", None) or []
+    accepted = _all_attributes_accepted(results)
+    return OcppOperationResponse(
+        success=accepted,
+        message=f"{len(results)} variable(s) written",
+        data={"set_variable_result": results},
+    )
+
+
+@app.post("/api/ocpp/{charge_point_id}/get-base-report", response_model=OcppOperationResponse)
+async def ocpp_get_base_report(charge_point_id: str, request: GetBaseReportRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 GetBaseReport.
+
+    The reply only acknowledges the request; the device model itself arrives
+    afterwards as a series of NotifyReport calls, which the 2.0.1 handler logs.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "GetBaseReport")
+    resp = await cp.get_base_report(report_base=request.report_base)
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    status = getattr(resp, "status", "Unknown")
+    return OcppOperationResponse(
+        success=status == "Accepted",
+        message=f"Status: {status} — contents follow as NotifyReport in the logs",
+        data={"status": status},
+    )
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-charging-profile", response_model=OcppOperationResponse)
@@ -3338,14 +3462,32 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 message=f"Charger {request.charger_id} is offline"
             )
         
-        # Check if charger is available
+        # Check if charger is available.
+        #
+        # `availability` is one field for the whole charger, so on a dual-gun
+        # unit the first gun to start charging sets it to "charging" and the
+        # second gun can never be started. The guns are independent, so the
+        # question that actually matters is whether *this* connector is busy.
+        # Only fall back to the charger-wide verdict for states that really do
+        # affect the whole unit (faulted, unavailable).
         if charger.availability not in ["available", "preparing"]:
-            logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
-            return ChargingResponse(
-                success=False,
-                message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
-            )
-        
+            connector_busy = db.query(ChargingSession).filter(
+                ChargingSession.charger_id == charger.id,
+                ChargingSession.connector_id == request.connector_id,
+                ChargingSession.status.in_(["active", "pending"]),
+            ).first()
+            if charger.availability == "charging" and not connector_busy:
+                logger.info(
+                    f"Charger {request.charger_id} is charging on another connector; "
+                    f"connector {request.connector_id} is free — allowing start"
+                )
+            else:
+                logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
+                return ChargingResponse(
+                    success=False,
+                    message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
+                )
+
         # Get active charge point connection
         charge_point = get_active_charge_point(request.charger_id)
         if not charge_point:
@@ -3368,12 +3510,16 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
             # Don't create session with transaction_id = 0 (unique constraint violation)
             # Instead, create pending session without transaction_id, or wait for StartTransaction
             try:
-                # Check if pending session already exists
+                # Check if pending session already exists. Scoped to the
+                # connector: a pending session on gun 1 must not be mistaken
+                # for gun 2's, or gun 2 never gets a session of its own and
+                # its StartTransaction later adopts gun 1's row.
                 existing_pending = db.query(ChargingSession).filter(
                     ChargingSession.charger_id == charger.id,
+                    ChargingSession.connector_id == request.connector_id,
                     ChargingSession.status == "pending"
                 ).first()
-                
+
                 if not existing_pending:
                     # Create pending session using a unique negative transaction_id.
                     # We flush first to get the auto-increment PK, then set
@@ -3381,6 +3527,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                     # on_start_transaction will overwrite it with the real assigned ID.
                     session = ChargingSession(
                         charger_id=charger.id,
+                        connector_id=request.connector_id,
                         transaction_id=0,  # placeholder; replaced below after flush
                         start_time=datetime.now(MYT).replace(tzinfo=None),
                         status="pending",
