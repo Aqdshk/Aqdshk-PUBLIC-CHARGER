@@ -277,6 +277,10 @@
                 <div class="ops-item" data-op="get-composite-schedule"><span class="ops-icon">📊</span> Composite Schedule</div>
                 <div class="ops-item" data-op="clear-charging-profile"><span class="ops-icon">🧹</span> Clear Charge Profile</div>
                 <div class="ops-item" data-op="set-charging-profile"><span class="ops-icon">⚡</span> Set Charge Profile</div>
+                <div class="ops-cat" data-cat="device-model">Device Model (2.0.1)</div>
+                <div class="ops-item" data-op="get-variables"><span class="ops-icon">🔍</span> Get Variables</div>
+                <div class="ops-item" data-op="set-variables"><span class="ops-icon">✏️</span> Set Variables</div>
+                <div class="ops-item" data-op="get-base-report"><span class="ops-icon">📑</span> Get Base Report</div>
             </div>
 
             <div class="ops-main">
@@ -374,6 +378,14 @@
             'cancel-reservation':     'CancelReservation',
         };
 
+        // The mirror image: 2.0.1's device model has no 1.6 equivalent, so these
+        // three are dimmed when a 1.6 charger is selected.
+        const V16_UNSUPPORTED = {
+            'get-variables':   'GetVariables (1.6 uses GetConfiguration)',
+            'set-variables':   'SetVariables (1.6 uses ChangeConfiguration)',
+            'get-base-report': 'GetBaseReport (1.6 uses GetConfiguration)',
+        };
+
         function applyVersionContext() {
             const sel = document.getElementById('chargerSelect');
             const opt = sel.options[sel.selectedIndex];
@@ -382,11 +394,14 @@
 
             document.querySelectorAll('.ops-item').forEach(el => {
                 const op = el.dataset.op;
-                const blocked = is201 && op in V201_UNSUPPORTED;
-                el.classList.toggle('ops-blocked', blocked);
-                el.title = blocked
+                const blocked201 = is201 && op in V201_UNSUPPORTED;
+                const blocked16  = !is201 && op in V16_UNSUPPORTED;
+                el.classList.toggle('ops-blocked', blocked201 || blocked16);
+                el.title = blocked201
                     ? `${V201_UNSUPPORTED[op]} is not implemented for OCPP 2.0.1 yet`
-                    : '';
+                    : blocked16
+                        ? `${V16_UNSUPPORTED[op]} — this charger speaks OCPP ${SELECTED_OCPP || '1.6'}`
+                        : '';
             });
         }
 
@@ -419,9 +434,29 @@
             'get-local-list-version': { title:'Get Local List Version', desc:'Get the version of the local authorization list.', fields:[], endpoint:'/get-local-list-version', method:'POST' },
             'send-local-list': { title:'Send Local List', desc:'Send a local authorization list to the charge point.', fields:[{name:'list_version',label:'List Version',type:'number',value:'1'},{name:'update_type',label:'Update Type',type:'select',options:['Full','Differential'],value:'Full'},{name:'local_authorization_list',label:'Authorization List (JSON)',type:'textarea',value:'',hint:'e.g. [{"id_tag":"TAG001"}]'}], endpoint:'/send-local-list', method:'POST' },
             'trigger-message': { title:'Trigger Message', desc:'Trigger the charge point to send a specific message.', fields:[{name:'requested_message',label:'Requested Message',type:'select',options:['BootNotification','DiagnosticsStatusNotification','FirmwareStatusNotification','Heartbeat','MeterValues','StatusNotification'],value:'StatusNotification'},{name:'connector_id',label:'Connector ID',type:'number',value:'',hint:'Optional'}], endpoint:'/trigger-message', method:'POST' },
-            'get-composite-schedule': { title:'Get Composite Schedule', desc:'Get the composite charging schedule for a connector.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'duration',label:'Duration (seconds)',type:'number',value:'3600'},{name:'charging_rate_unit',label:'Rate Unit',type:'select',options:['','W','A'],value:'',hint:'Optional'}], endpoint:'/get-composite-schedule', method:'POST' },
-            'clear-charging-profile': { title:'Clear Charging Profile', desc:'Clear charging profiles on the charge point.', fields:[{name:'id',label:'Profile ID',type:'number',value:'',hint:'Optional'},{name:'connector_id',label:'Connector ID',type:'number',value:'',hint:'Optional'},{name:'charging_profile_purpose',label:'Purpose',type:'select',options:['','ChargePointMaxProfile','TxDefaultProfile','TxProfile'],value:'',hint:'Optional'},{name:'stack_level',label:'Stack Level',type:'number',value:'',hint:'Optional'}], endpoint:'/clear-charging-profile', method:'POST' },
-            'set-charging-profile': { title:'Set Charging Profile', desc:'Set a charging profile on the charge point.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'cs_charging_profiles',label:'Charging Profile (JSON)',type:'textarea',value:'{\n  "charging_profile_id": 1,\n  "stack_level": 0,\n  "charging_profile_purpose": "TxDefaultProfile",\n  "charging_profile_kind": "Absolute",\n  "charging_schedule": {\n    "charging_rate_unit": "W",\n    "charging_schedule_period": [\n      { "start_period": 0, "limit": 11000.0 }\n    ]\n  }\n}',hint:'JSON csChargingProfiles'}], endpoint:'/set-charging-profile', method:'POST' },
+            'get-composite-schedule': { title:'Get Composite Schedule', desc:'Ask the charger what limit it will actually apply. Several profiles can overlap — yours, a schedule, a site limit — and the charger resolves them into one answer. Use this to confirm a profile you just set is really in force.', fields:[{name:'connector_id',label:'Connector ID',type:'number',value:'1'},{name:'duration',label:'Duration (seconds)',type:'number',value:'3600'},{name:'charging_rate_unit',label:'Rate Unit',type:'select',options:['','W','A'],value:'',hint:'Optional'}], endpoint:'/get-composite-schedule', method:'POST' },
+            'get-variables': { title:'Get Variables', desc:'Read a setting out of a 2.0.1 charger. Settings are addressed as a component plus a variable — the 2.0.1 replacement for GetConfiguration.', fields:[
+                {name:'component',label:'Component',type:'text',value:'SmartChargingCtrlr',hint:'e.g. SmartChargingCtrlr, OCPPCommCtrlr, TxCtrlr'},
+                {name:'variable',label:'Variable',type:'text',value:'Enabled',hint:'e.g. Enabled, HeartbeatInterval, EVConnectionTimeOut'},
+            ], endpoint:'/get-variables', method:'POST', v201Only:true },
+            'set-variables': { title:'Set Variables', desc:'Write a setting into a 2.0.1 charger — the 2.0.1 replacement for ChangeConfiguration.', fields:[
+                {name:'component',label:'Component',type:'text',value:'OCPPCommCtrlr',hint:'e.g. SmartChargingCtrlr, OCPPCommCtrlr, TxCtrlr'},
+                {name:'variable',label:'Variable',type:'text',value:'HeartbeatInterval',hint:'e.g. HeartbeatInterval'},
+                {name:'value',label:'Value',type:'text',value:'30'},
+            ], endpoint:'/set-variables', method:'POST', v201Only:true },
+            'get-base-report': { title:'Get Base Report', desc:'Ask a 2.0.1 charger to publish its whole device model. The reply here only acknowledges the request — the contents arrive afterwards as NotifyReport messages in the server log.', fields:[
+                {name:'report_base',label:'Report',type:'select',options:['ConfigurationInventory','FullInventory','SummaryInventory'],value:'ConfigurationInventory'},
+            ], endpoint:'/get-base-report', method:'POST', v201Only:true },
+            'clear-charging-profile': { title:'Clear Charging Profile', desc:'Remove a profile so the connector goes back to full power. Use the same Profile ID you set it with.', fields:[{name:'id',label:'Profile ID',type:'number',value:'',hint:'Optional'},{name:'connector_id',label:'Connector ID',type:'number',value:'',hint:'Optional'},{name:'charging_profile_purpose',label:'Purpose',type:'select',options:['','ChargePointMaxProfile','TxDefaultProfile','TxProfile'],value:'',hint:'Optional'},{name:'stack_level',label:'Stack Level',type:'number',value:'',hint:'Optional'}], endpoint:'/clear-charging-profile', method:'POST' },
+            'set-charging-profile': { title:'Set Charging Profile', desc:'Cap how much power this connector may draw. The charger applies the limit until you clear the profile.', fields:[
+                {name:'connector_id',label:'Connector ID',type:'number',value:'1'},
+                {name:'limit_value',label:'Power limit',type:'number',value:'7',hint:'How much the connector may draw'},
+                {name:'limit_unit',label:'Unit',type:'select',options:['kW','W','A'],value:'kW'},
+                {name:'charging_profile_purpose',label:'Applies to',type:'select',options:['TxDefaultProfile','TxProfile','ChargePointMaxProfile'],value:'TxDefaultProfile',hint:'TxDefaultProfile = every session on this connector'},
+                {name:'stack_level',label:'Stack level',type:'number',value:'0',hint:'Higher wins when profiles overlap'},
+                {name:'profile_id',label:'Profile ID',type:'number',value:'1',hint:'Use this same ID to clear it later'},
+                {name:'cs_charging_profiles',label:'Raw JSON (advanced)',type:'textarea',value:'',hint:'Leave empty to use the fields above. Anything here is sent instead.'},
+            ], endpoint:'/set-charging-profile', method:'POST' },
         };
 
         function selectOp(opKey) {
@@ -457,15 +492,17 @@
                 // Auto-fill defaults for known fields
                 if (!val && f.type === 'datetime-local') val = _dtDefaultFor(f.name);
                 if (!val && opKey === 'update-firmware' && f.name === 'location') val = _defaultFwUrl;
-                // Charging profiles are shaped differently per protocol version,
-                // so seed the textarea from the one the selected charger speaks.
+                // The raw-JSON box is an escape hatch, not the normal path — the
+                // fields above it build the profile. Leave it empty and show the
+                // version-correct shape as a placeholder so anyone who does need
+                // it has something to start from.
                 if (f.name === 'cs_charging_profiles') {
-                    val = PROFILE_TEMPLATE[SELECTED_OCPP] || PROFILE_TEMPLATE['1.6'];
+                    val = '';
                 }
 
                 let inp='';
                 if(f.type==='select'){ inp=`<select id="field_${f.name}">${f.options.map(o=>`<option value="${o}" ${o===f.value?'selected':''}>${o||'-- Select --'}</option>`).join('')}</select>`; }
-                else if(f.type==='textarea'){ inp=`<textarea id="field_${f.name}">${val}</textarea>`; }
+                else if(f.type==='textarea'){ const ph = f.name==='cs_charging_profiles' ? (PROFILE_TEMPLATE[SELECTED_OCPP]||PROFILE_TEMPLATE['1.6']) : (f.hint||''); inp=`<textarea id="field_${f.name}" placeholder="${ph.replace(/"/g,'&quot;')}">${val}</textarea>`; }
                 else { inp=`<input type="${f.type}" id="field_${f.name}" value="${val}" placeholder="${f.hint||''}">`; }
                 fh+=`<div class="pg" id="group_${f.name}" ${hid?'style="display:none;"':''}><label>${f.label}</label>${inp}${f.hint?`<div class="hint">${f.hint}</div>`:''}</div>`;
             });
@@ -477,6 +514,43 @@
                 <div class="resp" id="responseArea"><div class="resp-lbl">Response</div><div id="respStatus"></div><pre id="respBody"></pre></div>`;
 
             if(opKey==='change-configuration'){ const kt=document.getElementById('field_key_type'); if(kt){kt.addEventListener('change',toggleKeyType);toggleKeyType();} }
+        }
+
+        // Turn the plain fields on the Set Charging Profile form into the
+        // profile the selected charger expects. Typing this JSON by hand was
+        // the only way to use the operation before, which made the one thing
+        // an operator actually wants — "cap this gun at 7 kW" — a schema
+        // exercise. The two versions disagree on the shape, so build both here
+        // rather than asking anyone to remember which is which.
+        function buildChargingProfile(){
+            const num = (id, dflt) => { const v=parseFloat((document.getElementById(id)||{}).value); return isNaN(v)?dflt:v; };
+            const unit = (document.getElementById('field_limit_unit')||{}).value || 'kW';
+            let limit = num('field_limit_value', 7);
+            // Amps go through untouched; kW is just W the operator can read.
+            const rateUnit = unit === 'A' ? 'A' : 'W';
+            if (unit === 'kW') limit = limit * 1000;
+
+            const profileId  = num('field_profile_id', 1);
+            const stackLevel = num('field_stack_level', 0);
+            const purpose    = (document.getElementById('field_charging_profile_purpose')||{}).value || 'TxDefaultProfile';
+            const period     = [{ start_period: 0, limit: limit }];
+
+            if (SELECTED_OCPP === '2.0.1') {
+                return {
+                    id: profileId,
+                    stack_level: stackLevel,
+                    charging_profile_purpose: purpose,
+                    charging_profile_kind: 'Absolute',
+                    charging_schedule: [{ id: profileId, charging_rate_unit: rateUnit, charging_schedule_period: period }],
+                };
+            }
+            return {
+                charging_profile_id: profileId,
+                stack_level: stackLevel,
+                charging_profile_purpose: purpose,
+                charging_profile_kind: 'Absolute',
+                charging_schedule: { charging_rate_unit: rateUnit, charging_schedule_period: period },
+            };
         }
 
         function toggleKeyType(){ const kt=document.getElementById('field_key_type')?.value, pg=document.getElementById('group_key_predefined'), cg=document.getElementById('group_key_custom'); if(!pg||!cg)return; pg.style.display=kt==='Predefined'?'':'none'; cg.style.display=kt==='Custom'?'':'none'; }
@@ -500,6 +574,23 @@
                 else if(currentOp==='remote-stop'){ url=`${API}/charging/stop${tokenQ}`; fo={method:'POST',headers:authHeaders,body:JSON.stringify({transaction_id:parseInt(document.getElementById('field_transaction_id').value)||0,charger_id:cpId})}; }
                 else if(currentOp==='change-configuration'){ url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration/change`; const kt=document.getElementById('field_key_type').value; const ck=kt==='Predefined'?document.getElementById('field_key_predefined').value:document.getElementById('field_key_custom').value; if(!ck){alert('Enter a key.');btn.disabled=false;btn.textContent='⚡ Execute';return;} fo={method:'POST',headers:authHeaders,body:JSON.stringify({key:ck,value:document.getElementById('field_value').value})}; }
                 else if(currentOp==='get-configuration'){ const ks=document.getElementById('field_keys').value.trim(); url=`${API}/chargers/${encodeURIComponent(cpId)}/configuration${ks?'?keys='+encodeURIComponent(ks):''}`; fo={method:'GET',headers:staffToken?{'X-Staff-Token':staffToken}:{}}; }
+                else if(currentOp==='get-variables'||currentOp==='set-variables'){
+                    // Both endpoints take a list of addressed variables. The form
+                    // exposes a single one, which is what an operator needs on a
+                    // test bench; the list shape is kept so it can grow later.
+                    const item={component:(document.getElementById('field_component')||{}).value||'',variable:(document.getElementById('field_variable')||{}).value||''};
+                    if(currentOp==='set-variables') item.value=(document.getElementById('field_value')||{}).value||'';
+                    url=`${API}/ocpp/${encodeURIComponent(cpId)}${op.endpoint}`;
+                    fo={method:'POST',headers:authHeaders,body:JSON.stringify({items:[item]})};
+                }
+                else if(currentOp==='set-charging-profile'){
+                    url=`${API}/ocpp/${encodeURIComponent(cpId)}/set-charging-profile`;
+                    const raw=(document.getElementById('field_cs_charging_profiles')||{}).value||'';
+                    let profile;
+                    if(raw.trim()){ try{ profile=JSON.parse(raw); }catch(e){ alert('Raw JSON is not valid JSON: '+e.message); btn.disabled=false; btn.textContent='⚡ Execute'; return; } }
+                    else { profile=buildChargingProfile(); }
+                    fo={method:'POST',headers:authHeaders,body:JSON.stringify({connector_id:parseInt((document.getElementById('field_connector_id')||{}).value)||1,cs_charging_profiles:profile})};
+                }
                 else { url=`${API}/ocpp/${encodeURIComponent(cpId)}${op.endpoint}`; if(op.method==='POST'){ const body={}; op.fields.forEach(f=>{const el=document.getElementById(`field_${f.name}`);if(!el)return;let v=el.value;if(v===''||v===null||v===undefined)return;if(f.type==='number'){v=parseFloat(v);if(isNaN(v))return;}if(f.type==='datetime-local'&&v)v=new Date(v).toISOString();if(f.name==='cs_charging_profiles'||f.name==='local_authorization_list'){try{v=JSON.parse(v);}catch(e){}}body[f.name]=v;}); fo={method:'POST',headers:authHeaders,body:JSON.stringify(body)}; } else { fo={method:'GET',headers:staffToken?{'X-Staff-Token':staffToken}:{}}; } }
                 const res=await fetch(url,fo), data=await res.json(), ok=data.success!==false&&res.ok;
                 document.getElementById('respStatus').innerHTML=`<span class="resp-pill ${ok?'ok':'err'}">${ok?'✅ Success':'❌ Failed'}</span>`;
