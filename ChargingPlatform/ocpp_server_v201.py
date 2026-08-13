@@ -325,22 +325,47 @@ class ChargePoint201(cp201):
             )
 
             if event_type == "Started" and session is None:
-                session = ChargingSession(
-                    charger_id=charger.id,
-                    transaction_id=0,  # replaced with the DB id below
-                    ocpp_transaction_id=str(ocpp_txn),
-                    evse_id=evse_id,
-                    connector_id=gun_id,
-                    start_time=_parse_ts(timestamp),
-                    status="active",
-                    user_id=_token_of(kwargs.get("id_token")),
+                # A remote start leaves a pending session behind, holding the
+                # requester's identity, and the charger answers it with this
+                # event. Adopt that row rather than opening a second one: two
+                # rows for one charge would leave the pending one open forever,
+                # and an open pending row makes the gun look permanently busy.
+                session = (
+                    self.db.query(ChargingSession)
+                    .filter(
+                        ChargingSession.charger_id == charger.id,
+                        ChargingSession.connector_id == gun_id,
+                        ChargingSession.status == "pending",
+                    )
+                    .order_by(ChargingSession.id.desc())
+                    .first()
                 )
-                self.db.add(session)
-                self.db.flush()  # populate session.id
-                # Mirror the 1.6 convention: the integer key the rest of the
-                # platform joins on is the row id.
-                session.transaction_id = session.id
-                logger.info(f"[v201] opened session {session.id} for charger txn {ocpp_txn}")
+                if session is not None:
+                    session.ocpp_transaction_id = str(ocpp_txn)
+                    session.evse_id = evse_id
+                    session.start_time = _parse_ts(timestamp)
+                    session.status = "active"
+                    session.transaction_id = session.id
+                    logger.info(
+                        f"[v201] adopted pending session {session.id} for charger txn {ocpp_txn}"
+                    )
+                else:
+                    session = ChargingSession(
+                        charger_id=charger.id,
+                        transaction_id=0,  # replaced with the DB id below
+                        ocpp_transaction_id=str(ocpp_txn),
+                        evse_id=evse_id,
+                        connector_id=gun_id,
+                        start_time=_parse_ts(timestamp),
+                        status="active",
+                        user_id=_token_of(kwargs.get("id_token")),
+                    )
+                    self.db.add(session)
+                    self.db.flush()  # populate session.id
+                    # Mirror the 1.6 convention: the integer key the rest of the
+                    # platform joins on is the row id.
+                    session.transaction_id = session.id
+                    logger.info(f"[v201] opened session {session.id} for charger txn {ocpp_txn}")
 
             if session is None:
                 # Updated/Ended for a transaction we never saw start — the
