@@ -354,7 +354,7 @@ class ChargePoint(cp):
             )
 
     @on('Authorize')
-    async def on_authorize(self, id_tag: str):
+    async def on_authorize(self, id_tag: str, **kwargs):
         """
         Handle Authorize from charger — when user taps RFID card locally.
         Returns Accepted/Blocked based on id_tag validation.
@@ -741,9 +741,16 @@ class ChargePoint(cp):
             )
     
     @on('StopTransaction')
-    async def on_stop_transaction(self, transaction_id: int, id_tag: str, meter_stop: int, timestamp: str, **kwargs):
+    async def on_stop_transaction(self, transaction_id: int, meter_stop: int, timestamp: str,
+                                  id_tag: str = None, **kwargs):
         """Handle StopTransaction from charging station.
         Uses meter_stop (Wh) as authoritative final energy when available for billing accuracy.
+
+        idTag is optional in StopTransaction.req — a charger only sends it when
+        the stop was authorised at the unit, and omits it for a remote stop.
+        Requiring it here raised a TypeError before any of this ran, so the
+        charger got a CallError instead of a StopTransaction.conf and the
+        session hung open until the 30-second fallback force-closed it.
         """
         logger.info(f"StopTransaction from {self.id}: transaction {transaction_id}, meter_stop={meter_stop}")
         try:
@@ -1087,7 +1094,7 @@ class ChargePoint(cp):
         return call_result.DiagnosticsStatusNotification()
     
     @on('Heartbeat')
-    async def on_heartbeat(self):
+    async def on_heartbeat(self, **kwargs):
         """Handle Heartbeat from charging station"""
         # Zombie-socket defence: if this ChargePoint instance is no longer
         # the one tracked in active_charge_points (because a newer connection
