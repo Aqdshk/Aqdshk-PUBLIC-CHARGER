@@ -77,10 +77,18 @@
         pointer-events: none;
     }
 
+    /* The idle screen is laid out for a tall tablet in portrait. On anything
+       shorter — a laptop browser, a landscape tablet — the hero grew past the
+       viewport, and since every container here is overflow:hidden the Start
+       button was simply clipped away with no way to scroll to it. The screen
+       looked fine and was completely unusable.
+       So: let this one screen scroll if it must, and keep the centring from
+       cutting off the top when it does. */
+    #screen-idle { overflow-y: auto; }
     #screen-idle .hero {
         position: relative; z-index: 2;
         flex: 1; display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
+        align-items: center; justify-content: safe center;
         text-align: center; padding: 32px 24px 40px; gap: 24px;
     }
 
@@ -104,11 +112,25 @@
     /* Scene — car + charger + energy cable */
     #screen-idle .scene {
         width: 100%; max-width: 480px; aspect-ratio: 16/10;
+        /* Cap the illustration against the viewport so the copy and the Start
+           button below it always have room. The SVG keeps its own ratio inside
+           whatever box it ends up with. */
+        max-height: 34vh;
         display: flex; align-items: center; justify-content: center;
         filter: drop-shadow(0 20px 60px rgba(0,255,136,0.35));
         animation: float 4s ease-in-out infinite;
     }
     #screen-idle .scene svg { width: 100%; height: 100%; }
+
+    /* Short viewports: tighten the stack so everything fits without scrolling. */
+    @media (max-height: 820px) {
+        #screen-idle .hero { padding: 16px 24px 20px; gap: 12px; }
+        #screen-idle .scene { max-height: 26vh; }
+    }
+    @media (max-height: 640px) {
+        #screen-idle .hero { gap: 8px; }
+        #screen-idle .scene { max-height: 20vh; }
+    }
     @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 
     /* Energy dots animation along the cable */
