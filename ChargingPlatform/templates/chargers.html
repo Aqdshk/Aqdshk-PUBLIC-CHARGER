@@ -660,20 +660,21 @@
                         // goes in, so a car waiting to be started always had
                         // one. That transaction is the precondition for starting,
                         // not a reason to withhold the button.
+                        // One button per gun. Offering Start and Cancel together
+                        // put four buttons on a two-gun charger for no gain: on
+                        // a plugged-in gun the only thing anyone wants is Start.
                         const charging = st === 'charging' || st === 'finishing';
-                        const cancelBtn = txn
-                            ? `<button class="btn btn-danger btn-small" title="End the open transaction on this gun without charging" onclick="stopCharging('${cpEsc}',${txn},${gun})">⏹ Cancel${label}</button>`
-                            : '';
-
                         if (charging) {
                             return `<button class="btn btn-danger btn-small" title="Stop this charging session" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;
                         }
                         if (status === 'online' && (st === 'available' || st === 'preparing')) {
-                            // Start is the action that matters here; Cancel rides
-                            // along only when there is a transaction to cancel.
-                            return `<button class="btn btn-success btn-small" title="Begin charging on this gun" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>` + cancelBtn;
+                            return `<button class="btn btn-success btn-small" title="Begin charging on this gun" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>`;
                         }
-                        return cancelBtn;
+                        // Neither charging nor ready, but a transaction is open —
+                        // the escape hatch for a gun stuck in an odd state.
+                        return txn
+                            ? `<button class="btn btn-danger btn-small" title="End the open transaction on this gun" onclick="stopCharging('${cpEsc}',${txn},${gun})">⏹ Cancel${label}</button>`
+                            : '';
                     }).join('');
                     return `
                         <div class="charger-item ${itemClass}">
