@@ -1009,10 +1009,16 @@ class ChargePoint201(cp201):
     async def trigger_message(self, requested_message: str, connector_id: Optional[int] = None):
         """Ask the charger to send something now rather than wait for it."""
         try:
-            logger.info(f"[v201] TriggerMessage → {self.id}: {requested_message}")
+            logger.info(
+                f"[v201] TriggerMessage → {self.id}: {requested_message} evse={connector_id}"
+            )
             kw: Dict[str, Any] = {"requested_message": requested_message}
             if connector_id:
-                kw["evse"] = {"id": connector_id}
+                # StatusNotification is reported per connector, not per EVSE, so
+                # naming only the EVSE leaves the charger without enough to act
+                # on and it answers Rejected. Each gun here is an EVSE with a
+                # single connector, so that connector is always 1.
+                kw["evse"] = {"id": connector_id, "connector_id": 1}
             return await self.call(call.TriggerMessage(**kw))
         except Exception as e:
             logger.error(f"[v201] TriggerMessage failed for {self.id}: {e}", exc_info=True)
