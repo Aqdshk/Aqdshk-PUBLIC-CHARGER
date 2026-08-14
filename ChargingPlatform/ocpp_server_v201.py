@@ -417,8 +417,10 @@ class ChargePoint201(cp201):
             # left gun 2 unreachable on the 1.6 side: the platform only learns
             # of a socket once that socket happens to report, and a charger
             # that reports sparsely stays understated indefinitely.
-            self._note_evse(charger, evse_id, info.get("charging_state")
-                            or info.get("chargingState"), event_type)
+            self._note_evse(charger, evse_id,
+                            info.get("charging_state") or info.get("chargingState"),
+                            event_type,
+                            self._looks_like_charging(meter_values, info))
 
             latest_kwh = self._store_meter_values(
                 charger, session, meter_values, evse_id, connector_id
@@ -452,11 +454,19 @@ class ChargePoint201(cp201):
 
         return call_result.TransactionEvent()
 
-    def _note_evse(self, charger, evse_id, charging_state, event_type):
+    def _note_evse(self, charger, evse_id, charging_state, event_type, energy_flowing=None):
         """Record a gun seen on a transaction, and reflect its live state.
 
         Keeps the same slot map StatusNotification writes, so the dashboard
         renders 2.0.1 chargers through the existing per-gun display.
+
+        `charging_state` is optional in the spec and Gresying's firmware omits
+        it entirely. This used to fall through to a catch-all that marked the
+        gun as charging, so an idle charger reporting its meter once a minute
+        held its guns in "charging" forever and reasserted it every report,
+        even after the state was corrected by hand. When the charger does not
+        say, do not guess: use the readings if they show energy actually
+        flowing, and otherwise leave whatever StatusNotification last said.
         """
         if not evse_id:
             return
@@ -480,8 +490,17 @@ class ChargePoint201(cp201):
             conn_map[slot] = "preparing"
         elif charging_state == "Idle":
             conn_map[slot] = "available"
-        else:
+        elif charging_state == "Charging":
             conn_map[slot] = "charging"
+        elif event_type == "Started" or energy_flowing:
+            # No state given, but a transaction opening — or real power on the
+            # cable — is evidence enough.
+            conn_map[slot] = "charging"
+        else:
+            # Nothing here says what the gun is doing. Record that the gun
+            # exists so the connector count is right, and leave its state to
+            # StatusNotification, which is the message that actually reports it.
+            conn_map.setdefault(slot, "unknown")
 
         charger.connector_status = json.dumps(conn_map)
 
