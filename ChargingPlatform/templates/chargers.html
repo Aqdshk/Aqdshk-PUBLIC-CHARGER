@@ -649,7 +649,17 @@
                         const txn = txnByConn[String(gun)];
                         const label = connCount > 1 ? ` Gun ${gun}` : '';
                         if (txn || st === 'charging' || st === 'finishing') {
-                            return `<button class="btn btn-danger btn-small" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;
+                            // A transaction can be open on a gun that is not
+                            // charging — an OCPP 2.0.1 charger opens one when
+                            // the cable goes in — and offering "Stop" there
+                            // contradicts a gun the same card shows as
+                            // PREPARING. Name the action for what it ends.
+                            const charging = st === 'charging' || st === 'finishing';
+                            const verb = charging ? 'Stop' : 'Cancel';
+                            const hint = charging
+                                ? 'Stop this charging session'
+                                : 'End the open transaction on this gun — the cable is connected but no energy is flowing';
+                            return `<button class="btn btn-danger btn-small" title="${hint}" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ ${verb}${label}</button>`;
                         }
                         if (status === 'online' && (st === 'available' || st === 'preparing')) {
                             return `<button class="btn btn-success btn-small" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>`;
