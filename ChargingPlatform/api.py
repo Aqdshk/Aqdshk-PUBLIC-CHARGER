@@ -67,6 +67,17 @@ from security import (
     create_access_token,
 )
 
+# Nothing configured logging, so Python's default left the root logger at
+# WARNING and every logger.info in the OCPP handlers went nowhere. That is the
+# entire message trace for a charging session — StatusNotification,
+# TransactionEvent, every remote command — invisible, which is why diagnosing a
+# live charger meant guessing. Default to INFO and let the environment lower it
+# if the volume ever becomes a problem.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 
