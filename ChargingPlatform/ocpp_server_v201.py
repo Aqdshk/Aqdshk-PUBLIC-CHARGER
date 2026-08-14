@@ -199,6 +199,26 @@ class ChargePoint201(cp201):
 
             mapped = _STATUS_MAP.get(connector_status, "unknown")
 
+            # "Occupied" means the bay is taken, not that energy is flowing —
+            # 2.0.1 carries the charging state on the transaction, not here. A
+            # plugged-in car waiting to be started is Occupied, and calling that
+            # "charging" put a gun into charging with nothing drawn from it and
+            # offered a Stop the charger would refuse. Only call it charging if
+            # a transaction is actually open on that gun; otherwise it is a car
+            # plugged in and waiting, which is what "preparing" means.
+            if mapped == "charging":
+                active = (
+                    self.db.query(ChargingSession)
+                    .filter(
+                        ChargingSession.charger_id == charger.id,
+                        ChargingSession.connector_id == evse_id,
+                        ChargingSession.status.in_(["active", "pending"]),
+                    )
+                    .first()
+                )
+                if not active:
+                    mapped = "preparing"
+
             # Reuse the 1.6 connector_status column so the dashboard renders
             # 2.0.1 chargers unchanged. The dashboard keys slots "1", "2", "3",
             # so flatten to that wherever it is unambiguous.
