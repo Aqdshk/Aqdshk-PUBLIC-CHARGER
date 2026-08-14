@@ -810,7 +810,11 @@
                 // a few lines down in this same function scope.
                 const flTotal     = chargers.length;
                 const flOnline    = chargers.filter(c=>c.status==='online').length;
-                const flCharging  = chargers.filter(c=>c.availability==='charging' || (c.active_transaction_id||0) > 0).length;
+                // Availability only. An open transaction is not charging — an
+                // OCPP 2.0.1 charger opens one the moment the cable is plugged
+                // in, so counting those inflated this figure with cars that
+                // were drawing nothing.
+                const flCharging  = chargers.filter(c=>c.availability==='charging').length;
                 const flAvailable = chargers.filter(c=>c.status==='online' && c.availability==='available').length;
                 const flOffline   = chargers.filter(c=>c.status!=='online').length;
                 const flOther     = Math.max(0, flTotal - flAvailable - flCharging - flOffline);

@@ -568,7 +568,12 @@
                 const st = (c.status || 'offline'), av = (c.availability || 'unknown');
                 if (st === 'online') s.online++; else s.offline++;
                 if (st === 'online' && av === 'available') s.available++;
-                if (av === 'charging' || (c.active_transaction_id||0) > 0) s.charging++;
+                // Counted from availability alone. Treating any open
+                // transaction as charging is the same bad inference the card
+                // header made: an OCPP 2.0.1 charger opens a transaction when
+                // the cable is plugged in, so a plugged-in car with no energy
+                // flowing was counted here — and dragged Utilisation with it.
+                if (av === 'charging') s.charging++;
                 return s;
             }, {total:0, online:0, offline:0, available:0, charging:0});
             const denom = stats.online || 1;
