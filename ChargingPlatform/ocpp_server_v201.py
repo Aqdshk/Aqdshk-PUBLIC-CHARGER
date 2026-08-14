@@ -368,9 +368,31 @@ class ChargePoint201(cp201):
                     logger.info(f"[v201] opened session {session.id} for charger txn {ocpp_txn}")
 
             if session is None:
-                # Updated/Ended for a transaction we never saw start — the
-                # charger was mid-session when we came up. Recording it beats
-                # dropping the energy on the floor.
+                # Updated/Ended for a transaction we never saw start. This used
+                # to open a session unconditionally, on the theory that the
+                # charger was mid-charge when we came up and the energy should
+                # not be dropped. That reads far more into the message than it
+                # says: Gresying firmware sends a periodic MeterValuePeriodic
+                # as a TransactionEvent Updated while sitting idle, carrying a
+                # placeholder transaction id and nothing but zeroes. Believing
+                # it put both guns into "charging" with no one plugged in, and
+                # offered a Stop button for a transaction the charger then
+                # refused.
+                #
+                # So ask the readings whether a charge is actually happening.
+                # Real power, or time spent charging, means we genuinely missed
+                # a Started and should recover the session. All zeroes means
+                # the charger is idle and is only reporting its meter — keep
+                # the readings against the connector and open nothing.
+                if not self._looks_like_charging(meter_values, info):
+                    logger.info(
+                        f"[v201] {self.id}: {event_type} for unknown txn {ocpp_txn} with no "
+                        f"power and no charging time — idle meter report, storing readings only"
+                    )
+                    self._store_meter_values(charger, None, meter_values, evse_id, gun_id)
+                    self.db.commit()
+                    return call_result.TransactionEvent()
+
                 session = ChargingSession(
                     charger_id=charger.id,
                     transaction_id=0,
@@ -385,8 +407,8 @@ class ChargePoint201(cp201):
                 self.db.flush()
                 session.transaction_id = session.id
                 logger.warning(
-                    f"[v201] {self.id}: {event_type} for unknown txn {ocpp_txn} — "
-                    f"opened session {session.id} to retain the readings"
+                    f"[v201] {self.id}: {event_type} for unknown txn {ocpp_txn} shows real "
+                    f"charging — opened session {session.id} to recover it"
                 )
 
             # A TransactionEvent naming an EVSE is proof that EVSE exists, so
@@ -472,6 +494,37 @@ class ChargePoint201(cp201):
         best = min(conn_map.values(), key=lambda s: _RANK.get(s, 7), default=None)
         if best:
             charger.availability = best
+
+    @staticmethod
+    def _looks_like_charging(meter_values, transaction_info) -> bool:
+        """Is this event evidence that energy is actually flowing?
+
+        Used only to decide whether a transaction we never saw start is worth
+        recovering as a session. A charger reporting its meter while idle sends
+        the same message shape as one mid-charge, so the distinction has to
+        come from the values: any real power or current, any time spent
+        charging, or an explicit Charging state.
+        """
+        info = transaction_info or {}
+        try:
+            if float(info.get("time_spent_charging") or info.get("timeSpentCharging") or 0) > 0:
+                return True
+        except (ValueError, TypeError):
+            pass
+        state = info.get("charging_state") or info.get("chargingState")
+        if state == "Charging":
+            return True
+
+        for mv in meter_values or []:
+            for sv in (mv.get("sampled_value") or mv.get("sampledValue") or []):
+                if sv.get("measurand") not in ("Power.Active.Import", "Current.Import"):
+                    continue
+                try:
+                    if float(sv.get("value", 0) or 0) > 0:
+                        return True
+                except (ValueError, TypeError):
+                    continue
+        return False
 
     def _store_meter_values(self, charger, session, meter_values, evse_id, connector_id):
         """Persist readings, returning the newest cumulative kWh seen.
