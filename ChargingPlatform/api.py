@@ -729,7 +729,12 @@ class ConnectorMeterReading(BaseModel):
     voltage: Optional[float] = None
     current: Optional[float] = None
     power_kw: Optional[float] = None
+    # The charger's cumulative lifetime meter register, not this session's
+    # energy. The console labelled this one "Energy (session)" and so showed
+    # 512 kWh for a session that had delivered nothing.
     energy_kwh: Optional[float] = None
+    # What this session has actually delivered, from the session's own tally.
+    session_kwh: Optional[float] = None
     timestamp: Optional[str] = None
 
 
@@ -1579,14 +1584,18 @@ async def get_latest_metering_by_connector(
         raise HTTPException(status_code=404, detail="Charger not found")
 
     conn_by_txn: dict[int, int] = {}
-    for txn, conn in db.query(
-        ChargingSession.transaction_id, ChargingSession.connector_id
+    energy_by_txn: dict[int, float] = {}
+    for txn, conn, delivered in db.query(
+        ChargingSession.transaction_id,
+        ChargingSession.connector_id,
+        ChargingSession.energy_consumed,
     ).filter(
         ChargingSession.charger_id == charger.id,
         ChargingSession.transaction_id > 0,
-        ChargingSession.connector_id.isnot(None),
     ).all():
-        conn_by_txn[int(txn)] = int(conn)
+        if conn is not None:
+            conn_by_txn[int(txn)] = int(conn)
+        energy_by_txn[int(txn)] = float(delivered or 0)
 
     # Newest first, then keep the first hit per connector. The window is
     # bounded so a long-running charger does not scan its whole history;
@@ -1612,6 +1621,10 @@ async def get_latest_metering_by_connector(
             current=mv.current,
             power_kw=mv.power,
             energy_kwh=mv.total_kwh,
+            session_kwh=(
+                energy_by_txn.get(int(mv.transaction_id))
+                if mv.transaction_id else None
+            ),
             timestamp=_iso_myt_naive_local(mv.timestamp),
         )
 

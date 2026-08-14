@@ -863,7 +863,8 @@
                             ? `<div style="font-weight:600;font-size:11px;color:var(--accent);margin-bottom:4px;">${title}</div>` : ''}
                         <div class="ops-status-grid">
                             <span class="k">Power</span><span class="v">${fmt(m.power_kw, 'kW')}</span>
-                            <span class="k">Energy (session)</span><span class="v">${fmt(m.energy_kwh, 'kWh', 3)}</span>
+                            <span class="k">Energy (session)</span><span class="v">${fmt(m.session_kwh, 'kWh', 3)}</span>
+                            <span class="k">Meter reading</span><span class="v">${fmt(m.energy_kwh, 'kWh', 3)}</span>
                             <span class="k">Voltage</span><span class="v">${fmt(m.voltage, 'V', 1)}</span>
                             <span class="k">Current</span><span class="v">${fmt(m.current, 'A', 2)}</span>
                             <span class="k">Reading at</span><span class="v">${m.timestamp ? formatKLTime(m.timestamp) : '—'}</span>

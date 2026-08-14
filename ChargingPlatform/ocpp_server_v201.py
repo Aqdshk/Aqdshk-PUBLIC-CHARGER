@@ -199,25 +199,19 @@ class ChargePoint201(cp201):
 
             mapped = _STATUS_MAP.get(connector_status, "unknown")
 
-            # "Occupied" means the bay is taken, not that energy is flowing —
-            # 2.0.1 carries the charging state on the transaction, not here. A
-            # plugged-in car waiting to be started is Occupied, and calling that
-            # "charging" put a gun into charging with nothing drawn from it and
-            # offered a Stop the charger would refuse. Only call it charging if
-            # a transaction is actually open on that gun; otherwise it is a car
-            # plugged in and waiting, which is what "preparing" means.
-            if mapped == "charging":
-                active = (
-                    self.db.query(ChargingSession)
-                    .filter(
-                        ChargingSession.charger_id == charger.id,
-                        ChargingSession.connector_id == evse_id,
-                        ChargingSession.status.in_(["active", "pending"]),
-                    )
-                    .first()
-                )
-                if not active:
-                    mapped = "preparing"
+            # "Occupied" means the bay is taken, and that is all it means — 2.0.1
+            # carries the charging state on the transaction, never here. So this
+            # message can say "a car is plugged in", but it can never be the
+            # thing that says "charging".
+            #
+            # Resolving Occupied against an open transaction was the obvious
+            # guess and it is wrong: Gresying's firmware opens a transaction on
+            # CablePluggedIn, before any authorisation, so a car merely plugged
+            # in has both Occupied and an open transaction. Charging is claimed
+            # only by the transaction stream — an explicit Charging state, or
+            # real power on the cable — which _note_evse handles. Resolved below,
+            # once the current slot state is known.
+            occupied_downgrade = mapped == "charging"
 
             # Reuse the 1.6 connector_status column so the dashboard renders
             # 2.0.1 chargers unchanged. The dashboard keys slots "1", "2", "3",
@@ -236,6 +230,14 @@ class ChargePoint201(cp201):
                     conn_map = json.loads(charger.connector_status) or {}
                 except Exception:
                     conn_map = {}
+
+            # Occupied resolves to "plugged in, waiting" — unless the transaction
+            # stream has already established that this gun is charging, in which
+            # case leave that alone rather than flapping it back on every status
+            # report. Ended is what clears it.
+            if occupied_downgrade:
+                mapped = "charging" if conn_map.get(key) == "charging" else "preparing"
+
             conn_map[key] = mapped
             charger.connector_status = json.dumps(conn_map)
 
