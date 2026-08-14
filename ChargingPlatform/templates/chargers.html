@@ -589,7 +589,13 @@
                     const hasActive = charger.active_transaction_id != null && charger.active_transaction_id > 0;
                     let status = charger.status || 'offline', availability = charger.availability || 'unknown';
                     if (status === 'offline') availability = 'unavailable';
-                    else if (hasActive && (availability === 'charging' || status === 'online')) availability = 'charging';
+                    // The page used to overwrite availability with 'charging'
+                    // whenever a transaction was open, which contradicted the
+                    // per-gun chips it drew directly underneath: an OCPP 2.0.1
+                    // charger opens a transaction when the cable is plugged in,
+                    // so the header read CHARGING while every gun read
+                    // PREPARING. The server already decides this from the
+                    // charging state and the meter; take its answer.
                     const statusBadge = status === 'online' ? 'badge-online' : 'badge-offline';
                     const availBadge = `badge-${availability}`;
                     const itemClass = status === 'offline' ? 'offline' : availability === 'charging' ? 'charging' : availability === 'faulted' ? 'faulted' : '';
