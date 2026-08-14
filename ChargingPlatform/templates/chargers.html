@@ -653,23 +653,27 @@
                         const st = connMap[String(gun)] || 'unknown';
                         const txn = txnByConn[String(gun)];
                         const label = connCount > 1 ? ` Gun ${gun}` : '';
-                        if (txn || st === 'charging' || st === 'finishing') {
-                            // A transaction can be open on a gun that is not
-                            // charging — an OCPP 2.0.1 charger opens one when
-                            // the cable goes in — and offering "Stop" there
-                            // contradicts a gun the same card shows as
-                            // PREPARING. Name the action for what it ends.
-                            const charging = st === 'charging' || st === 'finishing';
-                            const verb = charging ? 'Stop' : 'Cancel';
-                            const hint = charging
-                                ? 'Stop this charging session'
-                                : 'End the open transaction on this gun — the cable is connected but no energy is flowing';
-                            return `<button class="btn btn-danger btn-small" title="${hint}" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ ${verb}${label}</button>`;
+                        // Decide from what the gun is doing, not from whether a
+                        // transaction row exists. Testing the transaction first
+                        // hid Start behind Cancel on a plugged-in gun: an OCPP
+                        // 2.0.1 charger opens a transaction the moment the cable
+                        // goes in, so a car waiting to be started always had
+                        // one. That transaction is the precondition for starting,
+                        // not a reason to withhold the button.
+                        const charging = st === 'charging' || st === 'finishing';
+                        const cancelBtn = txn
+                            ? `<button class="btn btn-danger btn-small" title="End the open transaction on this gun without charging" onclick="stopCharging('${cpEsc}',${txn},${gun})">⏹ Cancel${label}</button>`
+                            : '';
+
+                        if (charging) {
+                            return `<button class="btn btn-danger btn-small" title="Stop this charging session" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;
                         }
                         if (status === 'online' && (st === 'available' || st === 'preparing')) {
-                            return `<button class="btn btn-success btn-small" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>`;
+                            // Start is the action that matters here; Cancel rides
+                            // along only when there is a transaction to cancel.
+                            return `<button class="btn btn-success btn-small" title="Begin charging on this gun" onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>` + cancelBtn;
                         }
-                        return '';
+                        return cancelBtn;
                     }).join('');
                     return `
                         <div class="charger-item ${itemClass}">

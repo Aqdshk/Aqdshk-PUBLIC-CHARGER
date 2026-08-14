@@ -3773,9 +3773,19 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message="No response from charger for RemoteStopTransaction.",
             )
         logger.error(f"RemoteStopTransaction failed: {status}")
+        # Say who refused and what it refused. "Failed to stop charging:
+        # Rejected" reads as a platform fault, and on a gun that is plugged in
+        # but not charging it is doubly confusing — there was no charging to
+        # stop. The charger answered Rejected to a transaction id it issued
+        # itself, which is a charger-side decision we cannot override.
         return ChargingResponse(
             success=False,
-            message=f"Failed to stop charging: {status}",
+            message=(
+                f"The charger refused the request ({status}). It was asked to end "
+                f"transaction {txn_id_for_stop}, which the charger itself reported. "
+                f"Nothing on the platform can override that — the charger has to "
+                f"accept RequestStopTransaction, or end the transaction itself."
+            ),
         )
     except Exception as e:
         logger.error(f"Error stopping charging: {e}", exc_info=True)
