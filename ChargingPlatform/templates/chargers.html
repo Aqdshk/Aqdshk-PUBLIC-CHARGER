@@ -663,8 +663,18 @@
                         // One button per gun. Offering Start and Cancel together
                         // put four buttons on a two-gun charger for no gain: on
                         // a plugged-in gun the only thing anyone wants is Start.
-                        const charging = st === 'charging' || st === 'finishing';
-                        if (charging) {
+                        // "Finishing" means the session has ended but the cable is
+                        // still in. The connector will not accept a new
+                        // transaction until it is unplugged — a DC session cannot
+                        // resume, it needs a fresh handshake. Offering Stop here
+                        // was useless (nothing left to stop) and offering nothing
+                        // else left the operator pressing Start into a void, which
+                        // is exactly what happened on DC3001 on 17 August. Say
+                        // what has to happen instead.
+                        if (st === 'finishing') {
+                            return `<span class="gun-hint" title="The transaction has ended. DC charging cannot resume on the same plug-in — the cable must be removed so the connector returns to Available.">🔌 Unplug${label} to charge again</span>`;
+                        }
+                        if (st === 'charging') {
                             return `<button class="btn btn-danger btn-small" title="Stop this charging session" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;
                         }
                         if (status === 'online' && (st === 'available' || st === 'preparing')) {

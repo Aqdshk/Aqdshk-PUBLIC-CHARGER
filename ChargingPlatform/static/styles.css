@@ -471,7 +471,19 @@ body {
 .charger-conns { margin-bottom:6px; }
 .charger-conns .conn-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
 .charger-conns .badge { font-size:9px; }
-.charger-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
+.charger-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); align-items:center; flex-wrap:wrap; }
+
+/* Sits where a gun's button would be, when the answer is an instruction rather
+   than an action — a connector in "Finishing" needs the cable pulled, and there
+   is nothing for the operator to click. */
+.gun-hint {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:4px 8px; font-size:10px; font-weight:600; border-radius:6px;
+    color:var(--warning, #ffa500);
+    background:rgba(255,165,0,0.10);
+    border:1px solid rgba(255,165,0,0.30);
+    cursor:help;
+}
 
 /* ============= SESSION ITEMS ============= */
 .session-item {
