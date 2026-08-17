@@ -663,16 +663,15 @@
                         // One button per gun. Offering Start and Cancel together
                         // put four buttons on a two-gun charger for no gain: on
                         // a plugged-in gun the only thing anyone wants is Start.
-                        // "Finishing" means the session has ended but the cable is
-                        // still in. The connector will not accept a new
-                        // transaction until it is unplugged — a DC session cannot
-                        // resume, it needs a fresh handshake. Offering Stop here
-                        // was useless (nothing left to stop) and offering nothing
-                        // else left the operator pressing Start into a void, which
-                        // is exactly what happened on DC3001 on 17 August. Say
-                        // what has to happen instead.
+                        // "Finishing" means the last session ended with the cable
+                        // still in. Offering Stop there is useless — nothing left
+                        // to stop — but withholding Start is worse: the charger
+                        // keeps the EV session alive for a short while and does
+                        // accept a fresh start, which DC3001 did three times in a
+                        // row. Offer Start and let the charger decide; if it has
+                        // timed out it says so, and the error explains replugging.
                         if (st === 'finishing') {
-                            return `<span class="gun-hint" title="The transaction has ended. DC charging cannot resume on the same plug-in — the cable must be removed so the connector returns to Available.">🔌 Unplug${label} to charge again</span>`;
+                            return `<button class="btn btn-success btn-small" title="Start a new session. If the charger has timed out with the cable still in, it will say so — then unplug and plug in again." onclick="startCharging('${cpEsc}',${gun})">▶ Start${label}</button>`;
                         }
                         if (st === 'charging') {
                             return `<button class="btn btn-danger btn-small" title="Stop this charging session" onclick="stopCharging('${cpEsc}',${txn || 'null'},${gun})">⏹ Stop${label}</button>`;

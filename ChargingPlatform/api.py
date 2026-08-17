@@ -3513,7 +3513,13 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
         # A session whose connector is unknown counts as busy on every gun. The
         # TNG kiosk opens its pending session without one, and a paid session
         # must never be the reason this check decides a gun is free.
-        if charger.availability not in ["available", "preparing"]:
+        # "finishing" belongs with the startable states. The transaction has
+        # ended but the charger keeps the EV session alive for a short while and
+        # will accept a fresh start — DC3001 accepted three in a row from
+        # Finishing on 17 August, each within forty seconds, and only refused one
+        # attempted fifteen minutes later. Blocking it here would remove a
+        # working path; let the charger be the one to decide it has timed out.
+        if charger.availability not in ["available", "preparing", "finishing"]:
             connector_busy = db.query(ChargingSession).filter(
                 ChargingSession.charger_id == charger.id,
                 or_(
@@ -3529,19 +3535,6 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 )
             else:
                 logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
-                # Name the way out where there is one. A connector in Finishing
-                # has ended its session with the cable still in, and no amount
-                # of retrying will start it — the charger refuses until the plug
-                # is pulled, which is what DC3001 did to three start attempts.
-                if _connector_state(charger, request.connector_id) == "finishing":
-                    return ChargingResponse(
-                        success=False,
-                        message=(
-                            f"Gun {request.connector_id} has finished its last session but the "
-                            f"cable is still connected. Unplug it and plug in again — the charger "
-                            f"will not accept a new session until then."
-                        ),
-                    )
                 return ChargingResponse(
                     success=False,
                     message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
@@ -3634,7 +3627,18 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
             else:
                 status = response.status if hasattr(response, 'status') else str(response)
                 if status == "Rejected":
-                    error_msg = "Charger rejected the start request. Charger may be unavailable or already charging."
+                    # This is where the unplug advice belongs — after the charger
+                    # has actually refused, not before it has been asked. A
+                    # connector that has been sitting in Finishing has usually
+                    # timed out its EV session, and replugging is the remedy.
+                    if _connector_state(charger, request.connector_id) == "finishing":
+                        error_msg = (
+                            f"The charger refused the start. Gun {request.connector_id} has finished "
+                            f"its last session and appears to have timed out with the cable still in — "
+                            f"unplug it and plug in again, then start."
+                        )
+                    else:
+                        error_msg = "Charger rejected the start request. Charger may be unavailable or already charging."
                 elif status == "NotSupported":
                     error_msg = "Charger does not support RemoteStartTransaction."
                 else:
