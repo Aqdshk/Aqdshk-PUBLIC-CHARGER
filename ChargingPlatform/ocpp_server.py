@@ -268,9 +268,20 @@ def _auth_method_used(websocket: Any, raw_path: str) -> str:
 
 
 def utc_now_iso_z() -> str:
-    """RFC3339 timestamp — uses Malaysia time (UTC+8) so charger display shows correct local time."""
-    myt = timezone(timedelta(hours=8))
-    return datetime.now(myt).isoformat()
+    """Genuine UTC with a Z suffix, as OCPP requires for currentTime.
+
+    This used to return Malaysia time with a +08:00 offset, on the theory that
+    it would make the charger's own screen read local time. It did the
+    opposite: the charger takes the value as UTC, ignores the offset, and adds
+    its configured zone on top — so DC3001 displayed 23:19 when it was 16:19,
+    and every timestamp it sent back carried local time under a Z suffix. We
+    had taught it the wrong convention, and then had to guess the zone of
+    everything it told us.
+
+    Send UTC. What the screen shows is then the charger's own timezone setting,
+    which is where that belongs.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ─── ChargePoint: OCPP 1.6 Message Handlers (Inbound) ─────────────────────
