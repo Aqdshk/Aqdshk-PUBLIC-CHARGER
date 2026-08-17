@@ -8669,7 +8669,10 @@ async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, de
             f"[stop-fallback] session {session_id} on {charger_id}: charger "
             f"did not send StopTransaction within {delay_s}s — force-closing"
         )
-        sess.stop_time = _utcnow()
+        # Session times are stored as Malaysia wall time, the same basis the
+        # charger's own timestamps land on after normalisation. Writing UTC
+        # here put the close eight hours before the start.
+        sess.stop_time = (datetime.now(UTC) + timedelta(hours=8)).replace(tzinfo=None)
         sess.status = "completed"
         sess.stop_reason = sess.stop_reason or "Local"
         charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()

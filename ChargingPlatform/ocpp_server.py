@@ -54,6 +54,49 @@ def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# Session and meter timestamps are stored as Malaysia wall time with no zone —
+# that is what the API serialises them as (_iso_myt_naive_local) and what the
+# dashboard renders. Charger heartbeats are stored as real UTC because online
+# detection compares them against _utcnow(). Two conventions in one codebase,
+# so both helpers below are named for the one they produce.
+_MYT_OFFSET = timedelta(hours=8)
+
+
+def _now_myt():
+    """Server clock as Malaysia wall time, naive — the session/meter convention."""
+    return (datetime.now(timezone.utc) + _MYT_OFFSET).replace(tzinfo=None)
+
+
+def _charger_ts_to_myt(value, fallback=None):
+    """Normalise a charger's timestamp to Malaysia wall time.
+
+    Chargers disagree about what "Z" means. DC3001 sends local time with a Z
+    suffix; the Gresgying 2.0.1 unit sends genuine UTC. Storing either verbatim
+    put two different zones in one column, which is how sessions ended up with
+    a stop eight hours before their start.
+
+    A live message is minutes old, so compare the parsed value against both
+    readings of now and take whichever it is closer to. Anything far from both
+    is a message the charger queued while offline; keep it as sent rather than
+    inventing a correction.
+    """
+    if not value:
+        return fallback if fallback is not None else _now_myt()
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return fallback if fallback is not None else _now_myt()
+
+    naive = parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    as_utc = naive + _MYT_OFFSET      # charger meant UTC → shift to MYT
+    as_local = naive                  # charger meant local time already
+
+    now = _now_myt()
+    if abs((as_utc - now).total_seconds()) <= abs((as_local - now).total_seconds()):
+        return as_utc
+    return as_local
+
+
 # ─── Globals ─────────────────────────────────────────────────────────────
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 # Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
@@ -285,7 +328,7 @@ class ChargePoint(cp):
                     ).all()
                     
                 if orphaned:
-                    now = _utcnow()
+                    now = _now_myt()
                     for s in orphaned:
                         last_meter = (
                             self.db.query(MeterValue)
@@ -293,7 +336,17 @@ class ChargePoint(cp):
                             .order_by(desc(MeterValue.timestamp))
                             .first()
                         )
-                        final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
+                        # The stored reading is the charger's cumulative register,
+                        # so the session's delivery is the distance from where it
+                        # opened. Taking the register raw billed the meter's whole
+                        # life to one interrupted session.
+                        if last_meter and last_meter.total_kwh is not None:
+                            if s.meter_start is not None:
+                                final_energy = max(0.0, last_meter.total_kwh - s.meter_start / 1000.0)
+                            else:
+                                final_energy = float(s.energy_consumed or 0.0)
+                        else:
+                            final_energy = float(s.energy_consumed or 0.0)
                         s.status = "interrupted"
                         s.stop_time = now
                         s.energy_consumed = final_energy
@@ -514,7 +567,7 @@ class ChargePoint(cp):
                                 f"{active_session.transaction_id} (charger stopped charging)"
                             )
                             active_session.status = 'completed'
-                            active_session.stop_time = _utcnow()
+                            active_session.stop_time = _now_myt()  # session clock is MYT wall time, not UTC
                     else:
                         # Other statuses (Unavailable, Faulted, etc.) - update availability
                         charger.availability = new_availability
@@ -528,7 +581,7 @@ class ChargePoint(cp):
                         ).all()
                         for session in placeholder_sessions:
                             session.status = 'completed'
-                            session.stop_time = _utcnow()
+                            session.stop_time = _now_myt()  # session clock is MYT wall time, not UTC
                             logger.info(f"Cleared placeholder session (transaction_id={session.transaction_id}) for charger {self.id}")
                     except Exception as e:
                         logger.error(f"Error clearing placeholder sessions for charger {self.id}: {e}", exc_info=True)
@@ -654,7 +707,7 @@ class ChargePoint(cp):
         try:
             charger = self.db.query(Charger).filter(Charger.charge_point_id == self.id).first()
             if charger:
-                start_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                start_dt = _charger_ts_to_myt(timestamp)
                 
                 # Check if a pending/active session already exists (created by RemoteStart).
                 # Must be scoped to THIS connector: on a multi-gun charger an
@@ -759,7 +812,7 @@ class ChargePoint(cp):
             ).first()
             
             if session:
-                session.stop_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                session.stop_time = _charger_ts_to_myt(timestamp)
                 session.status = "completed"
                 session.meter_stop = meter_stop
                 session.stop_reason = kwargs.get("reason")
@@ -937,7 +990,7 @@ class ChargePoint(cp):
             return call_result.MeterValues()
         
         for mv in meter_value:
-            timestamp = datetime.fromisoformat(mv['timestamp'].replace('Z', '+00:00'))
+            timestamp = _charger_ts_to_myt(mv.get('timestamp'))
             # python-ocpp converts camelCase → snake_case, so sampledValue → sampled_value
             sampled_value = mv.get('sampled_value', mv.get('sampledValue', []))
             
@@ -1991,7 +2044,7 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
 
                 final_energy = (last_meter.total_kwh or 0.0) if last_meter else (s.energy_consumed or 0.0)
                 s.status = "interrupted"
-                s.stop_time = _utcnow()
+                s.stop_time = _now_myt()  # session clock is MYT wall time, not UTC
                 s.energy_consumed = final_energy
 
                 if charger:
