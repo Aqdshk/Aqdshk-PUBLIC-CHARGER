@@ -333,6 +333,9 @@ body {
 .badge-success, .badge-online, .badge-charging, .badge-available { background: rgba(0,230,118,.12); color: var(--accent); }
 .badge-danger, .badge-offline, .badge-faulted { background: rgba(239,83,80,.12); color: var(--red); }
 .badge-warning, .badge-preparing { background: rgba(255,167,38,.12); color: var(--orange); }
+/* Finishing reads differently from Preparing on purpose: the cable has to come
+   out before this connector will take a new session. */
+.badge-finishing { background: rgba(139,148,158,.15); color: var(--text-secondary, #8b949e); }
 .badge-info { background: rgba(66,165,245,.12); color: var(--blue); }
 .badge-unavailable, .badge-unknown { background: rgba(90,100,120,.15); color: var(--text-muted); }
 

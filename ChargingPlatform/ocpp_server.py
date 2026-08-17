@@ -481,7 +481,14 @@ class ChargePoint(cp):
                 'Charging': 'charging',   # Set to charging if connector status is Charging
                 'SuspendedEVSE': 'preparing',
                 'SuspendedEV': 'preparing',
-                'Finishing': 'preparing',
+                # Finishing is not Preparing. Both mean "plugged in, not
+                # charging", but they call for opposite actions: from Preparing
+                # a charge can be started, while Finishing needs the cable
+                # pulled before the connector will accept anything. Collapsing
+                # them showed a green Start button on a connector the charger
+                # was about to refuse — which is exactly what DC3001 did on
+                # 17 August. The rank table below already expects "finishing".
+                'Finishing': 'finishing',
                 'Reserved': 'unavailable',
                 'Unavailable': 'unavailable',
                 'Faulted': 'faulted'

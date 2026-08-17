@@ -187,6 +187,16 @@ MYT = timezone(timedelta(hours=8))
 UTC = timezone.utc
 
 
+def _connector_state(charger, connector_id) -> Optional[str]:
+    """The stored state of one gun, from the per-connector map."""
+    if not charger or not getattr(charger, "connector_status", None):
+        return None
+    try:
+        return (json.loads(charger.connector_status) or {}).get(str(connector_id))
+    except Exception:
+        return None
+
+
 def _iso_myt_naive_local(v: Optional[datetime]) -> Optional[str]:
     """Serialize naive datetimes as Malaysia wall time (sessions, meter samples from OCPP)."""
     if v is None:
@@ -3519,6 +3529,19 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 )
             else:
                 logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
+                # Name the way out where there is one. A connector in Finishing
+                # has ended its session with the cable still in, and no amount
+                # of retrying will start it — the charger refuses until the plug
+                # is pulled, which is what DC3001 did to three start attempts.
+                if _connector_state(charger, request.connector_id) == "finishing":
+                    return ChargingResponse(
+                        success=False,
+                        message=(
+                            f"Gun {request.connector_id} has finished its last session but the "
+                            f"cable is still connected. Unplug it and plug in again — the charger "
+                            f"will not accept a new session until then."
+                        ),
+                    )
                 return ChargingResponse(
                     success=False,
                     message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
