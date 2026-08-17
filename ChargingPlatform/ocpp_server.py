@@ -993,8 +993,27 @@ class ChargePoint(cp):
                     ChargingSession.transaction_id == transaction_id
                 ).first()
                 if session and total_kwh:
-                    session.energy_consumed = total_kwh
-                    self.db.commit()
+                    # total_kwh is the charger's cumulative lifetime register,
+                    # not this session's delivery. Storing it raw billed the
+                    # customer for the meter's whole life: DC3001 session 296
+                    # delivered 5.453 kWh and was recorded as 474.86 kWh.
+                    #
+                    # A charger also keeps sending MeterValues for a few minutes
+                    # after StopTransaction, and those late readings landed here
+                    # and overwrote the correct figure StopTransaction had just
+                    # computed from meter_stop - meter_start. So only touch a
+                    # session that is still running.
+                    if session.status in ("active", "pending"):
+                        if session.meter_start is not None:
+                            session.energy_consumed = max(
+                                0.0, total_kwh - session.meter_start / 1000.0
+                            )
+                        else:
+                            # No opening reading yet — adopt this one so the
+                            # delta is right from here on.
+                            session.meter_start = int(total_kwh * 1000)
+                            session.energy_consumed = 0.0
+                        self.db.commit()
 
                     # Auto-stop on quota: quick-pay sessions have a kWh quota
                     # (= amount_paid / tariff). Once delivered ≥ quota, fire
