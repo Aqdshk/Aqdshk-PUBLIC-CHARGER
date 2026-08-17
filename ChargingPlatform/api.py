@@ -691,6 +691,11 @@ class ChargingSessionResponse(BaseModel):
     stop_time: Optional[datetime]
     energy_consumed: float
     status: str
+    # Why the session ended, as the charger reported it. status is "completed"
+    # for anything the charger closed cleanly, so on its own it cannot tell a
+    # finished charge from one the vehicle cut short — three DC3001 sessions on
+    # 17 August all read COMPLETED when only the last had actually finished.
+    stop_reason: Optional[str] = None
     charger_id: int
     charge_point_id: str
 

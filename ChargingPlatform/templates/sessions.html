@@ -168,6 +168,32 @@
         let _ssFilter = 'all';
         let _ssSearch = '';
 
+        // "completed" only means the charger closed the transaction cleanly, not
+        // that the car finished charging. The reason it gives is the difference
+        // between a full battery and a session the vehicle cut short, so show it
+        // whenever it says something the status does not.
+        const _STOP_REASON_TEXT = {
+            EVDisconnected:  ['vehicle disconnected', 'The charger ended the session because the EV side disconnected — cable, connector contact, or the vehicle itself.'],
+            Remote:          ['stopped from platform', 'Ended by a remote stop request.'],
+            Local:           ['stopped at charger', 'Ended at the charge point itself.'],
+            QuotaReached:    ['paid quota reached', 'Stopped automatically once the energy paid for had been delivered.'],
+            PowerLoss:       ['power loss', 'The charge point lost power.'],
+            EmergencyStop:   ['emergency stop', 'The emergency stop was triggered.'],
+            DeAuthorized:    ['de-authorised', 'The token authorising the session was withdrawn.'],
+            Other:           ['reason: other', 'The charger reported "Other" — commonly a normal end of charge on this firmware.'],
+        };
+
+        function _stopReasonNote(s) {
+            const r = s.stop_reason;
+            if (!r) return '';
+            const known = _STOP_REASON_TEXT[r];
+            const label = known ? known[0] : r;
+            const hint  = known ? known[1] : `Stop reason reported by the charger: ${r}`;
+            const warn  = (r === 'EVDisconnected' || r === 'PowerLoss' || r === 'EmergencyStop');
+            const colour = warn ? 'var(--warning, #ffa500)' : 'var(--text-muted, #8b949e)';
+            return `<div title="${hint}" style="font-size:10px;margin-top:3px;color:${colour};cursor:help;">${label}</div>`;
+        }
+
         function _shortTime(iso) {
             if (!iso) return '—';
             try {
@@ -235,7 +261,10 @@
                     <td class="time">${stopTxt}</td>
                     <td class="num">${energy}</td>
                     <td class="cp">${s.id_tag || '—'}</td>
-                    <td><span class="ss-pill ${s.status}">${s.status}</span></td>
+                    <td>
+                        <span class="ss-pill ${s.status}">${s.status}</span>
+                        ${_stopReasonNote(s)}
+                    </td>
                 </tr>`;
             }).join('');
         }
