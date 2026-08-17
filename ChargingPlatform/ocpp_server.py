@@ -507,7 +507,12 @@ class ChargePoint(cp):
                         .first()
                     )
                     if open_session:
-                        now = _utcnow()
+                        # Must be the session clock: the idle fee is billed from
+                        # stop_time - idle_started_at, and stop_time is Malaysia
+                        # wall time. Starting the timer in UTC made every session
+                        # look eight hours idle — 480 chargeable minutes deducted
+                        # from the customer's refund before they had moved the car.
+                        now = _now_myt()
                         open_session.charge_complete_at = now
                         open_session.idle_started_at = now
                         logger.info(
