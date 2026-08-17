@@ -1097,22 +1097,33 @@ class ChargePoint(cp):
                                     f"delivered={delivered_kwh:.3f} kWh ≥ quota={kwh_limit} kWh "
                                     f"→ firing RemoteStopTransaction"
                                 )
-                                # Fire RemoteStop async — don't block MeterValues response.
-                                # python-ocpp call() resolves on charger ack; if it raises
-                                # we keep auto_stopped=True (charger will catch up at next
-                                # local stop or we'll retry via admin).
-                                try:
-                                    await self.call(
-                                        call.RemoteStopTransaction(
-                                            transaction_id=transaction_id
+                                # This has to be scheduled, never awaited. A
+                                # connection processes one message at a time, so
+                                # awaiting the stop from inside a MeterValues
+                                # handler blocks the very loop that would deliver
+                                # the charger's reply: the call sat for its full
+                                # 30-second timeout, the MeterValues response was
+                                # never sent, and the socket dropped. The quota
+                                # stop then never happened — on a paid session
+                                # that means the customer keeps drawing past what
+                                # they paid for.
+                                async def _fire_quota_stop(txn_id=transaction_id):
+                                    try:
+                                        resp = await self.call(
+                                            call.RemoteStopTransaction(transaction_id=txn_id)
                                         )
-                                    )
-                                except Exception as stop_err:
-                                    logger.error(
-                                        f"[auto-stop] RemoteStop failed for {self.id} "
-                                        f"txn={transaction_id}: {stop_err}",
-                                        exc_info=True,
-                                    )
+                                        logger.info(
+                                            f"[auto-stop] {self.id} txn={txn_id}: charger answered "
+                                            f"{getattr(resp, 'status', resp)}"
+                                        )
+                                    except Exception as stop_err:
+                                        logger.error(
+                                            f"[auto-stop] RemoteStop failed for {self.id} "
+                                            f"txn={txn_id}: {stop_err}",
+                                            exc_info=True,
+                                        )
+
+                                asyncio.create_task(_fire_quota_stop())
                     except Exception as quota_err:
                         logger.error(
                             f"[auto-stop] quota check failed for {self.id} "
