@@ -36,6 +36,38 @@ router = APIRouter(prefix="/ocpi", tags=["OCPI 2.2.1"])
 _PUBLISH_MAX_AGE_DAYS = int(os.getenv("OCPI_PUBLISH_MAX_AGE_DAYS", "7"))
 
 
+# OCPP connector state → OCPI 2.2.1 EVSE status.
+#
+# This lived inline in two places and both only handled charging, unavailable
+# and faulted, so everything else — including "finishing" and "preparing" —
+# fell through to AVAILABLE. A car that had finished charging but was still
+# plugged in was therefore advertised to roaming partners as a free bay, and a
+# driver sent to it would find the connector occupied.
+#
+# BLOCKED is the status OCPI defines for exactly that: "not accessible because
+# of a physical barrier, i.e. a car". It is also the signal roaming partners
+# use to detect idling.
+_OCPI_EVSE_STATUS = {
+    "charging":    "CHARGING",
+    "preparing":   "BLOCKED",      # cable connected, not yet drawing
+    "finishing":   "BLOCKED",      # charge done, car still plugged in — idling
+    "reserved":    "RESERVED",
+    "unavailable": "INOPERATIVE",
+    "faulted":     "OUTOFORDER",
+    "available":   "AVAILABLE",
+}
+
+
+def _ocpi_evse_status(availability: Optional[str]) -> str:
+    """Map our connector state to an OCPI EVSE status.
+
+    An unrecognised or missing state becomes UNKNOWN rather than AVAILABLE:
+    claiming a bay is free when we cannot tell sends drivers to chargers that
+    may not serve them.
+    """
+    return _OCPI_EVSE_STATUS.get((availability or "").strip().lower(), "UNKNOWN")
+
+
 def _publishable(query, cutoff: Optional[datetime] = None):
     """Restrict a Charger query to what may be published over OCPI.
 
@@ -193,11 +225,7 @@ async def get_locations(
             max_electric_power=7360,
             last_updated=now,
         )
-        evse_status = "AVAILABLE"
-        if (c.availability or "").lower() == "charging":
-            evse_status = "CHARGING"
-        elif (c.availability or "").lower() in ("unavailable", "faulted"):
-            evse_status = "INOPERATIVE"
+        evse_status = _ocpi_evse_status(c.availability)
 
         evse = EVSE(
             uid=f"{loc_id}-EVSE1",
@@ -281,11 +309,7 @@ async def get_location(
         max_electric_power=7360,
         last_updated=now,
     )
-    evse_status = "AVAILABLE"
-    if (charger.availability or "").lower() == "charging":
-        evse_status = "CHARGING"
-    elif (charger.availability or "").lower() in ("unavailable", "faulted"):
-        evse_status = "INOPERATIVE"
+    evse_status = _ocpi_evse_status(charger.availability)
 
     evse = EVSE(
         uid=f"{loc_id}-EVSE1",
