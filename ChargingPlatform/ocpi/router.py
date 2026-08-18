@@ -68,6 +68,62 @@ def _ocpi_evse_status(availability: Optional[str]) -> str:
     return _OCPI_EVSE_STATUS.get((availability or "").strip().lower(), "UNKNOWN")
 
 
+def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) -> list:
+    """One OCPI EVSE per gun.
+
+    We used to publish a single EVSE per charge point carrying the charger-wide
+    availability, so a two-gun unit appeared as one bay: gun 1 busy and gun 2
+    free was advertised as fully occupied, and gun 2 did not exist as far as a
+    roaming partner was concerned. Each gun is independently usable and needs
+    its own EVSE with its own status.
+
+    Gun 1 keeps the evse_id it has always been published under so nothing a
+    partner already holds a reference to changes; further guns carry their
+    connector number. The per-gun state comes from connector_status, falling
+    back to the charger-wide value for a unit that has not reported per
+    connector yet.
+    """
+    import json as _json
+
+    conn_map = {}
+    if getattr(charger, "connector_status", None):
+        try:
+            conn_map = _json.loads(charger.connector_status) or {}
+        except Exception:
+            conn_map = {}
+
+    guns = max(int(getattr(charger, "number_of_connectors", 1) or 1), 1)
+    for key in conn_map:
+        if str(key).isdigit():
+            guns = max(guns, int(key))
+
+    evses = []
+    for n in range(1, guns + 1):
+        state = conn_map.get(str(n)) or (charger.availability if guns == 1 else None)
+        suffix = "" if n == 1 else f"*{n}"
+        evses.append(
+            EVSE(
+                uid=f"{loc_id}-EVSE{n}",
+                evse_id=f"{country}*{party_id}*E*{charger.charge_point_id}{suffix}",
+                status=_ocpi_evse_status(state),
+                connectors=[
+                    Connector(
+                        id=str(n),
+                        standard="IEC_62196_T2",
+                        format="SOCKET",
+                        power_type="AC_1_PHASE",
+                        voltage=230,
+                        amperage=32,
+                        max_electric_power=7360,
+                        last_updated=now,
+                    )
+                ],
+                last_updated=now,
+            )
+        )
+    return evses
+
+
 def _publishable(query, cutoff: Optional[datetime] = None):
     """Restrict a Charger query to what may be published over OCPI.
 
@@ -215,25 +271,7 @@ async def get_locations(
     for c in chargers:
         loc_id = f"{country}{party_id}-{c.charge_point_id}"
         now = _to_ocpi_datetime(datetime.utcnow())
-        connector = Connector(
-            id="1",
-            standard="IEC_62196_T2",
-            format="SOCKET",
-            power_type="AC_1_PHASE",
-            voltage=230,
-            amperage=32,
-            max_electric_power=7360,
-            last_updated=now,
-        )
-        evse_status = _ocpi_evse_status(c.availability)
-
-        evse = EVSE(
-            uid=f"{loc_id}-EVSE1",
-            evse_id=f"{country}*{party_id}*E*{c.charge_point_id}",
-            status=evse_status,
-            connectors=[connector],
-            last_updated=now,
-        )
+        evses = _build_evses(c, loc_id, country, party_id, now)
         loc = Location(
             country_code=country,
             party_id=party_id,
@@ -249,7 +287,7 @@ async def get_locations(
                 "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
                 "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
             },
-            evses=[evse],
+            evses=evses,
             time_zone="Asia/Kuala_Lumpur",
             last_updated=now,
         )
@@ -299,25 +337,7 @@ async def get_location(
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     now = _to_ocpi_datetime(datetime.utcnow())
-    connector = Connector(
-        id="1",
-        standard="IEC_62196_T2",
-        format="SOCKET",
-        power_type="AC_1_PHASE",
-        voltage=230,
-        amperage=32,
-        max_electric_power=7360,
-        last_updated=now,
-    )
-    evse_status = _ocpi_evse_status(charger.availability)
-
-    evse = EVSE(
-        uid=f"{loc_id}-EVSE1",
-        evse_id=f"{country}*{party_id}*E*{charger.charge_point_id}",
-        status=evse_status,
-        connectors=[connector],
-        last_updated=now,
-    )
+    evses = _build_evses(charger, loc_id, country, party_id, now)
     loc = Location(
         country_code=country,
         party_id=party_id,
@@ -333,7 +353,7 @@ async def get_location(
             "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
             "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
         },
-        evses=[evse],
+        evses=evses,
         time_zone="Asia/Kuala_Lumpur",
         last_updated=now,
     )
