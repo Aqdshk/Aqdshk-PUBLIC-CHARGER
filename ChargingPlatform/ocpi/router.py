@@ -68,6 +68,31 @@ def _ocpi_evse_status(availability: Optional[str]) -> str:
     return _OCPI_EVSE_STATUS.get((availability or "").strip().lower(), "UNKNOWN")
 
 
+def _charger_id_from_location(location_id: Optional[str]) -> str:
+    """Recover our charge point id from an OCPI location id.
+
+    We publish locations as "<country><party>-<charge_point_id>", so anything a
+    partner sends back carries that prefix. The single-location endpoint strips
+    it; the commands endpoint did not, and matched the whole string against
+    charge_point_id — so a START_SESSION quoting the location id we had just
+    given out found no charger and was rejected.
+    """
+    if not location_id:
+        return ""
+    prefix = f"{os.getenv('OCPI_COUNTRY_CODE', 'MY')}{os.getenv('OCPI_PARTY_ID', 'PLG')}-"
+    return location_id[len(prefix):] if location_id.startswith(prefix) else location_id
+
+
+def _gun_from_evse_uid(evse_uid: Optional[str]) -> Optional[int]:
+    """Which gun an EVSE uid refers to — uids end "-EVSE<n>"."""
+    if not evse_uid:
+        return None
+    tail = str(evse_uid).rsplit("-EVSE", 1)
+    if len(tail) == 2 and tail[1].isdigit():
+        return int(tail[1])
+    return None
+
+
 def _tariff_id(charger) -> str:
     """Every charger prices independently, so every charger gets its own tariff."""
     return f"TARIFF-{charger.charge_point_id}"
@@ -666,17 +691,20 @@ async def post_command(command: str, request: Request, db: Session = Depends(get
 
     if command == "START_SESSION":
         location_id = body.get("location_id")
-        evse_uid = body.get("evse_uid") or location_id
-        connector_id = int(body.get("connector_id") or 1)
+        cp_id = _charger_id_from_location(location_id)
+        evse_uid = body.get("evse_uid")
+        # Prefer an explicit connector_id; otherwise take the gun from the EVSE
+        # uid, so a start aimed at gun 2 does not silently begin on gun 1.
+        connector_id = int(body.get("connector_id") or _gun_from_evse_uid(evse_uid) or 1)
         token = (body.get("token") or {}).get("uid") or "ROAMING_USER"
-        charger = db.query(Charger).filter(Charger.charge_point_id == location_id).first()
+        charger = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
         if not charger:
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "data": {"result": "REJECTED", "timeout": 0},
             }
-        cp = get_active_charge_point(location_id)
+        cp = get_active_charge_point(cp_id)
         if cp is None:
             asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
             return {
