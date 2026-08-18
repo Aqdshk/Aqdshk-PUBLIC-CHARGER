@@ -68,6 +68,56 @@ def _ocpi_evse_status(availability: Optional[str]) -> str:
     return _OCPI_EVSE_STATUS.get((availability or "").strip().lower(), "UNKNOWN")
 
 
+def _tariff_id(charger) -> str:
+    """Every charger prices independently, so every charger gets its own tariff."""
+    return f"TARIFF-{charger.charge_point_id}"
+
+
+def _build_tariff(charger, now: str) -> dict:
+    """The OCPI tariff for one charger, from its own rate and idle settings.
+
+    The tariffs endpoint used to read a `Pricing` table that is empty, so it
+    emitted a single TARIFF-DEFAULT carrying ENERGY at a hardcoded RM0.50 —
+    neither the per-charger rate the kiosk actually bills, nor the idle fee.
+    Nothing referenced it either, since connectors carried no tariff_ids.
+
+    Note the unit change: OCPI prices PARKING_TIME per hour, while we
+    configure it per minute, so the rate is multiplied by 60. step_size 60
+    keeps it billed in whole minutes, and the grace period becomes a
+    min_duration restriction in seconds — free until it elapses, charged
+    after.
+    """
+    energy_rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    elements = [
+        {
+            "price_components": [
+                {"type": "ENERGY", "price": round(energy_rate, 4), "step_size": 1}
+            ]
+        }
+    ]
+
+    if getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min:
+        per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
+        grace_seconds = int(charger.idle_grace_minutes or 0) * 60
+        element = {
+            "price_components": [
+                {"type": "PARKING_TIME", "price": per_hour, "step_size": 60}
+            ]
+        }
+        if grace_seconds:
+            element["restrictions"] = {"min_duration": grace_seconds}
+        elements.append(element)
+
+    return {
+        "id": _tariff_id(charger),
+        "currency": "MYR",
+        "country_code": os.getenv("OCPI_COUNTRY_CODE", "MY"),
+        "party_id": os.getenv("OCPI_PARTY_ID", "PLG"),
+        "elements": elements,
+        "last_updated": now,
+    }
+
+
 def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) -> list:
     """One OCPI EVSE per gun.
 
@@ -115,6 +165,10 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         voltage=230,
                         amperage=32,
                         max_electric_power=7360,
+                        # Without this an eMSP has no way to know what the
+                        # connector costs — Voltality reported every connector
+                        # arriving with no tariff attached.
+                        tariff_ids=[_tariff_id(charger)],
                         last_updated=now,
                     )
                 ],
@@ -532,36 +586,22 @@ async def get_tariffs(
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get tariffs (pricing)."""
-    pricings = db.query(Pricing).filter(Pricing.is_active == True).offset(offset).limit(limit or 100).all()
+    """Get tariffs — one per published charger, matching what it actually bills.
+
+    Previously this read the `Pricing` table, which is empty, so every partner
+    received a single TARIFF-DEFAULT at a hardcoded RM0.50 with only an ENERGY
+    component. That was neither the rate the kiosk charges nor did it carry the
+    idle fee, and no connector referenced it.
+    """
+    chargers = (
+        _publishable(db.query(Charger))
+        .order_by(Charger.id)
+        .offset(offset)
+        .limit(limit or 100)
+        .all()
+    )
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    result = []
-    for i, p in enumerate(pricings):
-        result.append({
-            "id": f"TARIFF-{p.id}",
-            "currency": "MYR",
-            "elements": [{
-                "price_components": [{
-                    "type": "ENERGY",
-                    "price": float(p.price_per_kwh),
-                    "step_size": 1
-                }]
-            }],
-            "last_updated": now,
-        })
-    if not result:
-        result.append({
-            "id": "TARIFF-DEFAULT",
-            "currency": "MYR",
-            "elements": [{
-                "price_components": [{
-                    "type": "ENERGY",
-                    "price": 0.5,
-                    "step_size": 1
-                }]
-            }],
-            "last_updated": now,
-        })
+    result = [_build_tariff(c, now) for c in chargers]
     return {
         "status_code": 1000,
         "status_message": "Success",
