@@ -712,6 +712,31 @@ class ChargePoint201(cp201):
         logger.info(f"[v201] FirmwareStatus from {self.id}: {status} (request_id={kwargs.get('request_id')})")
         return call_result.FirmwareStatusNotification()
 
+    @on("SecurityEventNotification")
+    async def on_security_event_notification(self, type: str, timestamp: str, **kwargs):
+        """Security events the charge point wants on record.
+
+        Gresgying's unit sent 66 of these — mostly ResetOrReboot, queued from
+        while it was offline — and with no handler registered the library
+        answered every one with a NotImplemented error. A charger being told
+        its security log was refused is a bad look on a platform that wants to
+        turn on authentication, so accept them and record what arrived.
+
+        The spec marks a few of these as critical, and those are worth a
+        warning rather than a line in a stream nobody reads.
+        """
+        critical = type in (
+            "FirmwareUpdated", "SettingSystemTime", "StartupOfDevice",
+            "ResetOrReboot", "SecurityLogWasCleared", "InvalidFirmwareSignature",
+            "InvalidCentralSystemCertificate", "InvalidChargingStationCertificate",
+        )
+        tech = kwargs.get("tech_info") or kwargs.get("techInfo")
+        line = f"[v201] SecurityEvent from {self.id}: {type} at {timestamp}"
+        if tech:
+            line += f" — {tech}"
+        (logger.warning if critical else logger.info)(line)
+        return call_result.SecurityEventNotification()
+
     @on("DataTransfer")
     async def on_data_transfer(self, vendor_id: str, **kwargs):
         """Vendor-specific payloads. Accepted and logged rather than acted on:
