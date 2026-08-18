@@ -546,18 +546,34 @@ async def get_cdrs(
         stop_time = s.stop_time or datetime.utcnow()
         duration_h = (stop_time - start_time).total_seconds() / 3600 if stop_time and start_time else 0
 
-        # Get pricing for total_cost (charger-specific first, then default)
-        pricing = db.query(Pricing).filter(
-            Pricing.charger_id == charger.id,
-            Pricing.is_active == True
-        ).first()
-        if not pricing:
-            pricing = db.query(Pricing).filter(
-                Pricing.charger_id.is_(None),
-                Pricing.is_active == True
-            ).first()
-        price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.5
-        total_cost = round(energy * price_per_kwh, 2)
+        # Bill at the rate we publish. This used to read the Pricing table,
+        # which is empty, and fall back to a hardcoded RM0.50 — so a charger
+        # advertised over OCPI at RM1.40 produced CDRs charged at RM0.50. The
+        # tariff and the bill have to come from the same number.
+        price_per_kwh = (
+            float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+        )
+        energy_cost = round(energy * price_per_kwh, 2)
+
+        # Idle time, billed the same way the kiosk bills it.
+        idle_minutes = int(s.idle_minutes or 0)
+        idle_cost = 0.0
+        if idle_minutes and charger.idle_fee_enabled and charger.idle_fee_per_min:
+            idle_cost = round(idle_minutes * float(charger.idle_fee_per_min), 2)
+        total_cost = round(energy_cost + idle_cost, 2)
+
+        gun = int(s.connector_id or 1)
+        evse_suffix = "" if gun == 1 else f"*{gun}"
+
+        periods = [{
+            "start_datetime": _to_ocpi_datetime(start_time),
+            "dimensions": [{"type": "ENERGY", "volume": energy}],
+        }]
+        if idle_minutes:
+            periods.append({
+                "start_datetime": _to_ocpi_datetime(s.idle_started_at or stop_time),
+                "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
+            })
 
         result.append({
             "id": str(s.transaction_id),
@@ -566,17 +582,16 @@ async def get_cdrs(
             "auth_id": s.user_id or "UNKNOWN",
             "auth_method": "AUTH_REQUEST",
             "location_id": loc_id,
-            "evse_uid": f"{loc_id}-EVSE1",
-            "connector_id": "1",
+            "evse_uid": f"{loc_id}-EVSE{gun}",
+            "connector_id": str(gun),
             "currency": "MYR",
+            "tariff_id": _tariff_id(charger),
             "total_cost": total_cost,
             "total_energy": energy,
             "total_time": round(duration_h, 4),
+            "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
             "cdr_token": {"uid": s.user_id or "UNKNOWN", "type": "APP_USER", "contract_id": s.user_id or "UNKNOWN"},
-            "charging_periods": [{
-                "start_datetime": _to_ocpi_datetime(start_time),
-                "dimensions": [{"type": "ENERGY", "volume": energy}]
-            }],
+            "charging_periods": periods,
             "last_updated": _to_ocpi_datetime(stop_time),
         })
 
