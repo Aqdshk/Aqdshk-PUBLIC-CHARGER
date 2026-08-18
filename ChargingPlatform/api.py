@@ -1133,6 +1133,15 @@ async def get_chargers(
             "auth_ok": charger.auth_ok,
             "price_per_kwh": price_per_kwh,
             "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
+            # The idle-fee settings the Payment Terminals dialog edits. The
+            # response model declared them but this dict never filled them, so
+            # the dialog received undefined and fell back to its placeholder
+            # defaults — showing RM0.40 and 15 minutes for a charger actually
+            # set to RM0.15 and 10. Saving from that screen would have written
+            # the placeholders over the real figures.
+            "idle_fee_enabled": bool(charger.idle_fee_enabled) if charger.idle_fee_enabled is not None else None,
+            "idle_fee_per_min": float(charger.idle_fee_per_min) if charger.idle_fee_per_min is not None else None,
+            "idle_grace_minutes": int(charger.idle_grace_minutes) if charger.idle_grace_minutes is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
         }
         result.append(ChargerStatus(**charger_dict))
