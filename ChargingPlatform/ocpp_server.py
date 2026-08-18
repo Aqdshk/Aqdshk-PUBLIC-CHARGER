@@ -872,7 +872,13 @@ class ChargePoint(cp):
                 # this session, compute energy cost + idle fee, then mark the
                 # refund as pending. Actual TNG refund call happens in Phase 5.
                 try:
-                    if charger and charger.idle_fee_enabled and session.hold_amount_rm:
+                    # Idle minutes are a property of the charge, not of how it
+                    # was paid for. This whole block used to be gated on
+                    # hold_amount_rm, so idle time was only ever measured for
+                    # prepaid kiosk sessions — a roaming session carried none,
+                    # and the total_parking_time we publish over OCPI was always
+                    # zero no matter how long the car sat there.
+                    if charger and charger.idle_fee_enabled:
                         tariff = float(charger.tariff_per_kwh or 0.10)
                         kwh = float(session.energy_consumed or 0)
                         energy_cost = round(kwh * tariff, 2)
@@ -886,26 +892,35 @@ class ChargePoint(cp):
                             idle_min = int(past_grace)
                             idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
 
-                        hold = float(session.hold_amount_rm)
-                        total = energy_cost + idle_fee
-                        # Cap actual at hold (auto-stop should have prevented overrun)
-                        if total > hold:
-                            logger.warning(
-                                f"[idle-fee] session {transaction_id}: total {total} > hold {hold}, "
-                                f"capping refund at 0"
-                            )
-                            total = hold
-                        refund = round(hold - total, 2)
-
                         session.idle_minutes = idle_min
                         session.idle_fee_amount = Decimal(str(idle_fee))
-                        session.refund_amount = Decimal(str(refund))
-                        session.refund_status = "pending" if refund > 0 else "not_required"
-                        logger.info(
-                            f"[idle-fee] session {transaction_id} settled: "
-                            f"energy={energy_cost} idle={idle_fee} ({idle_min}min) "
-                            f"refund={refund} of hold={hold}"
-                        )
+
+                        # A refund only means something when money was held up
+                        # front, which is the kiosk flow. Roaming sessions are
+                        # settled by the partner from the CDR.
+                        if session.hold_amount_rm:
+                            hold = float(session.hold_amount_rm)
+                            total = energy_cost + idle_fee
+                            # Cap actual at hold (auto-stop should have prevented overrun)
+                            if total > hold:
+                                logger.warning(
+                                    f"[idle-fee] session {transaction_id}: total {total} > hold {hold}, "
+                                    f"capping refund at 0"
+                                )
+                                total = hold
+                            refund = round(hold - total, 2)
+                            session.refund_amount = Decimal(str(refund))
+                            session.refund_status = "pending" if refund > 0 else "not_required"
+                            logger.info(
+                                f"[idle-fee] session {transaction_id} settled: "
+                                f"energy={energy_cost} idle={idle_fee} ({idle_min}min) "
+                                f"refund={refund} of hold={hold}"
+                            )
+                        else:
+                            logger.info(
+                                f"[idle-fee] session {transaction_id}: energy={energy_cost} "
+                                f"idle={idle_fee} ({idle_min}min) — no hold, billed by the partner"
+                            )
                         self.db.commit()
                 except Exception as e:
                     logger.error(f"[idle-fee] settlement failed for session {transaction_id}: {e}", exc_info=True)
