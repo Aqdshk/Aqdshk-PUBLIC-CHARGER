@@ -3756,18 +3756,36 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             # StatusNotification that never came. The charger keeps stamping
             # its live transaction id on every MeterValues, so the newest
             # reading is direct evidence of what it still believes is open.
-            recent_mv = db.query(MeterValue).filter(
+            # Meter timestamps are Malaysia wall time, so the window has to be
+            # measured on that clock. Comparing them against utcnow made a
+            # "last 30 minutes" filter reach back eight and a half hours.
+            window_start = (datetime.now(UTC) + timedelta(hours=8)).replace(tzinfo=None) - timedelta(minutes=30)
+            candidates = db.query(MeterValue).filter(
                 MeterValue.charger_id == charger.id,
                 MeterValue.transaction_id.isnot(None),
                 MeterValue.transaction_id > 0,
-                MeterValue.timestamp >= _utcnow() - timedelta(minutes=30),
-            ).order_by(desc(MeterValue.timestamp)).first()
-            if recent_mv:
-                txn_id_for_stop = int(recent_mv.transaction_id)
+                MeterValue.timestamp >= window_start,
+            ).order_by(desc(MeterValue.timestamp)).limit(20).all()
+
+            for mv in candidates:
+                # A charger keeps sending meter values for a while after a
+                # transaction ends, so the newest reading is not proof that its
+                # transaction is still open. Stopping a finished one is refused
+                # by the charger and leaves the live session running, which is
+                # what happened on DC3001 when a second Stop was answered
+                # Rejected. Skip any transaction we have already closed.
+                closed = db.query(ChargingSession).filter(
+                    ChargingSession.transaction_id == int(mv.transaction_id),
+                    ChargingSession.status.in_(["completed", "interrupted"]),
+                ).first()
+                if closed:
+                    continue
+                txn_id_for_stop = int(mv.transaction_id)
                 logger.warning(
                     f"RemoteStop desync recovery on {charger.charge_point_id}: no open session, "
-                    f"using transaction_id={txn_id_for_stop} from a meter reading at {recent_mv.timestamp}"
+                    f"using transaction_id={txn_id_for_stop} from a meter reading at {mv.timestamp}"
                 )
+                break
 
         if txn_id_for_stop <= 0:
             logger.error(
