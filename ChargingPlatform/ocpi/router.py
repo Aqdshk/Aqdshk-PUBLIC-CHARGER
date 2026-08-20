@@ -143,6 +143,63 @@ def _build_tariff(charger, now: str) -> dict:
     }
 
 
+_CONNECTOR_STANDARDS = {
+    "ccs2": ("IEC_62196_T2_COMBO", "CABLE", "DC"),
+    "ccs": ("IEC_62196_T2_COMBO", "CABLE", "DC"),
+    "ccs1": ("IEC_62196_T1_COMBO", "CABLE", "DC"),
+    "chademo": ("CHADEMO", "CABLE", "DC"),
+    "gbt": ("GBT_DC", "CABLE", "DC"),
+    "type 2": ("IEC_62196_T2", "SOCKET", "AC"),
+    "type2": ("IEC_62196_T2", "SOCKET", "AC"),
+    "iec_62196_t2": ("IEC_62196_T2", "SOCKET", "AC"),
+    "type 1": ("IEC_62196_T1", "CABLE", "AC"),
+    "type1": ("IEC_62196_T1", "CABLE", "AC"),
+}
+
+
+def _connector_spec(charger):
+    """Describe a gun from what the charger record actually says.
+
+    Every connector used to be published as a 7.36 kW single-phase Type 2
+    socket regardless of the hardware, because the standard, format, power
+    type, voltage and amperage were all written into the payload as
+    constants. DC3001 is a 30 kW CCS2 DC unit and was advertised to roaming
+    partners as slow AC with the wrong plug, so a driver filtering for CCS
+    would never see it and a driver who did come would find a plug that does
+    not fit their car.
+
+    Where the record has no connector_type we keep the previous Type 2
+    assumption, since that is what partners already hold and guessing DC for
+    an unknown unit would be the more damaging error.
+    """
+    raw = (getattr(charger, "connector_type", None) or "").strip().lower()
+    standard, fmt, current = _CONNECTOR_STANDARDS.get(raw, ("IEC_62196_T2", "SOCKET", "AC"))
+
+    kw = getattr(charger, "max_power_kw", None)
+    try:
+        kw = float(kw) if kw else None
+    except (TypeError, ValueError):
+        kw = None
+
+    if current == "DC":
+        power_type = "DC"
+        voltage, amperage = 400, 80
+        max_w = int((kw or 50.0) * 1000)
+        amperage = max(1, round(max_w / voltage))
+    else:
+        max_w = int((kw or 7.36) * 1000)
+        # 22 kW and above on AC is three-phase in practice; below that a
+        # single-phase 230 V supply is the safe description.
+        if max_w >= 22000:
+            power_type, voltage = "AC_3_PHASE", 400
+            amperage = max(1, round(max_w / (voltage * 1.732)))
+        else:
+            power_type, voltage = "AC_1_PHASE", 230
+            amperage = max(1, round(max_w / voltage))
+
+    return standard, fmt, power_type, voltage, amperage, max_w
+
+
 def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) -> list:
     """One OCPI EVSE per gun.
 
@@ -172,6 +229,8 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
         if str(key).isdigit():
             guns = max(guns, int(key))
 
+    _std, _fmt, _ptype, _volt, _amp, _maxw = _connector_spec(charger)
+
     evses = []
     for n in range(1, guns + 1):
         state = conn_map.get(str(n)) or (charger.availability if guns == 1 else None)
@@ -184,12 +243,12 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                 connectors=[
                     Connector(
                         id=str(n),
-                        standard="IEC_62196_T2",
-                        format="SOCKET",
-                        power_type="AC_1_PHASE",
-                        voltage=230,
-                        amperage=32,
-                        max_electric_power=7360,
+                        standard=_std,
+                        format=_fmt,
+                        power_type=_ptype,
+                        voltage=_volt,
+                        amperage=_amp,
+                        max_electric_power=_maxw,
                         # Without this an eMSP has no way to know what the
                         # connector costs — Voltality reported every connector
                         # arriving with no tariff attached.
