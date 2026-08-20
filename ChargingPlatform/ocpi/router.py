@@ -5,6 +5,7 @@ Implements Sender interface - eMSP (e.g. TNG) pulls data from us.
 import logging
 import os
 import secrets
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -231,6 +232,11 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
 
     _std, _fmt, _ptype, _volt, _amp, _maxw = _connector_spec(charger)
 
+    # What the QR sticker on that gun actually encodes. Partners asked how a
+    # scan maps to an EVSE; publishing the sticker contents lets them match a
+    # scanned code to the EVSE without us agreeing a separate code list.
+    sticker_base = os.getenv("QR_STICKER_BASE_URL", "https://charger.czeros.tech/pay")
+
     evses = []
     for n in range(1, guns + 1):
         state = conn_map.get(str(n)) or (charger.availability if guns == 1 else None)
@@ -240,6 +246,10 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                 uid=f"{loc_id}-EVSE{n}",
                 evse_id=f"{country}*{party_id}*E*{charger.charge_point_id}{suffix}",
                 status=_ocpi_evse_status(state),
+                physical_reference=(
+                    f"{sticker_base}?charger={quote(str(charger.charge_point_id), safe='')}"
+                    f"&connector={n}"
+                ),
                 connectors=[
                     Connector(
                         id=str(n),
