@@ -55,7 +55,12 @@
         /* Operation the selected charger's protocol version cannot service.
            Dimmed rather than hidden so the operator can see it exists and,
            via the tooltip, why it is unavailable right now. */
-        .ops-item.ops-blocked { opacity: .35; cursor: not-allowed; }
+        .ops-item.ops-blocked { opacity: .35; }
+        .ops-warn {
+            margin: 0 0 14px; padding: 10px 14px; border-radius: 6px;
+            background: rgba(255,167,38,0.10); border-left: 3px solid #ffa726;
+            color: #ffa726; font-size: 12.5px; line-height: 1.5;
+        }
         /* An operation can be unavailable for either of two opposite reasons —
            it has no 2.0.1 implementation, or it is 2.0.1-only and the selected
            charger speaks 1.6 — so the badge carries its own text rather than
@@ -517,8 +522,15 @@
             });
             if(!op.fields.length) fh='<p style="color:var(--text-muted);font-size:11px;">No parameters required.</p>';
 
+            // A dimmed operation still opens, so the operator can read the form
+            // and see what it would take. Say plainly why Execute will fail
+            // rather than letting them find out from a 501.
+            const _blockedNote = document.querySelector(`.ops-item[data-op="${opKey}"]`)?.dataset.blocked
+                ? `<div class="ops-warn">${document.querySelector(`.ops-item[data-op="${opKey}"]`).title}</div>`
+                : '';
+
             document.getElementById('opsContent').innerHTML=`
-                <div class="ops-hdr"><h2>${op.title}</h2><p>${op.desc}</p></div>
+                <div class="ops-hdr"><h2>${op.title}</h2><p>${op.desc}</p></div>${_blockedNote}
                 <div class="pcard"><div class="pcard-title">Parameters</div>${fh}<button class="btn-go" id="btnPerform" onclick="performOp()">⚡ Execute</button></div>
                 <div class="resp" id="responseArea"><div class="resp-lbl">Response</div><div id="respStatus"></div><pre id="respBody"></pre></div>`;
 
@@ -608,16 +620,10 @@
             finally { btn.disabled=false; btn.textContent='⚡ Execute'; }
         }
 
-        // Dimming was cosmetic: a blocked entry still opened its form and sent
-        // the request, which only then failed at the API with a 501. Refuse it
-        // here rather than via pointer-events, so hovering still explains why.
-        document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>{
-            if (el.classList.contains('ops-blocked')) {
-                showToast(el.title || 'Not available for this charger', 'error');
-                return;
-            }
-            selectOp(el.dataset.op);
-        }));
+        // A dimmed entry still opens, because the operator often wants to read
+        // the form and see what the operation would take. Warn instead of
+        // refusing; the API is the thing that actually enforces the version.
+        document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>selectOp(el.dataset.op)));
         document.addEventListener('DOMContentLoaded', loadChargers);
 
         // ─────────────────────────────────────────
