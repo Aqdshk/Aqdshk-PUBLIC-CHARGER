@@ -55,7 +55,7 @@
         /* Operation the selected charger's protocol version cannot service.
            Dimmed rather than hidden so the operator can see it exists and,
            via the tooltip, why it is unavailable right now. */
-        .ops-item.ops-blocked { opacity: .35; }
+        .ops-item.ops-blocked { opacity: .35; cursor: not-allowed; }
         /* An operation can be unavailable for either of two opposite reasons —
            it has no 2.0.1 implementation, or it is 2.0.1-only and the selected
            charger speaks 1.6 — so the badge carries its own text rather than
@@ -608,7 +608,16 @@
             finally { btn.disabled=false; btn.textContent='⚡ Execute'; }
         }
 
-        document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>selectOp(el.dataset.op)));
+        // Dimming was cosmetic: a blocked entry still opened its form and sent
+        // the request, which only then failed at the API with a 501. Refuse it
+        // here rather than via pointer-events, so hovering still explains why.
+        document.querySelectorAll('.ops-item').forEach(el=>el.addEventListener('click',()=>{
+            if (el.classList.contains('ops-blocked')) {
+                showToast(el.title || 'Not available for this charger', 'error');
+                return;
+            }
+            selectOp(el.dataset.op);
+        }));
         document.addEventListener('DOMContentLoaded', loadChargers);
 
         // ─────────────────────────────────────────
