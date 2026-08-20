@@ -26,7 +26,7 @@ Where 2.0.1 differs from 1.6, and why this file cannot just reuse the old one:
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from ocpp.routing import on
@@ -49,8 +49,16 @@ class OcppOperationUnsupported(NotImplementedError):
     """
 
 
+_MYT_OFFSET = timedelta(hours=8)
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _now_myt() -> datetime:
+    """Server clock as Malaysia wall time, naive — the session/meter convention."""
+    return (datetime.now(timezone.utc) + _MYT_OFFSET).replace(tzinfo=None)
 
 
 def _now_iso_z() -> str:
@@ -58,15 +66,26 @@ def _now_iso_z() -> str:
 
 
 def _parse_ts(value: Optional[str]) -> datetime:
-    """OCPP timestamps are ISO-8601 with a zone; the DB columns are naive UTC."""
+    """A charger's timestamp as Malaysia wall time.
+
+    Session and meter columns hold MYT wall time, not UTC — the 1.6 handler
+    has always written them that way and every report reads them that way.
+    This used to store UTC, so 2.0.1 sessions landed eight hours in the past:
+    a Gresgying session that ran at 14:54 was recorded as 06:54, sitting in
+    the same table as 1.6 rows that were correct.
+
+    Chargers disagree about what a zone means, so the offset is applied only
+    to values that carry one. A naive timestamp is taken at face value, which
+    matches how a charger sending local time intends it to be read.
+    """
     if not value:
-        return _utcnow()
+        return _now_myt()
     try:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
-        return _utcnow()
+        return _now_myt()
     if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = (dt.astimezone(timezone.utc) + _MYT_OFFSET).replace(tzinfo=None)
     return dt
 
 
