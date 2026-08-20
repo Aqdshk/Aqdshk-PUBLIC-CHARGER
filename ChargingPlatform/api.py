@@ -25,7 +25,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from urllib.parse import quote
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, desc, func, or_, text
@@ -2053,12 +2054,65 @@ async def qr_generator_page():
         raise HTTPException(status_code=500, detail=f"Error loading QR generator: {str(e)}")
 
 
+def _emsp_deeplink(charge_point_id: str, connector: str) -> Optional[str]:
+    """Where a scanned charger sticker should send the driver, if not to us.
+
+    The stickers already on the chargers encode our own /pay page, so a driver
+    who holds a roaming partner's app still lands on our checkout instead of
+    theirs. Rather than reprint every sticker, /pay can forward them.
+
+    The destination is configuration, not code, because we do not control the
+    partner's URL scheme and must not guess it: a wrong guess sends a driver
+    standing at a charger to a broken page. QR_REDIRECT_TEMPLATE holds the
+    partner's link with placeholders, and forwarding stays off until it is set.
+
+    Supported placeholders: {charge_point_id} {connector} {evse_uid}
+    {location_id}
+    """
+    template = (os.getenv("QR_REDIRECT_TEMPLATE") or "").strip()
+    if not template:
+        return None
+
+    # Only ever forward to an absolute https destination. Without this an
+    # edited template could turn the sticker into an open redirect.
+    if not template.lower().startswith("https://"):
+        logger.error(
+            "QR_REDIRECT_TEMPLATE ignored: must start with https:// (got %r)",
+            template[:40],
+        )
+        return None
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party = os.getenv("OCPI_PARTY_ID", "PLG")
+    location_id = f"{country}{party}-{charge_point_id}"
+
+    try:
+        return template.format(
+            charge_point_id=quote(charge_point_id, safe=""),
+            connector=quote(str(connector), safe=""),
+            location_id=quote(location_id, safe=""),
+            evse_uid=quote(f"{location_id}-EVSE{connector}", safe=""),
+        )
+    except KeyError as e:
+        logger.error("QR_REDIRECT_TEMPLATE uses unknown placeholder %s", e)
+        return None
+
+
 @app.get("/pay")
-async def quick_pay_page():
+async def quick_pay_page(charger: str = "", connector: str = "1"):
     """Guest-facing quick-pay page — opened from the QR sticker on a charger.
     Reads ?charger=<id>&connector=<n> from the URL, asks for amount + email,
     creates a payment via /api/charging/quick-pay, then polls for completion
-    while showing the TNG QR. On success the backend triggers RemoteStart."""
+    while showing the TNG QR. On success the backend triggers RemoteStart.
+
+    When QR_REDIRECT_TEMPLATE is configured the scan is forwarded to that
+    partner instead, so the existing printed stickers reach their app without
+    being reprinted."""
+    if charger:
+        target = _emsp_deeplink(charger, connector or "1")
+        if target:
+            logger.info("QR scan for %s gun %s forwarded to partner", charger, connector)
+            return RedirectResponse(target, status_code=302)
     try:
         file_path = _BASE_DIR / "templates" / "pay.html"
         if not file_path.exists():
