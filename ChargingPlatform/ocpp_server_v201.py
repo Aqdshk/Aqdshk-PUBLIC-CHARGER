@@ -49,6 +49,15 @@ class OcppOperationUnsupported(NotImplementedError):
     """
 
 
+def _ocpi_push(kind, ref):
+    """Hand a change to the OCPI push queue, never raising into OCPP."""
+    try:
+        from ocpi.push import enqueue
+        enqueue(kind, ref)
+    except Exception as e:
+        logger.debug("[ocpi-push] enqueue %s %s skipped: %s", kind, ref, e)
+
+
 _MYT_OFFSET = timedelta(hours=8)
 
 
@@ -283,6 +292,7 @@ class ChargePoint201(cp201):
             self.db.rollback()
             logger.error(f"[v201] StatusNotification failed for {self.id}: {e}", exc_info=True)
 
+        _ocpi_push("location", self.id)
         return call_result.StatusNotification()
 
     @on("Authorize")
@@ -330,6 +340,7 @@ class ChargePoint201(cp201):
         now; pricing is settled platform-side from the stored meter data, the
         same way the 1.6 path works.
         """
+
         info = transaction_info or {}
         ocpp_txn = info.get("transaction_id") or info.get("transactionId")
         evse = kwargs.get("evse") or {}
@@ -492,6 +503,18 @@ class ChargePoint201(cp201):
         except Exception as e:
             self.db.rollback()
             logger.error(f"[v201] TransactionEvent failed for {self.id}: {e}", exc_info=True)
+
+        # The branches above bind `session` only when one was resolved, and
+        # UnboundLocalError is the honest signal that none was.
+        try:
+            _pushed = session
+        except (NameError, UnboundLocalError):
+            _pushed = None
+
+        if _pushed is not None and getattr(_pushed, "id", None):
+            _ocpi_push("session", _pushed.id)
+            if getattr(_pushed, "status", None) in ("completed", "interrupted"):
+                _ocpi_push("cdr", _pushed.id)
 
         return call_result.TransactionEvent()
 

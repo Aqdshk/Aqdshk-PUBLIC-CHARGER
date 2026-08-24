@@ -444,6 +444,41 @@ async def get_version_details(request: Request):
 
 
 # ============ Locations ============
+def _ocpi_now() -> str:
+    return _to_ocpi_datetime(datetime.utcnow())
+
+
+def _build_location_dict(charger) -> dict:
+    """One OCPI Location for a charger.
+
+    Shared by the pull endpoints and by push, so a partner sees the same shape
+    whichever way the data reaches it. Two builders would drift.
+    """
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    now = _ocpi_now()
+    return Location(
+        country_code=country,
+        party_id=party_id,
+        id=loc_id,
+        publish=True,
+        type="OTHER",
+        name=charger.charge_point_id,
+        address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
+        city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
+        postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        country=country,
+        coordinates={
+            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
+            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
+        },
+        evses=_build_evses(charger, loc_id, country, party_id, now),
+        time_zone="Asia/Kuala_Lumpur",
+        last_updated=now,
+    ).model_dump()
+
+
 @router.get("/2.2.1/locations", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_locations(
     request: Request,
@@ -462,31 +497,7 @@ async def get_locations(
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
 
-    locations = []
-    for c in chargers:
-        loc_id = f"{country}{party_id}-{c.charge_point_id}"
-        now = _to_ocpi_datetime(datetime.utcnow())
-        evses = _build_evses(c, loc_id, country, party_id, now)
-        loc = Location(
-            country_code=country,
-            party_id=party_id,
-            id=loc_id,
-            publish=True,
-            type="OTHER",
-            name=c.charge_point_id,
-            address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-            city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-            postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
-            country=country,
-            coordinates={
-                "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-                "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-            },
-            evses=evses,
-            time_zone="Asia/Kuala_Lumpur",
-            last_updated=now,
-        )
-        locations.append(loc.model_dump())
+    locations = [_build_location_dict(c) for c in chargers]
 
     return {
         "status_code": 1000,
@@ -561,6 +572,99 @@ async def get_location(
 
 
 # ============ Sessions ============
+def _build_session_dict(sess) -> Optional[dict]:
+    """One OCPI Session. Shared by the pull endpoint and by push."""
+    charger = sess.charger
+    if not charger:
+        return None
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    gun = sess.evse_id or sess.connector_id or 1
+    return {
+        "id": str(sess.transaction_id),
+        "start_datetime": _to_ocpi_datetime(sess.start_time),
+        "end_datetime": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
+        "kwh": float(sess.energy_consumed or 0),
+        "cdr_token": {
+            "uid": sess.user_id or "UNKNOWN",
+            "type": "APP_USER",
+            "contract_id": sess.user_id or "UNKNOWN",
+        },
+        "auth_method": "AUTH_REQUEST",
+        "location_id": loc_id,
+        "evse_uid": f"{loc_id}-EVSE{gun}",
+        "connector_id": str(gun),
+        "currency": "MYR",
+        "status": "ACTIVE" if sess.status == "active" else "COMPLETED",
+        "authorization_reference": sess.authorization_reference,
+        "last_updated": _to_ocpi_datetime(sess.stop_time or sess.start_time),
+    }
+
+
+def _build_cdr_dict(sess) -> Optional[dict]:
+    """One OCPI CDR. Shared by the pull endpoint and by push."""
+    charger = sess.charger
+    if not charger or not sess.stop_time:
+        return None
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+
+    energy = float(sess.energy_consumed or 0)
+    start_time = sess.start_time or datetime.utcnow()
+    stop_time = sess.stop_time or datetime.utcnow()
+    duration_h = (stop_time - start_time).total_seconds() / 3600
+
+    price_per_kwh = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    energy_cost = round(energy * price_per_kwh, 2)
+
+    idle_minutes = int(sess.idle_minutes or 0)
+    idle_cost = 0.0
+    if idle_minutes and charger.idle_fee_enabled and charger.idle_fee_per_min:
+        idle_cost = round(idle_minutes * float(charger.idle_fee_per_min), 2)
+    total_cost = round(energy_cost + idle_cost, 2)
+
+    # Prefer evse_id: on 2.0.1 every gun reports connector 1, so connector_id
+    # alone puts a gun 2 charge on gun 1.
+    gun = int(sess.evse_id or sess.connector_id or 1)
+
+    periods = [{
+        "start_datetime": _to_ocpi_datetime(start_time),
+        "dimensions": [{"type": "ENERGY", "volume": energy}],
+    }]
+    if idle_minutes:
+        periods.append({
+            "start_datetime": _to_ocpi_datetime(sess.idle_started_at or stop_time),
+            "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
+        })
+
+    return {
+        "id": str(sess.transaction_id),
+        "start_datetime": _to_ocpi_datetime(start_time),
+        "end_datetime": _to_ocpi_datetime(stop_time),
+        "auth_id": sess.user_id or "UNKNOWN",
+        "auth_method": "AUTH_REQUEST",
+        "location_id": loc_id,
+        "evse_uid": f"{loc_id}-EVSE{gun}",
+        "connector_id": str(gun),
+        "currency": "MYR",
+        "tariff_id": _tariff_id(charger),
+        "total_cost": total_cost,
+        "total_energy": energy,
+        "total_time": round(duration_h, 4),
+        "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
+        "cdr_token": {
+            "uid": sess.user_id or "UNKNOWN",
+            "type": "APP_USER",
+            "contract_id": sess.user_id or "UNKNOWN",
+        },
+        "authorization_reference": sess.authorization_reference,
+        "charging_periods": periods,
+        "last_updated": _to_ocpi_datetime(stop_time),
+    }
+
+
 @router.get("/2.2.1/sessions", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_sessions(
     date_from: Optional[str] = None,
@@ -587,37 +691,7 @@ async def get_sessions(
             pass
     sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(limit or 100).all()
 
-    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
-    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
-
-    result = []
-    for s in sessions:
-        charger = s.charger
-        if not charger:
-            continue
-        loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-        gun = s.evse_id or s.connector_id or 1
-        ocpi_status = "ACTIVE" if s.status == "active" else "COMPLETED"
-        result.append({
-            "id": str(s.transaction_id),
-            "start_datetime": _to_ocpi_datetime(s.start_time),
-            "end_datetime": _to_ocpi_datetime(s.stop_time) if s.stop_time else None,
-            "kwh": float(s.energy_consumed or 0),
-            "cdr_token": {"uid": s.user_id or "UNKNOWN", "type": "APP_USER", "contract_id": s.user_id or "UNKNOWN"},
-            "auth_method": "AUTH_REQUEST",
-            # Which gun this session ran on. This was pinned to EVSE1, so a
-            # session on gun 2 was reported to partners as gun 1 and could not
-            # be matched to the EVSE they had started.
-            "location_id": loc_id,
-            "evse_uid": f"{loc_id}-EVSE{gun}",
-            "connector_id": str(gun),
-            "currency": "MYR",
-            "status": ocpi_status,
-            # The partner's own reference, echoed back so it can tie the
-            # session it asked for to the session we report.
-            "authorization_reference": s.authorization_reference,
-            "last_updated": _to_ocpi_datetime(s.stop_time or s.start_time),
-        })
+    result = [d for d in (_build_session_dict(s) for s in sessions) if d]
 
     return {
         "status_code": 1000,
@@ -655,68 +729,7 @@ async def get_cdrs(
             pass
     sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(limit or 100).all()
 
-    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
-    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
-
-    result = []
-    for s in sessions:
-        charger = s.charger
-        if not charger:
-            continue
-        loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-        energy = float(s.energy_consumed or 0)
-        start_time = s.start_time or datetime.utcnow()
-        stop_time = s.stop_time or datetime.utcnow()
-        duration_h = (stop_time - start_time).total_seconds() / 3600 if stop_time and start_time else 0
-
-        # Bill at the rate we publish. This used to read the Pricing table,
-        # which is empty, and fall back to a hardcoded RM0.50 — so a charger
-        # advertised over OCPI at RM1.40 produced CDRs charged at RM0.50. The
-        # tariff and the bill have to come from the same number.
-        price_per_kwh = (
-            float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
-        )
-        energy_cost = round(energy * price_per_kwh, 2)
-
-        # Idle time, billed the same way the kiosk bills it.
-        idle_minutes = int(s.idle_minutes or 0)
-        idle_cost = 0.0
-        if idle_minutes and charger.idle_fee_enabled and charger.idle_fee_per_min:
-            idle_cost = round(idle_minutes * float(charger.idle_fee_per_min), 2)
-        total_cost = round(energy_cost + idle_cost, 2)
-
-        gun = int(s.connector_id or 1)
-        evse_suffix = "" if gun == 1 else f"*{gun}"
-
-        periods = [{
-            "start_datetime": _to_ocpi_datetime(start_time),
-            "dimensions": [{"type": "ENERGY", "volume": energy}],
-        }]
-        if idle_minutes:
-            periods.append({
-                "start_datetime": _to_ocpi_datetime(s.idle_started_at or stop_time),
-                "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
-            })
-
-        result.append({
-            "id": str(s.transaction_id),
-            "start_datetime": _to_ocpi_datetime(start_time),
-            "end_datetime": _to_ocpi_datetime(stop_time),
-            "auth_id": s.user_id or "UNKNOWN",
-            "auth_method": "AUTH_REQUEST",
-            "location_id": loc_id,
-            "evse_uid": f"{loc_id}-EVSE{gun}",
-            "connector_id": str(gun),
-            "currency": "MYR",
-            "tariff_id": _tariff_id(charger),
-            "total_cost": total_cost,
-            "total_energy": energy,
-            "total_time": round(duration_h, 4),
-            "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
-            "cdr_token": {"uid": s.user_id or "UNKNOWN", "type": "APP_USER", "contract_id": s.user_id or "UNKNOWN"},
-            "charging_periods": periods,
-            "last_updated": _to_ocpi_datetime(stop_time),
-        })
+    result = [d for d in (_build_cdr_dict(s) for s in sessions) if d]
 
     return {
         "status_code": 1000,
@@ -1107,6 +1120,13 @@ async def post_credentials(request: Request):
         )
 
     _save_partner(partner_url, partner_token, partner_roles)
+    # A new token means the old discovery cache may point at a partner we can
+    # no longer authenticate against.
+    try:
+        from .push import invalidate_endpoints
+        invalidate_endpoints()
+    except Exception:
+        pass
 
     # The token is a credential, so only its prefix goes to the log. The value
     # itself lives in ocpi_partners.

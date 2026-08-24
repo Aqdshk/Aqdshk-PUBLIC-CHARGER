@@ -267,6 +267,20 @@ def _auth_method_used(websocket: Any, raw_path: str) -> str:
     return "none"
 
 
+def _ocpi_push(kind, ref):
+    """Hand a change to the OCPI push queue, never raising into OCPP.
+
+    Roaming data going stale is a nuisance. A charger losing its session
+    because a partner's API misbehaved is not, so nothing here is allowed to
+    propagate.
+    """
+    try:
+        from ocpi.push import enqueue
+        enqueue(kind, ref)
+    except Exception as e:
+        logger.debug("[ocpi-push] enqueue %s %s skipped: %s", kind, ref, e)
+
+
 def utc_now_iso_z() -> str:
     """Genuine UTC with a Z suffix, as OCPP requires for currentTime.
 
@@ -708,6 +722,10 @@ class ChargePoint(cp):
                     last_heartbeat=utc_now_iso_z(),
                 )
 
+            # Tell roaming partners the bay changed. enqueue() returns at once,
+            # so a slow partner cannot delay this handler.
+            _ocpi_push("location", self.id)
+
             return call_result.StatusNotification()
         except Exception as e:
             logger.error(f"Unexpected error in StatusNotification handler for charger {self.id}: {e}", exc_info=True)
@@ -795,7 +813,10 @@ class ChargePoint(cp):
                     )
 
                 logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
-                
+
+                if session is not None:
+                    _ocpi_push("session", session.id)
+
                 return call_result.StartTransaction(
                     transaction_id=transaction_id,
                     id_tag_info={'status': AuthorizationStatus.accepted}
@@ -1006,6 +1027,12 @@ class ChargePoint(cp):
                             )
                 except Exception as e:
                     logger.error(f"[invoice] failed to send post-charge email: {e}", exc_info=True)
+
+            if session is not None:
+                # The session reaches its final state and the CDR becomes
+                # billable at the same moment, so both go out together.
+                _ocpi_push("session", session.id)
+                _ocpi_push("cdr", session.id)
 
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}

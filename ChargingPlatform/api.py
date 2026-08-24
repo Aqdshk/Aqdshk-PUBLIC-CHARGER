@@ -8982,6 +8982,18 @@ async def _process_session_refund(db: Session, sess: ChargingSession):
 
 
 @app.on_event("startup")
+async def _start_ocpi_push_worker():
+    """Drain the OCPI push queue in the background.
+
+    Call sites only enqueue, so nothing on the OCPP path waits on a roaming
+    partner's API. Without this worker those enqueues are silently dropped,
+    which is the correct behaviour for any process that is not the API.
+    """
+    from ocpi.push import start_worker
+    await start_worker()
+
+
+@app.on_event("startup")
 async def _start_reminder_scheduler():
     """Start the background SLA reminder task on app startup."""
     asyncio.create_task(_ticket_reminder_loop())
