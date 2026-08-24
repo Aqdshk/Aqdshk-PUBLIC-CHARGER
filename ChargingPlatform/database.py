@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
-    create_engine,
+    UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
@@ -541,6 +541,29 @@ class Payment(Base):
     completed_at = Column(DateTime)
     
     session = relationship("ChargingSession", back_populates="payment")
+
+
+class OcpiPartner(Base):
+    """A roaming partner we have exchanged credentials with.
+
+    The handshake gives us their versions URL and the token we must present
+    when calling them. We used to log a truncated token and keep nothing, so
+    we could receive their traffic but never initiate any of our own.
+    """
+
+    __tablename__ = "ocpi_partners"
+
+    id = Column(Integer, primary_key=True, index=True)
+    country_code = Column(String(2), nullable=False)
+    party_id = Column(String(3), nullable=False)
+    role = Column(String(16), nullable=True)
+    business_name = Column(String(128), nullable=True)
+    versions_url = Column(String(512), nullable=False)
+    token = Column(String(256), nullable=False)  # secret: never log in full
+    registered_at = Column(DateTime, nullable=True)
+    last_updated = Column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("country_code", "party_id", name="uq_ocpi_partner"),)
 
 
 class Pricing(Base):

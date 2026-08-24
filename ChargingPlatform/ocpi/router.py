@@ -13,7 +13,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from database import Charger, ChargingSession, MeterValue, Pricing, SessionLocal, get_db
+from database import (
+    Charger, ChargingSession, MeterValue, OcpiPartner, Pricing, SessionLocal, get_db,
+)
 from .models import (
     Connector,
     EVSE,
@@ -1011,6 +1013,44 @@ async def get_roaming_operators():
 
 
 # ============ Credentials ============
+def _save_partner(url: str, token: str, roles: list) -> None:
+    """Persist a partner's credentials from the registration handshake.
+
+    Without this we could receive a partner's traffic but never initiate any of
+    our own: the handshake carries the token we must present when calling them,
+    and it was only ever written to the log truncated, so pushing anything back
+    was impossible. Keyed on (country_code, party_id) so a repeat handshake
+    rotates the token in place rather than leaving a stale row behind it.
+    """
+    role = (roles or [{}])[0]
+    cc = (role.get("country_code") or "??")[:2]
+    pid = (role.get("party_id") or "???")[:3]
+    now = datetime.utcnow()
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(OcpiPartner)
+            .filter(OcpiPartner.country_code == cc, OcpiPartner.party_id == pid)
+            .first()
+        )
+        if row is None:
+            row = OcpiPartner(country_code=cc, party_id=pid, registered_at=now)
+            db.add(row)
+        row.role = (role.get("role") or "")[:16] or None
+        row.business_name = ((role.get("business_details") or {}).get("name") or "")[:128] or None
+        row.versions_url = url[:512]
+        row.token = token[:256]
+        row.last_updated = now
+        db.commit()
+        logger.info("[ocpi-credentials] credentials stored for %s/%s", cc, pid)
+    except Exception as e:
+        db.rollback()
+        logger.error("[ocpi-credentials] could not store partner credentials: %s", e)
+    finally:
+        db.close()
+
+
 @router.get("/2.2.1/credentials", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_credentials(request: Request):
     """Return our current credentials to an authenticated partner. Standard
@@ -1066,8 +1106,10 @@ async def post_credentials(request: Request):
             detail="Missing required fields: token, url",
         )
 
-    # Structured audit record — a future ocpi_partners table will persist this,
-    # for now the log is the source of truth.
+    _save_partner(partner_url, partner_token, partner_roles)
+
+    # The token is a credential, so only its prefix goes to the log. The value
+    # itself lives in ocpi_partners.
     logger.info(
         "[ocpi-credentials] Registration from partner url=%s token_prefix=%s roles=%s",
         partner_url,
