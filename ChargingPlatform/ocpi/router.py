@@ -2,6 +2,7 @@
 OCPI 2.2.1 CPO (Charge Point Operator) REST API router.
 Implements Sender interface - eMSP (e.g. TNG) pulls data from us.
 """
+import asyncio
 import logging
 import os
 import secrets
@@ -199,6 +200,50 @@ def _connector_spec(charger):
             amperage = max(1, round(max_w / voltage))
 
     return standard, fmt, power_type, voltage, amperage, max_w
+
+
+async def _attach_auth_reference(charger_id: int, auth_ref: str) -> None:
+    """Record the partner's reference against the session this start creates.
+
+    The row does not exist yet when the charger accepts, so this waits for it.
+    The wait is awaited rather than slept through: this runs inside the OCPP
+    connection's event loop, and a blocking sleep here would stall every other
+    charger on the process for the duration.
+    """
+    from database import SessionLocal as _SL
+
+    for _ in range(10):
+        db = _SL()
+        try:
+            sess = (
+                db.query(ChargingSession)
+                .filter(
+                    ChargingSession.charger_id == charger_id,
+                    ChargingSession.status.in_(["pending", "active"]),
+                    ChargingSession.authorization_reference.is_(None),
+                )
+                .order_by(ChargingSession.id.desc())
+                .first()
+            )
+            if sess is not None:
+                sess.authorization_reference = auth_ref[:64]
+                db.commit()
+                logger.info(
+                    "[ocpi-commands] authorization_reference %s attached to session %s",
+                    auth_ref, sess.id,
+                )
+                return
+        except Exception as e:
+            logger.warning("[ocpi-commands] could not attach authorization_reference: %s", e)
+            return
+        finally:
+            db.close()
+        await asyncio.sleep(1)
+
+    logger.warning(
+        "[ocpi-commands] no session appeared for charger %s, authorization_reference %s dropped",
+        charger_id, auth_ref,
+    )
 
 
 def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) -> list:
@@ -549,6 +594,7 @@ async def get_sessions(
         if not charger:
             continue
         loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+        gun = s.evse_id or s.connector_id or 1
         ocpi_status = "ACTIVE" if s.status == "active" else "COMPLETED"
         result.append({
             "id": str(s.transaction_id),
@@ -557,11 +603,17 @@ async def get_sessions(
             "kwh": float(s.energy_consumed or 0),
             "cdr_token": {"uid": s.user_id or "UNKNOWN", "type": "APP_USER", "contract_id": s.user_id or "UNKNOWN"},
             "auth_method": "AUTH_REQUEST",
+            # Which gun this session ran on. This was pinned to EVSE1, so a
+            # session on gun 2 was reported to partners as gun 1 and could not
+            # be matched to the EVSE they had started.
             "location_id": loc_id,
-            "evse_uid": f"{loc_id}-EVSE1",
-            "connector_id": "1",
+            "evse_uid": f"{loc_id}-EVSE{gun}",
+            "connector_id": str(gun),
             "currency": "MYR",
             "status": ocpi_status,
+            # The partner's own reference, echoed back so it can tie the
+            # session it asked for to the session we report.
+            "authorization_reference": s.authorization_reference,
             "last_updated": _to_ocpi_datetime(s.stop_time or s.start_time),
         })
 
@@ -797,10 +849,17 @@ async def post_command(command: str, request: Request, db: Session = Depends(get
                 "data": {"result": "ACCEPTED", "timeout": 30},
             }
 
+        # The partner's own reference for this start. Keeping it lets us echo
+        # it back on the session, which is the only way the partner can tie the
+        # session it asked for to the session we report.
+        auth_ref = body.get("authorization_reference")
+
         async def _dispatch_start():
             try:
                 resp = await cp.remote_start_transaction(connector_id=connector_id, id_tag=token)
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
+                if accepted and auth_ref:
+                    await _attach_auth_reference(charger.id, auth_ref)
                 await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
             except Exception as e:
                 await _post_command_result(response_url, "FAILED", str(e))

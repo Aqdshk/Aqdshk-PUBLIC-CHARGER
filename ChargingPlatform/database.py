@@ -446,6 +446,10 @@ class ChargingSession(Base):
     # integer for internal use and record the charger's own id here. NULL for
     # every 1.6 session.
     ocpp_transaction_id = Column(String(64), nullable=True, index=True)
+    # A roaming partner's own reference, sent with StartSession and echoed back
+    # when it polls the session, so it can tie the two together. NULL for any
+    # session we did not start on a partner's behalf.
+    authorization_reference = Column(String(64), nullable=True)
     connector_id = Column(Integer, nullable=True)  # OCPP StartTransaction connector
     # 2.0.1 addresses a socket as (evse_id, connector_id); 1.6 has only the
     # connector. NULL for 1.6 sessions.
