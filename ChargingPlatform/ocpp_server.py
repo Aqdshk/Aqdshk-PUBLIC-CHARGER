@@ -1077,6 +1077,7 @@ class ChargePoint(cp):
             current = None
             power = None
             total_kwh = None
+            soc = None
             
             for sv in sampled_value:
                 try:
@@ -1106,6 +1107,12 @@ class ChargePoint(cp):
                         total_kwh = value
                     else:
                         total_kwh = value / 1000.0  # Wh → kWh
+                elif measurand == 'SoC':
+                    # The battery percentage the charger shows on its own
+                    # screen. Clamped because a charger with no vehicle
+                    # sometimes reports a placeholder outside 0-100.
+                    if 0 <= value <= 100:
+                        soc = value
             
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
@@ -1115,7 +1122,8 @@ class ChargePoint(cp):
                 voltage=voltage,
                 current=current,
                 power=power,
-                total_kwh=total_kwh
+                total_kwh=total_kwh,
+                soc=soc,
             )
             self.db.add(meter_value_obj)
             

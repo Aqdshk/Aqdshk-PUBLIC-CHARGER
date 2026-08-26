@@ -748,6 +748,8 @@ class ConnectorMeterReading(BaseModel):
     voltage: Optional[float] = None
     current: Optional[float] = None
     power_kw: Optional[float] = None
+    # Vehicle battery percentage, as the charger's own screen shows it.
+    soc: Optional[float] = None
     # The charger's cumulative lifetime meter register, not this session's
     # energy. The console labelled this one "Energy (session)" and so showed
     # 512 kWh for a session that had delivered nothing.
@@ -1633,6 +1635,10 @@ async def get_latest_metering_by_connector(
     ).order_by(desc(MeterValue.timestamp)).limit(400).all()
 
     seen: dict[Optional[int], ConnectorMeterReading] = {}
+    # Not every sample carries SoC, so the newest reading for a gun may have
+    # none even though one arrived a minute earlier. Remember the most recent
+    # non-null value per gun rather than showing a blank.
+    soc_by_conn: dict[Optional[int], float] = {}
     for mv in rows:
         # The reading's own connector is authoritative. Fall back to the
         # owning session only for rows written before connector_id existed.
@@ -1640,6 +1646,8 @@ async def get_latest_metering_by_connector(
         if conn is None and mv.transaction_id:
             conn = conn_by_txn.get(int(mv.transaction_id))
         conn = int(conn) if conn is not None else None
+        if mv.soc is not None and conn not in soc_by_conn:
+            soc_by_conn[conn] = mv.soc
         if conn in seen:
             continue
         seen[conn] = ConnectorMeterReading(
@@ -1648,6 +1656,7 @@ async def get_latest_metering_by_connector(
             voltage=mv.voltage,
             current=mv.current,
             power_kw=mv.power,
+            soc=mv.soc,
             energy_kwh=mv.total_kwh,
             session_kwh=(
                 energy_by_txn.get(int(mv.transaction_id))
@@ -1655,6 +1664,14 @@ async def get_latest_metering_by_connector(
             ),
             timestamp=_iso_myt_naive_local(mv.timestamp),
         )
+
+    # The newest row for a gun may not have carried SoC even though a slightly
+    # older one did. Fill those in only now: the loop above builds each gun's
+    # entry on its first (newest) row, before the older rows that hold the
+    # value have been seen.
+    for conn, reading in seen.items():
+        if reading.soc is None:
+            reading.soc = soc_by_conn.get(conn)
 
     # Named guns first in order, then any reading we could not attribute.
     return sorted(seen.values(), key=lambda r: (r.connector_id is None, r.connector_id or 0))

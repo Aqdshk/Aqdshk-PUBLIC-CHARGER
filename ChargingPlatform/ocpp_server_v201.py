@@ -626,7 +626,7 @@ class ChargePoint201(cp201):
             ts = _parse_ts(mv.get("timestamp"))
             samples = mv.get("sampled_value") or mv.get("sampledValue") or []
 
-            voltage = current = power = total_kwh = None
+            voltage = current = power = total_kwh = soc = None
             for sv in samples:
                 try:
                     value = float(sv.get("value", 0) or 0)
@@ -644,6 +644,12 @@ class ChargePoint201(cp201):
                     power = value / 1000.0 if (unit == "w" or (not unit and value > 1000)) else value
                 elif measurand == "Energy.Active.Import.Register":
                     total_kwh = value if unit == "kwh" else value / 1000.0
+                elif measurand == "SoC":
+                    # Battery percentage, the same figure the charger shows on
+                    # its own screen. Ignored outside 0-100, which is what a
+                    # charger reports when no vehicle is answering.
+                    if 0 <= value <= 100:
+                        soc = value
 
             self.db.add(
                 MeterValue(
@@ -657,6 +663,7 @@ class ChargePoint201(cp201):
                     current=current,
                     power=power,
                     total_kwh=total_kwh,
+                    soc=soc,
                 )
             )
             if total_kwh is not None:

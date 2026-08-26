@@ -594,6 +594,10 @@ class MeterValue(Base):
     current = Column(Float)  # in A
     power = Column(Float)  # kW — ocpp_server normalises W → kW on ingest
     total_kwh = Column(Float)  # in kWh
+    # Vehicle state of charge, percent. Chargers have always reported
+    # this; we simply never read it, so the dashboard could not show
+    # what the charger's own screen shows.
+    soc = Column(Float, nullable=True)
     
     charger = relationship("Charger", back_populates="meter_values")
 
