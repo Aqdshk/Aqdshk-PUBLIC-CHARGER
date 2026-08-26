@@ -14,6 +14,7 @@ Auth: OCPP_REQUIRE_AUTH, OCPP_SHARED_TOKEN, OCPP_CHARGER_TOKENS.
 """
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -2091,14 +2092,35 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
             logger.error(f"[ocpp-healer] loop error: {e}", exc_info=True)
 
 
-async def orphan_session_watchdog(interval_seconds: int = 600):
+# A connector in one of these states is definitely not charging, so an open
+# session sitting on it has nothing left to deliver.
+_NOT_CHARGING_STATES = {"finishing", "available", "faulted", "unavailable", "unknown"}
+
+# How long a session may sit on a non-charging connector having delivered
+# nothing before we treat it as never started. A real stop sends Finishing and
+# StopTransaction within seconds, so this is far longer than any genuine race.
+_NEVER_STARTED_GRACE_MINUTES = 5
+
+
+async def orphan_session_watchdog(interval_seconds: int = 120):
     """
-    Background task — runs every `interval_seconds` (default 10 min).
-    Closes any charging session that:
-      - Is still 'active' or 'pending'
-      - Has had no MeterValue update for > 30 minutes
-      - The charger is currently offline (not in active_charge_points)
-    This catches sessions that were never properly stopped due to abrupt disconnects.
+    Background task closing sessions that will never be closed by the charger.
+
+    Two distinct failures, so two rules:
+
+      A. The charger vanished mid-session. It is offline, no meter value has
+         arrived for thirty minutes, and the StopTransaction is never coming.
+
+      B. The charger is online and healthy, but a session was opened on a
+         connector that never began charging. DC3001 does this: a remote start
+         is accepted, the transaction opens, the car does not engage, and the
+         connector settles back to Finishing. No StopTransaction follows,
+         because nothing ever started. The session stays active forever and
+         blocks that gun, so the next start is refused as "not available".
+
+    Rule B is the one a driver notices. It is deliberately conservative: the
+    session must have delivered no energy at all, and the connector must be in
+    a state that cannot be charging, for several minutes.
     """
     logger.info("Orphan session watchdog started (interval=%ds)", interval_seconds)
     while True:
@@ -2117,7 +2139,8 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
                 charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
                 cp_id = charger.charge_point_id if charger else None
 
-                # Only close if the charger is not currently connected
+                # Rule A applies only to a charger that has gone away. One that
+                # is still connected is handled by rule B below.
                 if cp_id and cp_id in active_charge_points:
                     continue
 
@@ -2143,6 +2166,42 @@ async def orphan_session_watchdog(interval_seconds: int = 600):
                 logger.warning(
                     f"Watchdog closed orphan session {s.id} (charger={cp_id}, "
                     f"tx={s.transaction_id}, energy={final_energy:.3f} kWh)"
+                )
+
+            # ── Rule B: online charger, connector not charging, nothing delivered
+            never_started_cutoff = _now_myt() - timedelta(minutes=_NEVER_STARTED_GRACE_MINUTES)
+            candidates = db.query(ChargingSession).filter(
+                ChargingSession.status.in_(["active", "pending"]),
+                ChargingSession.start_time <= never_started_cutoff,
+            ).all()
+
+            for s in candidates:
+                charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
+                if not charger or charger.charge_point_id not in active_charge_points:
+                    continue  # rule A's territory
+                if (s.energy_consumed or 0) > 0:
+                    continue  # real charge in progress or already delivered
+
+                gun = s.evse_id or s.connector_id or 1
+                state = None
+                try:
+                    state = (json.loads(charger.connector_status or "{}") or {}).get(str(gun))
+                except Exception:
+                    state = None
+                # Without a per-connector reading fall back to the charger-wide
+                # value rather than guessing the gun is idle.
+                state = (state or charger.availability or "").strip().lower()
+                if state not in _NOT_CHARGING_STATES:
+                    continue
+
+                s.status = "interrupted"
+                s.stop_reason = "NeverStarted"
+                s.stop_time = _now_myt()
+                closed += 1
+                logger.warning(
+                    f"Watchdog closed never-started session {s.id} "
+                    f"(charger={charger.charge_point_id}, gun={gun}, connector={state}) "
+                    f"— no energy delivered, freeing the connector"
                 )
 
             if closed:
