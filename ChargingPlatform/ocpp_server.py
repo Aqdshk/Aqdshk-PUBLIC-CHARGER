@@ -814,8 +814,15 @@ class ChargePoint(cp):
 
                 logger.info(f"Charger {self.id} started charging — assigned transaction_id={transaction_id}")
 
-                if session is not None:
-                    _ocpi_push("session", session.id)
+                # `session` is bound only on some branches above, and reading
+                # it unbound raised inside the handler, so the charger never
+                # got a usable reply and retried StartTransaction forever.
+                try:
+                    _started = session
+                except (NameError, UnboundLocalError):
+                    _started = None
+                if _started is not None and getattr(_started, "id", None):
+                    _ocpi_push("session", _started.id)
 
                 return call_result.StartTransaction(
                     transaction_id=transaction_id,
@@ -1028,11 +1035,17 @@ class ChargePoint(cp):
                 except Exception as e:
                     logger.error(f"[invoice] failed to send post-charge email: {e}", exc_info=True)
 
-            if session is not None:
+            # Same guard as the start path: `session` may never have been
+            # bound, and an exception here would cost the charger its reply.
+            try:
+                _ended = session
+            except (NameError, UnboundLocalError):
+                _ended = None
+            if _ended is not None and getattr(_ended, "id", None):
                 # The session reaches its final state and the CDR becomes
                 # billable at the same moment, so both go out together.
-                _ocpi_push("session", session.id)
-                _ocpi_push("cdr", session.id)
+                _ocpi_push("session", _ended.id)
+                _ocpi_push("cdr", _ended.id)
 
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}
