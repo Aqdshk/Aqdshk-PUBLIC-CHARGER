@@ -43,7 +43,10 @@ from database import (
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_ticket_notification_to_staff, send_charging_receipt
-from ocpp_server import get_active_charge_point, active_charge_points, firmware_events, force_close_charge_point, ocpp_state_healer_loop
+from ocpp_server import (
+    get_active_charge_point, active_charge_points, firmware_events,
+    force_close_charge_point, ocpp_state_healer_loop, orphan_session_watchdog,
+)
 from ocpp_server_v201 import OcppOperationUnsupported
 from payment_gateway import (
     get_gateway,
@@ -9004,6 +9007,23 @@ async def _start_refund_worker():
     """Background loop that processes pending TNG refunds from completed
     deposit/refund-flow sessions."""
     asyncio.create_task(_refund_worker_loop())
+
+
+@app.on_event("startup")
+async def _start_orphan_session_watchdog():
+    """Close sessions the charger will never close itself.
+
+    This loop already existed but was only ever launched from
+    ChargingPlatform/main.py, which is not the entrypoint of any running
+    service, so it had never run. Sessions that opened and never charged
+    therefore stayed active forever and blocked their gun, which is what a
+    driver hits as "charger not available".
+
+    It belongs here rather than there: this is the process holding the OCPP
+    connections, so active_charge_points is populated and the loop can tell an
+    absent charger from a present one.
+    """
+    asyncio.create_task(orphan_session_watchdog(interval_seconds=120))
 
 
 @app.on_event("startup")
