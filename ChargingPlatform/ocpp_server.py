@@ -2059,10 +2059,15 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
             now = _utcnow()
             fresh_cutoff = now - timedelta(minutes=5)
             stale_cutoff = now - timedelta(minutes=10)
+            # Generous: a charger on a flaky link should not flip to offline
+            # over a short outage. This is only about rows that are plainly
+            # wrong, not about detecting a brief drop.
+            offline_cutoff = now - timedelta(hours=1)
 
             rows = db.query(Charger).all()
             mismatch_count = 0
             cleaned = 0
+            stale_marked = 0
             for c in rows:
                 hb = c.last_heartbeat
                 in_pool = c.charge_point_id in active_charge_points
@@ -2075,6 +2080,17 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
                     )
                     await force_close_charge_point(c.charge_point_id)
                     cleaned += 1
+                    continue
+
+                # Case C — the row still claims "online" long after the last
+                # heartbeat. Nothing marks a charger offline unless it
+                # disconnects while we are watching, so a unit that vanished
+                # during a restart, or before this loop existed, keeps that
+                # status forever. 460 of 479 chargers were sitting like this,
+                # none of them heard from in over a week.
+                if c.status == "online" and not in_pool and (hb is None or hb < offline_cutoff):
+                    c.status = "offline"
+                    stale_marked += 1
                     continue
 
                 # Case A — mismatch (heartbeat fresh but no socket). Could be
@@ -2107,6 +2123,13 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
                     _mismatch_strikes.pop(c.charge_point_id, None)
 
             db.close()
+            if stale_marked:
+                db.commit()
+                logger.info(
+                    f"[ocpp-healer] marked {stale_marked} charger(s) offline "
+                    f"(no heartbeat for over an hour)"
+                )
+
             if mismatch_count or cleaned:
                 logger.info(
                     f"[ocpp-healer] cycle: {mismatch_count} mismatch(es), "

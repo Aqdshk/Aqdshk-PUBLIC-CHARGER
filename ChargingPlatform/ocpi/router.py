@@ -797,15 +797,46 @@ async def get_tariffs(
 COMMAND_TYPES = {"START_SESSION", "STOP_SESSION", "UNLOCK_CONNECTOR", "RESERVE_NOW", "CANCEL_RESERVATION"}
 
 
+def _outbound_token() -> Optional[str]:
+    """The token a partner gave us for calling them.
+
+    Kept in ocpi_partners by the credentials handshake. Only one partner is
+    registered in practice, so the newest row wins; when several exist this
+    should be selected per destination instead.
+    """
+    from database import SessionLocal as _SL
+
+    db = _SL()
+    try:
+        row = db.query(OcpiPartner).order_by(OcpiPartner.id.desc()).first()
+        return row.token if row else None
+    except Exception as e:
+        logger.warning("[ocpi-commands] could not read partner token: %s", e)
+        return None
+    finally:
+        db.close()
+
+
 async def _post_command_result(response_url: str, result: str, message: Optional[str] = None) -> None:
     """Fire-and-forget POST of async CommandResult back to the eMSP."""
     import asyncio
     import httpx
     try:
-        token = os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
+        # The token to present when calling a partner comes from the
+        # credentials handshake, not from our own config. This read
+        # OCPI_OUTBOUND_TOKEN, which has never been set, so every callback went
+        # out with no Authorization header and Voltality answered 401. Their
+        # commands ran here and they were never told the outcome.
+        token = _outbound_token() or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Token {token}"
+        else:
+            logger.warning(
+                "[ocpi-commands] no partner token stored, callback to %s will "
+                "likely be refused. Ask the partner to repeat the credentials "
+                "handshake.", response_url,
+            )
         body = {"result": result}
         if message:
             body["message"] = [{"language": "en", "text": message}]
