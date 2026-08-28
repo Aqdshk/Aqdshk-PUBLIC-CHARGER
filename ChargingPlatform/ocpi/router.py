@@ -204,8 +204,15 @@ def _connector_spec(charger):
     return standard, fmt, power_type, voltage, amperage, max_w
 
 
-async def _attach_auth_reference(charger_id: int, auth_ref: str) -> None:
-    """Record the partner's reference against the session this start creates.
+async def _attach_auth_reference(
+    charger_id: int, auth_ref: Optional[str], partner_id: Optional[int] = None
+) -> None:
+    """Mark the session this start creates as the partner's.
+
+    Records both the partner's own reference and which partner it was, so the
+    Sessions and CDRs endpoints can serve it to them and to nobody else. Runs
+    even when the partner sent no authorization_reference, because ownership
+    matters on its own.
 
     The row does not exist yet when the charger accepts, so this waits for it.
     The wait is awaited rather than slept through: this runs inside the OCPP
@@ -223,16 +230,20 @@ async def _attach_auth_reference(charger_id: int, auth_ref: str) -> None:
                     ChargingSession.charger_id == charger_id,
                     ChargingSession.status.in_(["pending", "active"]),
                     ChargingSession.authorization_reference.is_(None),
+                    ChargingSession.ocpi_partner_id.is_(None),
                 )
                 .order_by(ChargingSession.id.desc())
                 .first()
             )
             if sess is not None:
-                sess.authorization_reference = auth_ref[:64]
+                if auth_ref:
+                    sess.authorization_reference = auth_ref[:64]
+                if partner_id is not None:
+                    sess.ocpi_partner_id = partner_id
                 db.commit()
                 logger.info(
-                    "[ocpi-commands] authorization_reference %s attached to session %s",
-                    auth_ref, sess.id,
+                    "[ocpi-commands] session %s attributed to partner %s (ref %s)",
+                    sess.id, partner_id, auth_ref,
                 )
                 return
         except Exception as e:
@@ -358,41 +369,88 @@ def _get_base_url(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
-def _ocpi_auth(authorization: Optional[str] = Header(None)) -> None:
-    """Validate OCPI Authorization: Token {token}.
+def _token_candidates(authorization: Optional[str]) -> list:
+    """The header token in both the forms clients actually send.
 
-    OCPI 2.2.1 spec says the token is transmitted base64-encoded, but many
-    real-world clients still send it raw. We accept BOTH forms — try the
-    header value verbatim first, then try base64-decoding it. Whichever
-    matches the configured token wins. Constant-time compare on both paths.
-
-    Fail-closed: if OCPI_TOKEN is not configured, reject all requests.
-    Set OCPI_ALLOW_ANON=1 explicitly to bypass for local dev.
+    OCPI 2.2.1 says the token travels base64-encoded, but plenty of real
+    clients send it raw. Return both readings so callers can compare against
+    each without deciding which convention the client picked.
     """
     import base64
-    token = os.getenv("OCPI_TOKEN", "").strip()
-    if not token:
+
+    if not authorization or not authorization.startswith("Token "):
+        return []
+    raw = authorization[6:].strip()
+    out = [raw]
+    try:
+        out.append(base64.b64decode(raw, validate=True).decode("utf-8", "strict"))
+    except Exception:
+        pass
+    return out
+
+
+def _ocpi_auth(authorization: Optional[str] = Header(None)):
+    """Authenticate an OCPI caller and say who they are.
+
+    Returns the OcpiPartner row when the token belongs to a registered partner,
+    or None when the caller authenticated with the single shared OCPI_TOKEN,
+    which identifies nobody. Endpoints that return partner data must treat None
+    as "unknown caller" and scope conservatively rather than serving everything.
+
+    The shared token stays valid on purpose. Voltality authenticate with it
+    today, and revoking it here would cut them off mid-integration.
+
+    Fail-closed: if OCPI_TOKEN is not configured and no partner token matches,
+    reject. Set OCPI_ALLOW_ANON=1 explicitly to bypass for local dev.
+    """
+    from database import SessionLocal as _SL
+
+    candidates = _token_candidates(authorization)
+
+    # 1) A registered partner's own inbound token identifies the caller.
+    if candidates:
+        db = _SL()
+        try:
+            for row in db.query(OcpiPartner).filter(OcpiPartner.token_inbound.isnot(None)).all():
+                for cand in candidates:
+                    if secrets.compare_digest(cand, row.token_inbound):
+                        db.expunge(row)
+                        return row
+        except Exception as e:
+            # A broken partner lookup must not become an outage: fall through
+            # to the shared token, which still authenticates.
+            logger.warning("[ocpi-auth] partner token lookup failed: %s", e)
+        finally:
+            db.close()
+
+    # 2) The shared token: authenticated, but anonymous.
+    shared = os.getenv("OCPI_TOKEN", "").strip()
+    if not shared:
         if os.getenv("OCPI_ALLOW_ANON", "").strip().lower() in ("1", "true", "yes"):
-            return  # explicit dev opt-in
+            return None  # explicit dev opt-in
         raise HTTPException(
             status_code=503,
             detail="OCPI not configured (server missing OCPI_TOKEN). Contact the operator.",
         )
-    if not authorization or not authorization.startswith("Token "):
+    if not candidates:
         raise HTTPException(status_code=403, detail="Missing OCPI token")
-
-    header_val = authorization[6:].strip()
-    # 1) Raw string match (non-spec but widely used in the wild)
-    if secrets.compare_digest(header_val, token):
-        return
-    # 2) Base64-decoded match (OCPI 2.2.1 spec-compliant)
-    try:
-        decoded = base64.b64decode(header_val, validate=True).decode("utf-8", "strict")
-    except Exception:
-        decoded = None
-    if decoded and secrets.compare_digest(decoded, token):
-        return
+    for cand in candidates:
+        if secrets.compare_digest(cand, shared):
+            return None
     raise HTTPException(status_code=403, detail="Invalid OCPI token")
+
+
+def _scope_to_caller(q, caller):
+    """Restrict a ChargingSession query to what this caller may see.
+
+    A known partner sees only sessions attributed to them. An anonymous caller
+    on the shared token sees only sessions some partner started, never our own
+    app, kiosk or RFID sessions. Neither path can reach a PlagSini customer's
+    identifier.
+    """
+    if caller is not None:
+        return q.filter(ChargingSession.ocpi_partner_id == caller.id)
+    return q.filter(ChargingSession.authorization_reference.isnot(None))
 
 
 def _to_ocpi_datetime(dt) -> str:
@@ -672,17 +730,21 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     }
 
 
-@router.get("/2.2.1/sessions", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+@router.get("/2.2.1/sessions", response_model=dict)
 async def get_sessions(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
+    caller=Depends(_ocpi_auth),
 ):
-    """Get charging sessions (OCPI pull model)."""
-    q = db.query(ChargingSession).filter(
-        ChargingSession.status.in_(["active", "completed", "stopped"])
+    """Get charging sessions (OCPI pull model), scoped to the caller."""
+    q = _scope_to_caller(
+        db.query(ChargingSession).filter(
+            ChargingSession.status.in_(["active", "completed", "stopped"])
+        ),
+        caller,
     )
     if date_from:
         try:
@@ -709,18 +771,22 @@ async def get_sessions(
 
 
 # ============ CDRs ============
-@router.get("/2.2.1/cdrs", response_model=dict, dependencies=[Depends(_ocpi_auth)])
+@router.get("/2.2.1/cdrs", response_model=dict)
 async def get_cdrs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
+    caller=Depends(_ocpi_auth),
 ):
-    """Get Charge Detail Records (CDRs) for billing."""
-    q = db.query(ChargingSession).filter(
-        ChargingSession.status.in_(["completed", "stopped"]),
-        ChargingSession.stop_time.isnot(None),
+    """Get Charge Detail Records (CDRs) for billing, scoped to the caller."""
+    q = _scope_to_caller(
+        db.query(ChargingSession).filter(
+            ChargingSession.status.in_(["completed", "stopped"]),
+            ChargingSession.stop_time.isnot(None),
+        ),
+        caller,
     )
     if date_from:
         try:
@@ -849,8 +915,13 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         logger.warning(f"[ocpi-commands] callback POST to {response_url} failed: {e}")
 
 
-@router.post("/2.2.1/commands/{command}", response_model=dict, dependencies=[Depends(_ocpi_auth)])
-async def post_command(command: str, request: Request, db: Session = Depends(get_db)):
+@router.post("/2.2.1/commands/{command}", response_model=dict)
+async def post_command(
+    command: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    caller=Depends(_ocpi_auth),
+):
     """eMSP-initiated remote command. Returns synchronous CommandResponse; the
     final CommandResult is POSTed asynchronously to the eMSP's response_url."""
     import asyncio
@@ -906,13 +977,16 @@ async def post_command(command: str, request: Request, db: Session = Depends(get
         # it back on the session, which is the only way the partner can tie the
         # session it asked for to the session we report.
         auth_ref = body.get("authorization_reference")
+        # Who asked. Sessions are served back only to the partner that started
+        # them, so ownership has to be recorded at the moment of the start.
+        partner_id = caller.id if caller is not None else None
 
         async def _dispatch_start():
             try:
                 resp = await cp.remote_start_transaction(connector_id=connector_id, id_tag=token)
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
-                if accepted and auth_ref:
-                    await _attach_auth_reference(charger.id, auth_ref)
+                if accepted and (auth_ref or partner_id is not None):
+                    await _attach_auth_reference(charger.id, auth_ref, partner_id)
                 await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
             except Exception as e:
                 await _post_command_result(response_url, "FAILED", str(e))
@@ -1064,8 +1138,13 @@ async def get_roaming_operators():
 
 
 # ============ Credentials ============
-def _save_partner(url: str, token: str, roles: list) -> None:
+def _save_partner(url: str, token: str, roles: list) -> Optional[str]:
     """Persist a partner's credentials from the registration handshake.
+
+    Returns the token this partner should present to us from now on (OCPI
+    Token C), minted here and unique to them. That is what lets us tell one
+    caller from another; the shared OCPI_TOKEN identifies nobody, so every
+    partner using it was served every session on the platform.
 
     Without this we could receive a partner's traffic but never initiate any of
     our own: the handshake carries the token we must present when calling them,
@@ -1092,12 +1171,17 @@ def _save_partner(url: str, token: str, roles: list) -> None:
         row.business_name = ((role.get("business_details") or {}).get("name") or "")[:128] or None
         row.versions_url = url[:512]
         row.token = token[:256]
+        # Rotate on every handshake, which is what a repeat handshake is for.
+        row.token_inbound = secrets.token_urlsafe(32)
         row.last_updated = now
         db.commit()
+        issued = row.token_inbound
         logger.info("[ocpi-credentials] credentials stored for %s/%s", cc, pid)
+        return issued
     except Exception as e:
         db.rollback()
         logger.error("[ocpi-credentials] could not store partner credentials: %s", e)
+        return None
     finally:
         db.close()
 
@@ -1157,7 +1241,7 @@ async def post_credentials(request: Request):
             detail="Missing required fields: token, url",
         )
 
-    _save_partner(partner_url, partner_token, partner_roles)
+    issued_token = _save_partner(partner_url, partner_token, partner_roles)
     # A new token means the old discovery cache may point at a partner we can
     # no longer authenticate against.
     try:
@@ -1180,7 +1264,11 @@ async def post_credentials(request: Request):
         "status_message": "Success",
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "data": {
-            "token": os.getenv("OCPI_TOKEN", "").strip(),
+            # Their own token, not the shared one. Requests carrying it are
+            # scoped to their data only. The shared token still authenticates
+            # so nobody is cut off mid-integration, but it sees only sessions
+            # a partner started, never ours.
+            "token": issued_token or os.getenv("OCPI_TOKEN", "").strip(),
             "url": f"{base}/ocpi/versions",
             "roles": [
                 {

@@ -455,6 +455,12 @@ class ChargingSession(Base):
     # when it polls the session, so it can tie the two together. NULL for any
     # session we did not start on a partner's behalf.
     authorization_reference = Column(String(64), nullable=True)
+    # Which roaming partner this session belongs to. NULL means it is ours: an
+    # app user, a kiosk walk-in or a local RFID start. The OCPI Sessions and
+    # CDRs endpoints filter on this, because without it every partner was
+    # served every session on the platform, including our own customers'
+    # phone numbers in cdr_token.uid.
+    ocpi_partner_id = Column(Integer, ForeignKey("ocpi_partners.id"), nullable=True, index=True)
     connector_id = Column(Integer, nullable=True)  # OCPP StartTransaction connector
     # 2.0.1 addresses a socket as (evse_id, connector_id); 1.6 has only the
     # connector. NULL for 1.6 sessions.
@@ -565,6 +571,11 @@ class OcpiPartner(Base):
     business_name = Column(String(128), nullable=True)
     versions_url = Column(String(512), nullable=False)
     token = Column(String(256), nullable=False)  # secret: never log in full
+    # OCPI calls these Token B and Token C. `token` above is Token B, what we
+    # present when calling them. This is Token C, what they present to us, and
+    # it is how we tell one caller from another. NULL falls back to the single
+    # shared OCPI_TOKEN, which identifies nobody.
+    token_inbound = Column(String(256), nullable=True)  # secret: never log in full
     registered_at = Column(DateTime, nullable=True)
     last_updated = Column(DateTime, nullable=True)
 
