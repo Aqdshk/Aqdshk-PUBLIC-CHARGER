@@ -645,6 +645,9 @@ def _build_cdr_dict(sess) -> Optional[dict]:
 
     return {
         "id": str(sess.transaction_id),
+        # Optional in OCPI 2.2.1, but Voltality reconcile CDRs against sessions.
+        # Same value as the Session id: both are the transaction id.
+        "session_id": str(sess.transaction_id),
         "start_datetime": _to_ocpi_datetime(start_time),
         "end_datetime": _to_ocpi_datetime(stop_time),
         "auth_id": sess.user_id or "UNKNOWN",
