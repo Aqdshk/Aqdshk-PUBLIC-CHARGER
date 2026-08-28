@@ -316,6 +316,11 @@ class Charger(Base):
     
     # Configuration parameters (matching SteVe OCPP)
     number_of_connectors = Column(Integer, default=1)
+    # When true, number_of_connectors is the operator's word and the
+    # charger's own reports cannot raise it. DC3001 announces a second
+    # gun it does not physically have, and the auto-grow below had no
+    # way to be told otherwise.
+    connectors_locked = Column(Boolean, nullable=False, default=False, server_default='0')
     heartbeat_interval = Column(Integer, default=7200)  # 2 hours default
     meter_value_sample_interval = Column(Integer, default=10)  # 10 seconds
     transaction_message_attempts = Column(Integer, default=3)

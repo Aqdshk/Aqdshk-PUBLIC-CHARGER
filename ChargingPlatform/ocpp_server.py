@@ -643,7 +643,21 @@ class ChargePoint(cp):
                         conn_map = _json.loads(charger.connector_status) or {}
                     except Exception:
                         conn_map = {}
-                if connector_id and connector_id >= 1:
+                declared = charger.number_of_connectors or 1
+                locked = bool(getattr(charger, "connectors_locked", False))
+
+                # A charger can announce a gun it does not physically have.
+                # DC3001 reports a second connector and calls it Faulted; it
+                # has never carried a session, and it was published to roaming
+                # partners as an out-of-order bay that does not exist. When the
+                # operator has pinned the count, the hardware in the ground
+                # wins over what the firmware claims.
+                if locked and connector_id and connector_id > declared:
+                    logger.info(
+                        f"[{self.id}] ignoring connector {connector_id}: only "
+                        f"{declared} declared and the count is locked"
+                    )
+                elif connector_id and connector_id >= 1:
                     conn_map[str(connector_id)] = status_map.get(status, 'unknown')
                     charger.connector_status = _json.dumps(conn_map)
                     # Let the charger declare its own gun count. Without this the
@@ -653,7 +667,9 @@ class ChargePoint(cp):
                     # not shrink the count and lock the operator out of it.
                     try:
                         highest = max(int(k) for k in conn_map if str(k).isdigit())
-                        if highest > (charger.number_of_connectors or 1):
+                        if locked:
+                            pass  # operator has pinned the count
+                        elif highest > (charger.number_of_connectors or 1):
                             charger.number_of_connectors = highest
                             logger.info(
                                 f"[{self.id}] connector count raised to {highest} "

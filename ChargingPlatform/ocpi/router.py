@@ -273,9 +273,13 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
             conn_map = {}
 
     guns = max(int(getattr(charger, "number_of_connectors", 1) or 1), 1)
-    for key in conn_map:
-        if str(key).isdigit():
-            guns = max(guns, int(key))
+    # A charger may report a gun it does not physically have, and publishing it
+    # tells a roaming partner about a bay that does not exist. Where the
+    # operator has pinned the count, that is the number we advertise.
+    if not getattr(charger, "connectors_locked", False):
+        for key in conn_map:
+            if str(key).isdigit():
+                guns = max(guns, int(key))
 
     _std, _fmt, _ptype, _volt, _amp, _maxw = _connector_spec(charger)
 
