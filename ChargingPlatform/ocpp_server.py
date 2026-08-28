@@ -2122,13 +2122,16 @@ async def ocpp_state_healer_loop(interval_seconds: int = 60):
                     # Consistent state — clear any pending strikes.
                     _mismatch_strikes.pop(c.charge_point_id, None)
 
-            db.close()
+            # Commit before closing. The session was already being closed here,
+            # and a commit after that silently does nothing: the offline marks
+            # were recomputed and thrown away on every cycle.
             if stale_marked:
                 db.commit()
                 logger.info(
                     f"[ocpp-healer] marked {stale_marked} charger(s) offline "
                     f"(no heartbeat for over an hour)"
                 )
+            db.close()
 
             if mismatch_count or cleaned:
                 logger.info(
