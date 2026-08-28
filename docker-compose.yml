@@ -39,7 +39,13 @@ services:
       dockerfile: Dockerfile
     container_name: charging-platform
     ports:
-      - "8000:8000"
+      # 8000 is bound to loopback: nginx proxies to it, and it has no business
+      # being on the public internet. It was reachable from anywhere over plain
+      # HTTP, and GET /api/chargers returned all 479 chargers unauthenticated.
+      # Firmware does not need it either; the same file is served over port 80.
+      #
+      # 9000 stays open because chargers dial in on it directly.
+      - "127.0.0.1:8000:8000"
       - "9000:9000"
     volumes:
       # ── Dev volume mount: local code → container ──
@@ -94,7 +100,7 @@ services:
       dockerfile: Dockerfile
     container_name: customer-service
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"   # reached through nginx /bot/ only
     volumes:
       # ── Dev volume mount: local code → container ──
       - ./CustomerService:/app
@@ -130,7 +136,7 @@ services:
       dockerfile: Dockerfile
     container_name: appev
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"   # reached through nginx /app/ only
     # Note: Flutter web uses multi-stage build (build → Nginx static).
     # Volume mount not practical here — rebuild needed for Flutter changes:
     #   docker compose build appev && docker compose up -d appev
