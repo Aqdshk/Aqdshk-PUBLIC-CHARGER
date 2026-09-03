@@ -242,6 +242,27 @@ class ApiService {
     }
   }
 
+  /// The signed-in customer's own active session, with live metering already
+  /// folded in (power, voltage, current, SoC, cost).
+  ///
+  /// `getActiveSession` below reads the operator endpoint, which requires
+  /// admin. A normal customer received 401 there and the Live Charging screen
+  /// silently showed zeros. Returns null when the customer is not charging.
+  static Future<Map<String, dynamic>?> getMyActiveSession() async {
+    try {
+      final response = await _authGet('$baseUrl/me/session/active');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic>) return data;
+      }
+      return null;
+    } on AuthSessionExpiredException {
+      rethrow;
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<Map<String, dynamic>?> getActiveSession() async {
     try {
       final response = await _authGet('$baseUrl/sessions?limit=1');

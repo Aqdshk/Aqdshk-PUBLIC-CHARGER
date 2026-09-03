@@ -489,6 +489,47 @@ async def require_admin_or_staff_manager(
 
     raise HTTPException(status_code=401, detail="Authentication required")
 
+
+async def require_charging_caller(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Authorize a start or stop: operator staff, or an ordinary app customer.
+
+    Every charging path used to demand admin or manager. AppEV calls these
+    endpoints, so a real customer received 401 on start, on the session list
+    and on live metering, and the app degraded silently to a screen of zeros.
+    Of four accounts two were admins, which is why it was never noticed.
+
+    Returns the caller's mode. "user" is deliberately weaker than the operator
+    modes: the endpoints below restrict a customer to a free connector and to
+    their own session, whereas staff keep the operator-wide behaviour.
+    """
+    if current_user and current_user.is_admin:
+        return {"mode": "jwt_admin", "user_id": current_user.id, "user": current_user}
+
+    staff_token = _extract_staff_token(request)
+    if staff_token:
+        session = _get_staff_session_db(staff_token, db)
+        if session and session.get("role") in ("admin", "manager"):
+            return {"mode": "staff_admin", "staff_id": session.get("id"), "user": None}
+
+    if current_user:
+        return {"mode": "user", "user_id": current_user.id, "user": current_user}
+
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _session_belongs_to(sess: "ChargingSession", user: User) -> bool:
+    """Whether an app customer owns this session.
+
+    Sessions record `user_id` as the OCPP id_tag. A customer start now sends
+    the numeric user id, so ownership is an exact match. The generic
+    'APP_USER' and 'DASHBOARD_USER' labels predate that and belong to nobody.
+    """
+    return bool(user) and str(sess.user_id or "") == str(user.id)
+
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
@@ -728,6 +769,9 @@ class MeterValueResponse(BaseModel):
     power: Optional[float]
     total_kwh: Optional[float]
     transaction_id: Optional[int]
+    # Vehicle state of charge, when the charger reports it. Stored since the
+    # meter_soc migration but never returned, so no client could show it.
+    soc: Optional[float] = None
 
     @field_serializer("timestamp")
     def _ser_mv_ts(self, v: datetime, _info) -> str:
@@ -1675,6 +1719,90 @@ async def get_latest_metering_by_connector(
 
     # Named guns first in order, then any reading we could not attribute.
     return sorted(seen.values(), key=lambda r: (r.connector_id is None, r.connector_id or 0))
+
+
+class MySessionResponse(BaseModel):
+    """The caller's own charging session, with live metering folded in.
+
+    One call rather than three. AppEV previously read the operator endpoints
+    /api/sessions and /api/metering/{id}/latest, both admin only, so a
+    customer got 401 from each and the Live Charging screen rendered zeros.
+    """
+
+    transaction_id: Optional[int] = None
+    charge_point_id: Optional[str] = None
+    connector_id: Optional[int] = None
+    status: Optional[str] = None
+    start_time: Optional[str] = None
+    energy: float = 0.0
+    voltage: float = 0.0
+    current: float = 0.0
+    power: float = 0.0
+    # None means the charger never reported it. The app shows no percentage at
+    # all in that case, rather than an incorrect 0%.
+    soc: Optional[float] = None
+    tariff_per_kwh: Optional[float] = None
+    cost: Optional[float] = None
+
+
+@app.get("/api/me/session/active", response_model=Optional[MySessionResponse])
+async def get_my_active_session(
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """The caller's active session, or null when they are not charging.
+
+    Scoped by user_id, which a customer start sets to their own numeric id, so
+    one customer can never read another's meter.
+    """
+    sess = (
+        db.query(ChargingSession)
+        .filter(
+            ChargingSession.user_id == str(me.id),
+            ChargingSession.status.in_(["active", "pending"]),
+        )
+        .order_by(desc(ChargingSession.start_time))
+        .first()
+    )
+    if not sess:
+        return None
+
+    charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+
+    out = MySessionResponse(
+        transaction_id=sess.transaction_id,
+        charge_point_id=charger.charge_point_id if charger else None,
+        connector_id=sess.connector_id,
+        status=sess.status,
+        start_time=_iso_myt_naive_local(sess.start_time),
+        energy=float(sess.energy_consumed or 0.0),
+    )
+
+    # Live electrical values come from the newest reading for this gun. SoC is
+    # not present on every sample, so it is taken from the newest sample that
+    # carried one instead of being blanked between readings.
+    q = db.query(MeterValue).filter(MeterValue.charger_id == sess.charger_id)
+    if sess.connector_id is not None:
+        q = q.filter(
+            or_(MeterValue.connector_id == sess.connector_id,
+                MeterValue.connector_id.is_(None))
+        )
+    recent = q.order_by(desc(MeterValue.timestamp)).limit(30).all()
+    if recent:
+        newest = recent[0]
+        out.voltage = float(newest.voltage or 0.0)
+        out.current = float(newest.current or 0.0)
+        out.power = float(newest.power or 0.0)
+        for mv in recent:
+            if mv.soc is not None:
+                out.soc = float(mv.soc)
+                break
+
+    if charger and charger.tariff_per_kwh is not None:
+        out.tariff_per_kwh = float(charger.tariff_per_kwh)
+        out.cost = round(out.energy * out.tariff_per_kwh, 2)
+
+    return out
 
 
 @app.get("/api/faults", response_model=List[FaultResponse])
@@ -3544,10 +3672,10 @@ class ChargingResponse(BaseModel):
 
 
 @app.post("/api/charging/start", response_model=ChargingResponse, status_code=200)
-async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
+async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_charging_caller)):
     """
     Start charging session via RemoteStartTransaction
-    
+
     Flow:
     1. AppEV sends request → ChargingPlatform API
     2. ChargingPlatform validates charger status
@@ -3556,6 +3684,24 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
     5. Returns success response to AppEV
     """
     try:
+        # An ordinary customer may start, under two limits that do not apply to
+        # staff. The id_tag is taken from the session rather than the request,
+        # so a customer cannot start under someone else's identity, and it is
+        # what makes the session theirs for /api/me/session/active. One active
+        # session at a time also stops a single account occupying several guns.
+        if _auth.get("mode") == "user":
+            _me = _auth["user"]
+            request.id_tag = str(_me.id)
+            mine = db.query(ChargingSession).filter(
+                ChargingSession.user_id == str(_me.id),
+                ChargingSession.status.in_(["active", "pending"]),
+            ).first()
+            if mine:
+                return ChargingResponse(
+                    success=False,
+                    message="You already have a charging session in progress.",
+                )
+
         logger.info(f"Start charging request received: charger_id={request.charger_id}, connector_id={request.connector_id}, id_tag={request.id_tag}")
         
         # Check if charger exists
@@ -3742,7 +3888,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
 
 
 @app.post("/api/charging/stop", response_model=ChargingResponse, status_code=200)
-async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
+async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_charging_caller)):
     """
     Stop charging session via RemoteStopTransaction
     
@@ -3808,6 +3954,21 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 success=False,
                 message="No active charging session found and no charger_id provided for fallback stop"
             )
+
+        # A customer may stop only their own session. Staff keep the operator
+        # fallback that stops whatever is running on a charger, because that is
+        # what a support call needs; a customer must never reach it, or sending
+        # someone else's charger_id would cut their charge short.
+        if _auth.get("mode") == "user":
+            if session is None or not _session_belongs_to(session, _auth["user"]):
+                logger.warning(
+                    "Stop refused: user %s does not own session %s",
+                    _auth.get("user_id"), getattr(session, "id", None),
+                )
+                return ChargingResponse(
+                    success=False,
+                    message="No charging session of yours is running on this charger.",
+                )
 
         # Get active charge point connection
         charge_point = get_active_charge_point(charger.charge_point_id)

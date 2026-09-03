@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
+import '../widgets/charging_battery_car.dart';
 import 'dart:ui';
 
 class LiveChargingScreen extends StatefulWidget {
@@ -155,6 +156,13 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
             final current = _num(session['current']);
             final startTime = session['start_time']?.toString();
             final duration = (session['duration'] ?? '00:00').toString();
+            // Null, not zero, when the charger never reported it. Showing 0%
+            // would tell the driver the battery is flat.
+            final rawSoc = session['soc'];
+            final soc = rawSoc == null ? null : _num(rawSoc);
+            // Energy still flowing, as opposed to a session that has been
+            // stopped but not yet closed. Keeps the animation honest.
+            final isCharging = power > 0.05 || current > 0.2;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -168,7 +176,17 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                     startTime: startTime ?? 'N/A',
                     duration: duration,
                   ),
-                  SizedBox(height: 32),
+                  SizedBox(height: 24),
+
+                  // Vehicle battery. Leads the screen because it is the one
+                  // number a driver actually waits on.
+                  ChargingBatteryCar(
+                    soc: soc,
+                    isCharging: isCharging,
+                    energyKwh: energy,
+                    powerKw: power,
+                  ),
+                  SizedBox(height: 24),
 
                   // Energy Display
                   Center(
@@ -219,7 +237,10 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       ),
                       _FuturisticMeterCard(
                         label: 'COST',
-                        value: 'RM ${(energy * 0.50).toStringAsFixed(2)}',
+                        // The charger's real tariff when the API supplies it.
+                        // The old hardcoded 0.50 quoted the wrong price on
+                        // every charger priced differently.
+                        value: 'RM ${(session['cost'] != null ? _num(session['cost']) : energy * _num(session['tariff_per_kwh'] ?? 0.50)).toStringAsFixed(2)}',
                         unit: '',
                         icon: Icons.attach_money_rounded,
                         gradient: [AppColors.primaryGreen, AppColors.primaryGreen],
