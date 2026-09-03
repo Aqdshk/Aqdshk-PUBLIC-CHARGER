@@ -107,6 +107,12 @@ class SessionProvider with ChangeNotifier {
         s['power'] = m['power'] ?? 0;
         s['voltage'] = m['voltage'] ?? 0;
         s['current'] = m['current'] ?? 0;
+        // Carried through so the battery animation shows a percentage on this
+        // path too. Operator sessions are labelled APP_USER rather than a real
+        // user id, so an admin always lands here rather than on /me.
+        // Kept from the previous poll when a sample omits it, since SoC is not
+        // present on every MeterValues and blanking it makes the pack flicker.
+        if (m['soc'] != null) s['soc'] = m['soc'];
       }
     }
   }
