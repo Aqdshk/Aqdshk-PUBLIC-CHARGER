@@ -37,6 +37,21 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
     });
   }
 
+  /// Clock time from the API's start_time, which is Malaysian wall time with
+  /// no offset. Only the time of day is useful on a live screen; the date is
+  /// today by definition.
+  String _clockOf(String? iso) {
+    if (iso == null || iso.isEmpty) return '--:--';
+    try {
+      final norm = (iso.contains('+') || iso.endsWith('Z')) ? iso : '$iso+08:00';
+      final t = DateTime.parse(norm).toLocal();
+      return '${t.hour.toString().padLeft(2, '0')}:'
+          '${t.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return '--:--';
+    }
+  }
+
   double _parseNum(dynamic v) {
     if (v == null) return 0.0;
     if (v is num) return v.toDouble();
@@ -163,147 +178,142 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
             // Energy still flowing, as opposed to a session that has been
             // stopped but not yet closed. Keeps the animation honest.
             final isCharging = power > 0.05 || current > 0.2;
+            // The API prices the session against the charger's own tariff.
+            // Falling back to a flat rate would quote the wrong figure on any
+            // charger not priced at 50 sen.
+            final cost = session['cost'] != null
+                ? _num(session['cost'])
+                : energy * _num(session['tariff_per_kwh'] ?? 0.50);
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Charger Info Card
-                  _FuturisticInfoCard(
-                    chargerId: (session['charge_point_id'] ?? session['charger_id'])?.toString() ?? 'Unknown Charger',
-                    status: 'CHARGING',
-                    startTime: startTime ?? 'N/A',
-                    duration: duration,
-                  ),
-                  SizedBox(height: 24),
-
-                  // Vehicle battery. Leads the screen because it is the one
-                  // number a driver actually waits on.
-                  ChargingBatteryCar(
-                    soc: soc,
-                    isCharging: isCharging,
-                    energyKwh: energy,
-                    powerKw: power,
-                  ),
-                  SizedBox(height: 24),
-
-                  // Energy Display
-                  Center(
-                    child: _EnergyDisplay(
-                      energy: energy,
-                      pulseController: _pulseController,
-                    ),
-                  ),
-                  SizedBox(height: 32),
-
-                  // Metering Data Grid
-                  Text(
-                    'METERING DATA',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppColors.primaryGreen,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.1,
+            // One screen, no scrolling on a normal phone. The car takes
+            // whatever height is left after the fixed rows, so the panel
+            // adapts to the device instead of assuming one size.
+            return LayoutBuilder(
+              builder: (context, box) {
+                final showGraph = box.maxHeight > 660;
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _FuturisticMeterCard(
-                        label: 'POWER',
-                        value: power.toStringAsFixed(2),
-                        unit: 'kW',
-                        icon: Icons.flash_on_rounded,
-                        gradient: [AppColors.primaryGreen, AppColors.mediumGreen],
+                      _SessionHeader(
+                        chargerId: (session['charge_point_id'] ??
+                                    session['charger_id'])
+                                ?.toString() ??
+                            'Unknown',
+                        duration: duration,
+                        charging: isCharging,
                       ),
-                      _FuturisticMeterCard(
-                        label: 'VOLTAGE',
-                        value: voltage.toStringAsFixed(1),
-                        unit: 'V',
-                        icon: Icons.electrical_services_rounded,
-                        gradient: [AppColors.primaryGreen, AppColors.darkGreen],
-                      ),
-                      _FuturisticMeterCard(
-                        label: 'CURRENT',
-                        value: current.toStringAsFixed(2),
-                        unit: 'A',
-                        icon: Icons.power_rounded,
-                        gradient: const [Color(0xFFFF006E), Color(0xFFC1121F)],
-                      ),
-                      _FuturisticMeterCard(
-                        label: 'COST',
-                        // The charger's real tariff when the API supplies it.
-                        // The old hardcoded 0.50 quoted the wrong price on
-                        // every charger priced differently.
-                        value: 'RM ${(session['cost'] != null ? _num(session['cost']) : energy * _num(session['tariff_per_kwh'] ?? 0.50)).toStringAsFixed(2)}',
-                        unit: '',
-                        icon: Icons.attach_money_rounded,
-                        gradient: [AppColors.primaryGreen, AppColors.primaryGreen],
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 32),
+                      const SizedBox(height: 4),
 
-                  // Power kW Chart
-                  Text(
-                    'POWER GRAPH',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppColors.primaryGreen,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  _PowerChart(spots: _powerHistory),
-                  SizedBox(height: 32),
-
-                  // Stop Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFF006E), Color(0xFFC1121F)],
+                      // The battery is what the driver is actually waiting on,
+                      // so it gets the room that is left.
+                      Expanded(
+                        child: Center(
+                          child: ChargingBatteryCar(
+                            soc: soc,
+                            isCharging: isCharging,
+                            energyKwh: energy,
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFF006E).withOpacity(0.5),
-                            blurRadius: 20,
-                            spreadRadius: 0,
+                      ),
+
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _Stat(
+                              label: 'ENERGY',
+                              value: energy.toStringAsFixed(2),
+                              unit: 'kWh',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _Stat(
+                              label: 'POWER',
+                              value: power.toStringAsFixed(1),
+                              unit: 'kW',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _Stat(
+                              label: 'COST',
+                              value: 'RM ${cost.toStringAsFixed(2)}',
+                              unit: '',
+                            ),
                           ),
                         ],
                       ),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          _showStopDialog(context, sessionProvider);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _Stat(
+                              label: 'VOLTAGE',
+                              value: voltage.toStringAsFixed(0),
+                              unit: 'V',
+                            ),
                           ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _Stat(
+                              label: 'CURRENT',
+                              value: current.toStringAsFixed(1),
+                              unit: 'A',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _Stat(
+                              label: 'STARTED',
+                              value: _clockOf(startTime),
+                              unit: '',
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Dropped rather than squeezed on a short screen: a
+                      // 40px graph tells nobody anything.
+                      if (showGraph) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 92,
+                          child: _PowerChart(spots: _powerHistory),
                         ),
-                        child: Text(
-                          'STOP CHARGING',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                            color: AppColors.textTertiary,
+                      ],
+
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: () =>
+                              _showStopDialog(context, sessionProvider),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2A1218),
+                            foregroundColor: const Color(0xFFFF5C7A),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: const BorderSide(color: Color(0xFF5A2030)),
+                            ),
+                          ),
+                          child: const Text(
+                            'STOP CHARGING',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1.5,
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             );
           },
         ),
@@ -377,243 +387,148 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
   }
 }
 
-class _FuturisticInfoCard extends StatelessWidget {
-  final String chargerId;
-  final String status;
-  final String startTime;
-  final String duration;
-
-  const _FuturisticInfoCard({
+/// Charger identity, state and elapsed time on one line, so the panel spends
+/// its height on the battery rather than on a card.
+class _SessionHeader extends StatelessWidget {
+  const _SessionHeader({
     required this.chargerId,
-    required this.status,
-    required this.startTime,
     required this.duration,
+    required this.charging,
   });
+
+  final String chargerId;
+  final String duration;
+  final bool charging;
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primaryGreen.withOpacity(0.3),
-          width: 1,
-        ),
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primaryGreen.withOpacity(0.18)),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: charging ? AppColors.primaryGreen : AppColors.warning,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.primaryGreen, AppColors.mediumGreen],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primaryGreen.withOpacity(0.5),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.bolt_rounded,
-                        color: AppColors.textTertiary,
-                        size: 24,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            chargerId,
-                            style: TextStyle(
-                              color: AppColors.textTertiary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryGreen.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: AppColors.primaryGreen,
-                                width: 1,
-                              ),
-                            ),
-                            child: Text(
-                              status,
-                              style: TextStyle(
-                                color: AppColors.primaryGreen,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                Text(
+                  chargerId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
-                SizedBox(height: 20),
-                _InfoRow('Started', startTime),
-                SizedBox(height: 12),
-                _InfoRow('Duration', duration),
+                Text(
+                  charging ? 'Charging' : 'Connected',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textTertiary.withOpacity(0.75),
+                  ),
+                ),
               ],
             ),
           ),
-        ),
+          Text(
+            duration,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: AppColors.primaryGreen,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _InfoRow extends StatelessWidget {
+/// One compact reading. Deliberately quiet: six of these sit together, and
+/// six saturated tiles fight each other and the battery for attention.
+class _Stat extends StatelessWidget {
+  const _Stat({required this.label, required this.value, required this.unit});
+
   final String label;
   final String value;
-
-  const _InfoRow(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: AppColors.textLight,
-            fontSize: 14,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: AppColors.textTertiary,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _EnergyDisplay extends StatelessWidget {
-  final double energy;
-  final AnimationController pulseController;
-
-  const _EnergyDisplay({
-    required this.energy,
-    required this.pulseController,
-  });
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
-    final safeEnergy = energy.isFinite ? energy : 0.0;
-    final progress = (safeEnergy / 50.0).clamp(0.0, 1.0); // Assuming 50 kWh max
-
-    return AnimatedBuilder(
-      animation: pulseController,
-      builder: (context, child) {
-        return Container(
-          width: 280,
-          height: 280,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                AppColors.primaryGreen.withOpacity(0.3 * pulseController.value),
-                Colors.transparent,
-              ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderLight.withOpacity(0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 9,
+              letterSpacing: 1.2,
+              color: AppColors.textTertiary.withOpacity(0.65),
             ),
           ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Outer ring
-              SizedBox(
-                width: 280,
-                height: 280,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 8,
-                  backgroundColor: AppColors.surface,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    AppColors.primaryGreen,
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
-              ),
-              // Inner ring
-              SizedBox(
-                width: 240,
-                height: 240,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 6,
-                  backgroundColor: AppColors.surface,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    AppColors.primaryGreen,
-                  ),
-                ),
-              ),
-              // Center content
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+                if (unit.isNotEmpty) ...[
+                  const SizedBox(width: 3),
                   Text(
-                    safeEnergy.toStringAsFixed(2),
+                    unit,
                     style: TextStyle(
-                      color: AppColors.primaryGreen,
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    'kWh',
-                    style: TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 18,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    '${(progress * 100).toStringAsFixed(0)}%',
-                    style: TextStyle(
-                      color: AppColors.primaryGreen,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
+                      color: AppColors.textTertiary.withOpacity(0.8),
                     ),
                   ),
                 ],
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
+
 
 class _PowerChart extends StatelessWidget {
   final List<FlSpot> spots;
@@ -691,109 +606,6 @@ class _PowerChart extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FuturisticMeterCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  final IconData icon;
-  final List<Color> gradient;
-
-  const _FuturisticMeterCard({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.icon,
-    required this.gradient,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: gradient.map((c) => c.withOpacity(0.2)).toList(),
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: gradient.first.withOpacity(0.5),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.first.withOpacity(0.3),
-            blurRadius: 15,
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(colors: gradient),
-                    boxShadow: [
-                      BoxShadow(
-                        color: gradient.first.withOpacity(0.5),
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 24),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontSize: 12,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-                SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      value,
-                      style: TextStyle(
-                        color: gradient.first,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (unit.isNotEmpty) ...[
-                      SizedBox(width: 4),
-                      Text(
-                        unit,
-                        style: TextStyle(
-                          color: gradient.first.withOpacity(0.7),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
