@@ -87,7 +87,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 20),
+          icon: Icon(Icons.arrow_back_ios_rounded, color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Consumer<NotificationProvider>(
@@ -96,9 +96,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             children: [
               Icon(Icons.notifications_rounded, color: AppColors.primaryGreen, size: 22),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Notifications',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               if (np.unreadCount > 0) ...[
                 const SizedBox(width: 8),
@@ -147,7 +147,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         child: Consumer<NotificationProvider>(
           builder: (context, np, _) {
             if (np.isLoading && np.items.isEmpty) {
-              return const Center(
+              return Center(
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   color: AppColors.primaryGreen,
@@ -196,9 +196,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'No Notifications',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
@@ -283,7 +283,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               child: Text(
                                 title,
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.textPrimary,
                                   fontSize: 14,
                                   fontWeight: isRead ? FontWeight.w500 : FontWeight.bold,
                                 ),

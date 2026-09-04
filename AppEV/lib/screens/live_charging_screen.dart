@@ -118,7 +118,7 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: const LinearGradient(
+                        gradient: LinearGradient(
                           colors: [AppColors.primaryGreen, AppColors.primaryGreen],
                         ),
                         boxShadow: [
@@ -429,7 +429,7 @@ class _SessionHeader extends StatelessWidget {
                   chargerId,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
@@ -447,7 +447,7 @@ class _SessionHeader extends StatelessWidget {
           ),
           Text(
             duration,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w500,
               color: AppColors.primaryGreen,
@@ -503,7 +503,7 @@ class _Stat extends StatelessWidget {
               children: [
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,

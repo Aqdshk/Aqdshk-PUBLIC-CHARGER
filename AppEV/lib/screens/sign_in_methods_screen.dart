@@ -20,7 +20,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
         title: Text(
           'Sign In Methods',
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -49,7 +49,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.security, color: Colors.white, size: 40),
+                  Icon(Icons.security, color: AppColors.textPrimary, size: 40),
                   SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -158,7 +158,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                         Text(
                           '2FA Authentication',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
                           ),
@@ -188,7 +188,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
                             children: [
                               Icon(Icons.shield, color: AppColors.primaryGreen),
                               SizedBox(width: 12),
-                              Text('2FA Setup', style: TextStyle(color: Colors.white)),
+                              Text('2FA Setup', style: TextStyle(color: AppColors.textPrimary)),
                             ],
                           ),
                           content: Text(
@@ -229,7 +229,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           backgroundColor: AppColors.cardBackground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Change Password', style: TextStyle(color: Colors.white)),
+          title: Text('Change Password', style: TextStyle(color: AppColors.textPrimary)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -248,7 +248,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               TextField(
                 controller: currentPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: Colors.white),
+                style: TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Current Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -267,7 +267,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               TextField(
                 controller: newPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: Colors.white),
+                style: TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'New Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -286,7 +286,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
               TextField(
                 controller: confirmPwCtrl,
                 obscureText: true,
-                style: TextStyle(color: Colors.white),
+                style: TextStyle(color: AppColors.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Confirm New Password',
                   labelStyle: TextStyle(color: AppColors.textLight),
@@ -386,7 +386,7 @@ class _SignInMethodsScreenState extends State<SignInMethodsScreen> {
           children: [
             Icon(Icons.link, color: AppColors.primaryGreen),
             SizedBox(width: 12),
-            Text('Connect $provider', style: TextStyle(color: Colors.white)),
+            Text('Connect $provider', style: TextStyle(color: AppColors.textPrimary)),
           ],
         ),
         content: Column(
@@ -467,7 +467,7 @@ class _SignInMethodTile extends StatelessWidget {
         title: Text(
           title,
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.w500,
           ),
         ),

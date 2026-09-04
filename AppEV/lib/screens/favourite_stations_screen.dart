@@ -79,7 +79,7 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
               label: Text('FIND CHARGERS'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.textPrimary,
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -162,7 +162,7 @@ class _FavouriteStationCard extends StatelessWidget {
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        child: Icon(Icons.delete, color: Colors.white),
+        child: Icon(Icons.delete, color: AppColors.textPrimary),
       ),
       onDismissed: (_) => onRemove(),
       child: Container(

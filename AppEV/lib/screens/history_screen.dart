@@ -53,9 +53,9 @@ class HistoryScreen extends StatelessWidget {
                       backgroundColor: session['status'] == 'completed'
                           ? AppColors.primaryGreen
                           : Colors.orange,
-                      child: Icon(Icons.bolt, color: Colors.white),
+                      child: Icon(Icons.bolt, color: AppColors.textPrimary),
                     ),
-                    title: Text(session['charger_id'] ?? 'Unknown Charger', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                    title: Text(session['charger_id'] ?? 'Unknown Charger', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                     subtitle: Text(
                       DateFormat('MMM dd, yyyy • HH:mm').format(
                         DateTime.parse(session['start_time'] ?? DateTime.now().toString()),
@@ -110,7 +110,7 @@ class _HistoryRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(color: AppColors.textLight)),
-          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         ],
       ),
     );

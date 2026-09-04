@@ -529,7 +529,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                   backgroundColor: AppColors.primaryGreen,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                child: Text('OK, Got it', style: TextStyle(color: Colors.white)),
+                child: Text('OK, Got it', style: TextStyle(color: AppColors.textPrimary)),
               ),
             ),
           ],
@@ -596,7 +596,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                child: Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text('Done', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
           ],
@@ -733,7 +733,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                     duration: const Duration(milliseconds: 200),
                     decoration: BoxDecoration(
                       gradient: isSelected
-                          ? const LinearGradient(colors: AppColors.primaryGradient)
+                          ? LinearGradient(colors: AppColors.primaryGradient)
                           : null,
                       color: isSelected ? null : AppColors.cardBackground,
                       borderRadius: BorderRadius.circular(12),
@@ -904,7 +904,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                           color: isSelected ? AppColors.primaryGreen : Colors.transparent,
                         ),
                         child: isSelected
-                            ? Icon(Icons.check, color: Colors.white, size: 14)
+                            ? Icon(Icons.check, color: AppColors.textPrimary, size: 14)
                             : null,
                       ),
                     ],
@@ -967,7 +967,7 @@ class _TopUpScreenState extends State<TopUpScreen>
                 onPressed: _isLoading || _amount <= 0 ? null : _processTopUp,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryGreen,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.textPrimary,
                   disabledBackgroundColor: AppColors.primaryGreen.withOpacity(0.3),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),

@@ -60,7 +60,7 @@ class NearbyStationCard extends StatelessWidget {
                     gradient: LinearGradient(colors: [dotColor, dotColor.withOpacity(0.7)]),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.ev_station_rounded, color: Colors.white, size: 18),
+                  child: Icon(Icons.ev_station_rounded, color: AppColors.textPrimary, size: 18),
                 ),
                 const Spacer(),
                 // Status dot
@@ -85,7 +85,7 @@ class NearbyStationCard extends StatelessWidget {
             SizedBox(height: 8),
             // Name
             Text(name,
-                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
             // Vendor

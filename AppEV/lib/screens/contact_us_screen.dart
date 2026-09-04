@@ -45,7 +45,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
         title: Text(
           'Contact Us',
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -194,7 +194,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     Text(
                       'Send Us a Message',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: AppColors.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -220,7 +220,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       child: DropdownButtonFormField<String>(
                         value: _selectedCategory,
                         dropdownColor: AppColors.cardBackground,
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(color: AppColors.textPrimary),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.symmetric(horizontal: 16),
@@ -248,7 +248,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     SizedBox(height: 8),
                     TextFormField(
                       controller: _subjectController,
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(color: AppColors.textPrimary),
                       decoration: InputDecoration(
                         hintText: 'Enter subject',
                         hintStyle: TextStyle(color: AppColors.textLight),
@@ -289,7 +289,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     SizedBox(height: 8),
                     TextFormField(
                       controller: _messageController,
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(color: AppColors.textPrimary),
                       maxLines: 5,
                       decoration: InputDecoration(
                         hintText: 'Describe your issue or question...',
@@ -391,7 +391,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       Text(
                         'Office Address',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
@@ -402,7 +402,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   Text(
                     'PLAG SINI SDN. BHD.',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -450,7 +450,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   Text(
                     'Follow Us',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -530,7 +530,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                 ),
                 SizedBox(height: 16),
                 Text('Ticket Created!',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                    style: TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
                 SizedBox(height: 8),
                 if (result['ticket_number'] != null)
                   Text('Ticket #${result['ticket_number']}',
@@ -594,7 +594,7 @@ class _ContactMethodCard extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
                 ),
               ),

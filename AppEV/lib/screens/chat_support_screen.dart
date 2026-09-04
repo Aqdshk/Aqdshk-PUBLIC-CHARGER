@@ -266,7 +266,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
         title: Row(children: [
           Icon(Icons.confirmation_number, color: AppColors.primaryGreen, size: 22),
           SizedBox(width: 8),
-          Text('Create Support Ticket', style: TextStyle(fontSize: 18, color: Colors.white)),
+          Text('Create Support Ticket', style: TextStyle(fontSize: 18, color: AppColors.textPrimary)),
         ]),
         content: SingleChildScrollView(
           child: Column(
@@ -313,7 +313,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
     return TextField(
       controller: ctrl,
       maxLines: maxLines,
-      style: TextStyle(color: Colors.white, fontSize: 14),
+      style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: AppColors.textLight),
@@ -338,7 +338,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
         backgroundColor: AppColors.cardBackground,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(children: [
@@ -453,7 +453,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
                 Expanded(
                   child: TextField(
                     controller: _msgController,
-                    style: TextStyle(color: Colors.white, fontSize: 15),
+                    style: TextStyle(color: AppColors.textPrimary, fontSize: 15),
                     decoration: InputDecoration(
                       hintText: 'Type a message...',
                       hintStyle: TextStyle(color: AppColors.textLight),
@@ -531,7 +531,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
     // Simple markdown: **bold**
     final parts = text.split(RegExp(r'\*\*(.*?)\*\*'));
     if (parts.length <= 1) {
-      return Text(text, style: TextStyle(color: isBot ? Colors.white : Colors.white, fontSize: 14, height: 1.5));
+      return Text(text, style: TextStyle(color: isBot ? AppColors.textPrimary : AppColors.textPrimary, fontSize: 14, height: 1.5));
     }
 
     List<TextSpan> spans = [];
@@ -542,7 +542,7 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
         spans.add(TextSpan(text: parts[i], style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00FF88))));
       }
     }
-    return RichText(text: TextSpan(style: TextStyle(color: Colors.white, fontSize: 14, height: 1.5), children: spans));
+    return RichText(text: TextSpan(style: TextStyle(color: AppColors.textPrimary, fontSize: 14, height: 1.5), children: spans));
   }
 
   Widget _buildTypingIndicator() {

@@ -71,7 +71,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
             children: [
               CircularProgressIndicator(color: AppColors.primaryGreen),
               SizedBox(height: 16),
-              Text('Starting charging...', style: TextStyle(color: Colors.white)),
+              Text('Starting charging...', style: TextStyle(color: AppColors.textPrimary)),
             ],
           ),
         ),
@@ -87,12 +87,12 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
       if (context.mounted) {
         if (activeSession != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Charging started successfully!'), backgroundColor: AppColors.primaryGreen, duration: Duration(seconds: 2)),
+            SnackBar(content: Text('Charging started successfully!'), backgroundColor: AppColors.primaryGreen, duration: Duration(seconds: 2)),
           );
           Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LiveChargingScreen()));
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to start charging. Please try again.'), backgroundColor: AppColors.error, duration: Duration(seconds: 3)),
+            SnackBar(content: Text('Failed to start charging. Please try again.'), backgroundColor: AppColors.error, duration: Duration(seconds: 3)),
           );
         }
       }
@@ -150,7 +150,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                       gradient: LinearGradient(colors: [statusColor, statusColor.withOpacity(0.7)]),
                       borderRadius: BorderRadius.circular(14),
                   ),
-                    child: Icon(Icons.ev_station_rounded, color: Colors.white, size: 24),
+                    child: Icon(Icons.ev_station_rounded, color: AppColors.textPrimary, size: 24),
                 ),
                   SizedBox(width: 12),
                   // Name & vendor
@@ -159,7 +159,7 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(name,
-                            style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         if (vendor.isNotEmpty || model.isNotEmpty)

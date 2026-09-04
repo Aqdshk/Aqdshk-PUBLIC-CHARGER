@@ -70,7 +70,7 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
       appBar: AppBar(
         title: Text(
           'App Walkthrough',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
         ),
         backgroundColor: AppColors.background,
         elevation: 0,
@@ -207,7 +207,7 @@ class _AppWalkthroughScreenState extends State<AppWalkthroughScreen> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),

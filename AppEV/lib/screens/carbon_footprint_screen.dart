@@ -40,7 +40,7 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Jejak Karbon', // Carbon Footprint
@@ -66,7 +66,7 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
                     ),
                     child: Column(
                       children: [
-                        Icon(Icons.eco, color: Colors.white, size: 48),
+                        Icon(Icons.eco, color: AppColors.textPrimary, size: 48),
                         SizedBox(height: 12),
                         Text(
                           '${_data['co2_saved_kg'] ?? 0} kg',
@@ -229,7 +229,7 @@ class _StatCard extends StatelessWidget {
           const Spacer(),
           Text(value,
               style: GoogleFonts.inter(
-                  color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  color: AppColors.textPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
           Text('$unit · $label',
               style: GoogleFonts.inter(color: AppColors.textTertiary, fontSize: 10)),
         ],

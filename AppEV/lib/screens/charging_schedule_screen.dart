@@ -145,7 +145,7 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Delete Schedule?', style: TextStyle(color: Colors.white)),
+        title: Text('Delete Schedule?', style: TextStyle(color: AppColors.textPrimary)),
         content: Text('This schedule will be removed permanently.',
             style: TextStyle(color: AppColors.textSecondary)),
         actions: [
@@ -156,7 +156,7 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: Text('Delete', style: TextStyle(color: AppColors.textPrimary)),
           ),
         ],
       ),
@@ -177,7 +177,7 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
   void _showSnack(String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg, style: const TextStyle(color: Colors.white)),
+        content: Text(msg, style: TextStyle(color: AppColors.textPrimary)),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
@@ -215,14 +215,14 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Schedule Charging',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Schedule Charging',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
             Text(widget.chargerName,
                 style: TextStyle(color: AppColors.primaryGreen, fontSize: 12)),
           ],
@@ -237,7 +237,7 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen))
+          ? Center(child: CircularProgressIndicator(color: AppColors.primaryGreen))
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -268,8 +268,8 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Enable Schedule',
-                                style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                            Text('Enable Schedule',
+                                style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
                             Text(
                               _enabled ? _nextRunText() : 'Schedule disabled',
                               style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
@@ -478,7 +478,7 @@ class _ChargingScheduleScreenState extends State<ChargingScheduleScreen> {
             const SizedBox(width: 14),
             Expanded(
               child: Text(label,
-                  style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
             ),
             Text(value,
                 style: TextStyle(

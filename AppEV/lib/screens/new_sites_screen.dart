@@ -36,14 +36,14 @@ class NewSitesScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                  child: Icon(Icons.new_releases, color: Colors.white, size: 32),
+                  child: Icon(Icons.new_releases, color: AppColors.textPrimary, size: 32),
                 ),
                 SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('New This Month', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text('New This Month', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text('12 new charging stations added!', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     ],
@@ -52,7 +52,7 @@ class NewSitesScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-                  child: Text('NEW', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                  child: Text('NEW', style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -178,11 +178,11 @@ class _NewSiteCard extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Expanded(child: Text(name, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                              Expanded(child: Text(name, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold))),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(color: AppColors.primaryGreen, borderRadius: BorderRadius.circular(10)),
-                                child: Text('NEW', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                child: Text('NEW', style: TextStyle(color: AppColors.textPrimary, fontSize: 9, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),

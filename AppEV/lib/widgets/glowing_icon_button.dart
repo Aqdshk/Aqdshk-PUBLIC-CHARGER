@@ -22,12 +22,12 @@ class GlowingIconButton extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 colors: AppColors.primaryGradient,
               ),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: Colors.white, size: 20),
+            child: Icon(icon, color: AppColors.textPrimary, size: 20),
           ),
           if (badge != null)
             Positioned(

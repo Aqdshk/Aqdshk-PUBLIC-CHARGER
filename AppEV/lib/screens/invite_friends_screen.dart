@@ -34,10 +34,10 @@ class InviteFriendsScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
-                    child: Icon(Icons.card_giftcard, size: 48, color: Colors.white),
+                    child: Icon(Icons.card_giftcard, size: 48, color: AppColors.textPrimary),
                   ),
                   SizedBox(height: 16),
-                  Text('Invite & Earn!', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  Text('Invite & Earn!', style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
                   Text('Get RM5 credits for every friend who joins and makes their first charge!', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
                 ],
@@ -119,7 +119,7 @@ class InviteFriendsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('How It Works', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('How It Works', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 16),
                   _HowItWorksStep(number: '1', title: 'Share Your Code', description: 'Send your referral code to friends'),
                   SizedBox(height: 16),
@@ -141,7 +141,7 @@ class InviteFriendsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Your Referral Stats', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('Your Referral Stats', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 16),
                   Row(
                     children: [
@@ -183,14 +183,14 @@ class _HowItWorksStep extends StatelessWidget {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(color: AppColors.primaryGreen, shape: BoxShape.circle),
-          child: Center(child: Text(number, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          child: Center(child: Text(number, style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold))),
         ),
         SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),

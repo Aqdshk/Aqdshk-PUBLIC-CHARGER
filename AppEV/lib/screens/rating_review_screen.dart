@@ -71,7 +71,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                 Text(
                   'Write a Review',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
@@ -106,7 +106,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                   controller: _commentController,
                   maxLines: 3,
                   maxLength: 300,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: AppColors.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Share your experience (optional)...',
                     hintStyle: TextStyle(color: AppColors.textLight),
@@ -196,17 +196,17 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
       appBar: AppBar(
         title: Text('Reviews'),
         backgroundColor: AppColors.primaryGreen,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(
-          color: Colors.white,
+          color: AppColors.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.bold,
         ),
         actions: [
           TextButton.icon(
             onPressed: _showWriteReviewDialog,
-            icon: Icon(Icons.rate_review, color: Colors.white, size: 18),
-            label: Text('Write', style: TextStyle(color: Colors.white)),
+            icon: Icon(Icons.rate_review, color: AppColors.textPrimary, size: 18),
+            label: Text('Write', style: TextStyle(color: AppColors.textPrimary)),
           ),
         ],
       ),
@@ -231,7 +231,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                           Text(
                             _avgRating.toStringAsFixed(1),
                             style: TextStyle(
-                              color: Colors.white,
+                              color: AppColors.textPrimary,
                               fontSize: 48,
                               fontWeight: FontWeight.bold,
                             ),
@@ -359,7 +359,7 @@ class _RatingReviewScreenState extends State<RatingReviewScreen> {
                                     SizedBox(height: 8),
                                     Text(
                                       comment,
-                                      style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14, height: 1.4),
                                     ),
                                   ],
                                 ],

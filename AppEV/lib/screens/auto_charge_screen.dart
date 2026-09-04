@@ -42,10 +42,10 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
-                    child: Icon(Icons.auto_awesome, color: Colors.white, size: 48),
+                    child: Icon(Icons.auto_awesome, color: AppColors.textPrimary, size: 48),
                   ),
                   SizedBox(height: 16),
-                  Text('Plug & Charge', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  Text('Plug & Charge', style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
                   Text('Just plug in and charging starts automatically.\nNo app interaction needed!', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
                 ],
@@ -116,7 +116,7 @@ class _AutoChargeScreenState extends State<AutoChargeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('How It Works', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('How It Works', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 16),
                   _HowItWorksStep(number: '1', title: 'Link Your Vehicle', description: 'Add your EV in My Vehicles section'),
                   SizedBox(height: 12),
@@ -186,7 +186,7 @@ class _ToggleCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                 Text(subtitle, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
               ],
             ),
@@ -225,7 +225,7 @@ class _SliderCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
               Text('${prefix ?? ''}${value.toInt()}${suffix ?? ''}', style: TextStyle(color: AppColors.primaryGreen, fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
@@ -252,14 +252,14 @@ class _HowItWorksStep extends StatelessWidget {
         Container(
           width: 32, height: 32,
           decoration: BoxDecoration(color: AppColors.primaryGreen, shape: BoxShape.circle),
-          child: Center(child: Text(number, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          child: Center(child: Text(number, style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold))),
         ),
         SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),

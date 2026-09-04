@@ -76,7 +76,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
         title: Text(
           'e-Invoice Profile',
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -107,7 +107,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                       child: Text(
                         'This information will be used for e-Invoice generation as required by LHDN Malaysia.',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                           fontSize: 13,
                         ),
                       ),
@@ -197,7 +197,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                 child: DropdownButtonFormField<String>(
                   value: _selectedIdType,
                   dropdownColor: AppColors.cardBackground,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: AppColors.textPrimary),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(horizontal: 16),
@@ -318,7 +318,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
                       context: context,
                       builder: (context) => AlertDialog(
                         backgroundColor: AppColors.cardBackground,
-                        title: Text('What is e-Invoice?', style: TextStyle(color: Colors.white)),
+                        title: Text('What is e-Invoice?', style: TextStyle(color: AppColors.textPrimary)),
                         content: SingleChildScrollView(
                           child: Text(
                             'e-Invoice is Malaysia\'s electronic invoicing system by LHDN. '
@@ -397,7 +397,7 @@ class _EInvoiceProfileScreenState extends State<EInvoiceProfileScreen> {
           controller: controller,
           keyboardType: isNumber ? TextInputType.number : TextInputType.text,
           maxLines: maxLines,
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: AppColors.textPrimary),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: AppColors.textLight),
