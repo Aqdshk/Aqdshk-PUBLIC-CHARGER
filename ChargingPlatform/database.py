@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
-    create_engine,
+    UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
@@ -316,6 +316,11 @@ class Charger(Base):
     
     # Configuration parameters (matching SteVe OCPP)
     number_of_connectors = Column(Integer, default=1)
+    # When true, number_of_connectors is the operator's word and the
+    # charger's own reports cannot raise it. DC3001 announces a second
+    # gun it does not physically have, and the auto-grow below had no
+    # way to be told otherwise.
+    connectors_locked = Column(Boolean, nullable=False, default=False, server_default='0')
     heartbeat_interval = Column(Integer, default=7200)  # 2 hours default
     meter_value_sample_interval = Column(Integer, default=10)  # 10 seconds
     transaction_message_attempts = Column(Integer, default=3)
@@ -327,6 +332,29 @@ class Charger(Base):
     longitude = Column(Float, nullable=True)
     connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
     max_power_kw = Column(Float, nullable=True)          # e.g. 7.4, 22, 50
+
+    # OCPP version negotiated on the WebSocket handshake ("1.6" or "2.0.1"),
+    # recorded on every connect. Persisted rather than read live so the
+    # dashboard can still say what a charger speaks while it is offline.
+    ocpp_version = Column(String(16), nullable=True)
+
+    # How the charger presented credentials on its last handshake, and whether
+    # they would be accepted if enforcement were switched on. Enforcement is
+    # currently off fleet-wide and cannot be enabled blind — a charger that
+    # sends nothing would drop the moment it reconnects. Recording the verdict
+    # here turns "can we turn auth on yet" into something readable on the
+    # dashboard instead of a log-grepping exercise.
+    auth_method = Column(String(48), nullable=True)   # e.g. "HTTP Basic", "query-string", "none"
+    auth_ok = Column(Boolean, nullable=True)          # True = would pass enforcement
+
+    # Whether this charger is published over OCPI to roaming partners.
+    #   None  → decide automatically from heartbeat age (the default)
+    #   True  → always publish, even while offline
+    #   False → never publish
+    # The automatic default exists because the table accumulates chargers that
+    # connected once and were never seen again; publishing those sends roaming
+    # users to charge points that are not there.
+    is_public = Column(Boolean, nullable=True)
 
     # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
     name = Column(String(255), nullable=True)            # e.g. "Bangsar Mall L2 Bay 3"
@@ -416,7 +444,27 @@ class ChargingSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
     transaction_id = Column(Integer, unique=True, index=True, nullable=False)
+    # OCPP 2.0.1 lets the *charger* mint the transaction id, and it is a string
+    # (up to 36 chars) rather than the integer the Central System assigns in
+    # 1.6. Rather than widen transaction_id — which every billing, metering,
+    # idle-fee and OCPI query reads as an int — 2.0.1 sessions keep a generated
+    # integer for internal use and record the charger's own id here. NULL for
+    # every 1.6 session.
+    ocpp_transaction_id = Column(String(64), nullable=True, index=True)
+    # A roaming partner's own reference, sent with StartSession and echoed back
+    # when it polls the session, so it can tie the two together. NULL for any
+    # session we did not start on a partner's behalf.
+    authorization_reference = Column(String(64), nullable=True)
+    # Which roaming partner this session belongs to. NULL means it is ours: an
+    # app user, a kiosk walk-in or a local RFID start. The OCPI Sessions and
+    # CDRs endpoints filter on this, because without it every partner was
+    # served every session on the platform, including our own customers'
+    # phone numbers in cdr_token.uid.
+    ocpi_partner_id = Column(Integer, ForeignKey("ocpi_partners.id"), nullable=True, index=True)
     connector_id = Column(Integer, nullable=True)  # OCPP StartTransaction connector
+    # 2.0.1 addresses a socket as (evse_id, connector_id); 1.6 has only the
+    # connector. NULL for 1.6 sessions.
+    evse_id = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     stop_time = Column(DateTime)
     energy_consumed = Column(Float, default=0.0)  # in kWh
@@ -506,6 +554,34 @@ class Payment(Base):
     session = relationship("ChargingSession", back_populates="payment")
 
 
+class OcpiPartner(Base):
+    """A roaming partner we have exchanged credentials with.
+
+    The handshake gives us their versions URL and the token we must present
+    when calling them. We used to log a truncated token and keep nothing, so
+    we could receive their traffic but never initiate any of our own.
+    """
+
+    __tablename__ = "ocpi_partners"
+
+    id = Column(Integer, primary_key=True, index=True)
+    country_code = Column(String(2), nullable=False)
+    party_id = Column(String(3), nullable=False)
+    role = Column(String(16), nullable=True)
+    business_name = Column(String(128), nullable=True)
+    versions_url = Column(String(512), nullable=False)
+    token = Column(String(256), nullable=False)  # secret: never log in full
+    # OCPI calls these Token B and Token C. `token` above is Token B, what we
+    # present when calling them. This is Token C, what they present to us, and
+    # it is how we tell one caller from another. NULL falls back to the single
+    # shared OCPI_TOKEN, which identifies nobody.
+    token_inbound = Column(String(256), nullable=True)  # secret: never log in full
+    registered_at = Column(DateTime, nullable=True)
+    last_updated = Column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("country_code", "party_id", name="uq_ocpi_partner"),)
+
+
 class Pricing(Base):
     __tablename__ = "pricing"
     
@@ -523,12 +599,21 @@ class MeterValue(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     charger_id = Column(Integer, ForeignKey("chargers.id"))
+    # Which gun the reading came from. MeterValues.req always carries
+    # connectorId, but transactionId is optional — clock-aligned readings
+    # arrive with no transaction at all. Without this column those readings
+    # cannot be attributed to a gun on a multi-connector charger.
+    connector_id = Column(Integer, nullable=True, index=True)
     transaction_id = Column(Integer, nullable=True)
     timestamp = Column(DateTime, default=_utcnow, nullable=False)
     voltage = Column(Float)  # in V
     current = Column(Float)  # in A
-    power = Column(Float)  # in W
+    power = Column(Float)  # kW — ocpp_server normalises W → kW on ingest
     total_kwh = Column(Float)  # in kWh
+    # Vehicle state of charge, percent. Chargers have always reported
+    # this; we simply never read it, so the dashboard could not show
+    # what the charger's own screen shows.
+    soc = Column(Float, nullable=True)
     
     charger = relationship("Charger", back_populates="meter_values")
 

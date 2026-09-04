@@ -27,13 +27,25 @@ class SessionProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final session = await ApiService.getActiveSession();
+      // Ask for our own session first. It is the only endpoint a customer is
+      // allowed to read, and it already carries live power, voltage, current
+      // and SoC, so no second call is needed. Fall back to the operator
+      // endpoint for admin and dashboard accounts, whose sessions predate
+      // per-user attribution and are not matched by user id.
+      var session = await ApiService.getMyActiveSession();
+      var enriched = session != null;
+      session ??= await ApiService.getActiveSession();
+
       if (session != null) {
         // Real session arrived — replace placeholder & clear expecting flag.
         _activeSession = session;
         _expectingSession = false;
         _expectingUntil = null;
-        await _enrichWithMetering();
+        if (enriched) {
+          _computeDuration();
+        } else {
+          await _enrichWithMetering();
+        }
       } else if (_expectingSession &&
           _expectingUntil != null &&
           DateTime.now().isBefore(_expectingUntil!)) {
@@ -53,6 +65,28 @@ class SessionProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Elapsed time since the session started, formatted for the live screen.
+  /// start_time is Malaysian wall time and carries no offset, so one is added
+  /// before parsing rather than letting it be read as UTC.
+  void _computeDuration() {
+    final s = _activeSession;
+    if (s == null) return;
+    final st = s['start_time']?.toString();
+    if (st == null || st.isEmpty) return;
+    try {
+      final norm = (st.contains('+') || st.endsWith('Z')) ? st : '$st+08:00';
+      final start = DateTime.parse(norm);
+      final d = DateTime.now().difference(start);
+      if (d.isNegative) return;
+      final h = d.inHours;
+      final m = d.inMinutes % 60;
+      final sec = d.inSeconds % 60;
+      s['duration'] = h > 0
+          ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
+          : '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+    } catch (_) {}
+  }
+
   /// The /api/sessions object has no live power/voltage/current and no
   /// duration. Enrich the active session with the latest meter reading
   /// and a computed duration so the Live Charging screen has real data.
@@ -63,21 +97,7 @@ class SessionProvider with ChangeNotifier {
     // Session energy — API field is `energy_consumed`.
     s['energy'] = s['energy'] ?? s['energy_consumed'] ?? 0;
 
-    // Duration — computed from start_time (treated as MYT if no offset).
-    final st = s['start_time']?.toString();
-    if (st != null && st.isNotEmpty) {
-      try {
-        final norm = (st.contains('+') || st.endsWith('Z')) ? st : '$st+08:00';
-        final start = DateTime.parse(norm);
-        final d = DateTime.now().difference(start);
-        final h = d.inHours;
-        final m = d.inMinutes % 60;
-        final sec = d.inSeconds % 60;
-        s['duration'] = h > 0
-            ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
-            : '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
-      } catch (_) {}
-    }
+    _computeDuration();
 
     // Live power/voltage/current — from the metering endpoint (power is kW).
     final cp = s['charge_point_id']?.toString();
@@ -87,6 +107,12 @@ class SessionProvider with ChangeNotifier {
         s['power'] = m['power'] ?? 0;
         s['voltage'] = m['voltage'] ?? 0;
         s['current'] = m['current'] ?? 0;
+        // Carried through so the battery animation shows a percentage on this
+        // path too. Operator sessions are labelled APP_USER rather than a real
+        // user id, so an admin always lands here rather than on /me.
+        // Kept from the previous poll when a sample omits it, since SoC is not
+        // present on every MeterValues and blanking it makes the pack flicker.
+        if (m['soc'] != null) s['soc'] = m['soc'];
       }
     }
   }

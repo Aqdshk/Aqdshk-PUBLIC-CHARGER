@@ -243,8 +243,9 @@
     // reduce the risk of an unattended browser being used by someone else.
     // Cross-tab synced via localStorage — activity in any tab resets the
     // countdown across all open PlagSini admin tabs.
-    const IDLE_WARN_MS   = 25 * 60 * 1000;   // 25 min → show warning modal
-    const IDLE_LOGOUT_MS = 26 * 60 * 1000;   // 26 min → force logout
+    const IDLE_LOGOUT_MS = 5 * 60 * 1000;    // 5 min of inactivity → force logout
+    const IDLE_WARN_SEC  = 60;               // warning appears this long before it
+    const IDLE_WARN_MS   = IDLE_LOGOUT_MS - IDLE_WARN_SEC * 1000;
     const ACTIVITY_KEY   = 'psLastActivity'; // localStorage key, shared across tabs
     const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
     let _idleWarnTimer = null;
@@ -285,7 +286,7 @@
                 </div>
                 <p style="color:#8892a4;font-size:13.5px;line-height:1.5;margin:0 0 8px;">
                     You've been inactive for a while. For security, you will be logged out in
-                    <b id="psIdleCountdown" style="color:#f59e0b;">60</b> seconds.
+                    <b id="psIdleCountdown" style="color:#f59e0b;">${IDLE_WARN_SEC}</b> seconds.
                 </p>
                 <p style="color:#8892a4;font-size:12px;margin:0 0 20px;">
                     Click the button below to stay logged in — this refreshes your session.
@@ -300,8 +301,9 @@
         document.getElementById('psIdleStay').addEventListener('click', _markActive);
         document.getElementById('psIdleLogout').addEventListener('click', _idleForceLogout);
 
-        // 60-second countdown display in the modal.
-        let remaining = 60;
+        // Countdown display in the modal, derived from the constants above so
+        // the number shown can never drift from when the logout actually fires.
+        let remaining = IDLE_WARN_SEC;
         const countdownEl = document.getElementById('psIdleCountdown');
         _idleCountdownTimer = setInterval(() => {
             remaining -= 1;

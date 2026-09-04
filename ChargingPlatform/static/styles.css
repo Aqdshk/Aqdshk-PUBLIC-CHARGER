@@ -333,6 +333,9 @@ body {
 .badge-success, .badge-online, .badge-charging, .badge-available { background: rgba(0,230,118,.12); color: var(--accent); }
 .badge-danger, .badge-offline, .badge-faulted { background: rgba(239,83,80,.12); color: var(--red); }
 .badge-warning, .badge-preparing { background: rgba(255,167,38,.12); color: var(--orange); }
+/* Finishing reads differently from Preparing on purpose: the cable has to come
+   out before this connector will take a new session. */
+.badge-finishing { background: rgba(139,148,158,.15); color: var(--text-secondary, #8b949e); }
 .badge-info { background: rgba(66,165,245,.12); color: var(--blue); }
 .badge-unavailable, .badge-unknown { background: rgba(90,100,120,.15); color: var(--text-muted); }
 
@@ -468,7 +471,22 @@ body {
 .info-item { display:flex; flex-direction:column; }
 .info-label { color:var(--text-muted); font-size:9px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:1px; }
 .info-value { color:var(--text-secondary); font-size:11px; }
-.charger-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); }
+.charger-conns { margin-bottom:6px; }
+.charger-conns .conn-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
+.charger-conns .badge { font-size:9px; }
+.charger-actions { display:flex; gap:6px; margin-top:6px; padding-top:6px; border-top:1px solid var(--border); align-items:center; flex-wrap:wrap; }
+
+/* Sits where a gun's button would be, when the answer is an instruction rather
+   than an action — a connector in "Finishing" needs the cable pulled, and there
+   is nothing for the operator to click. */
+.gun-hint {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:4px 8px; font-size:10px; font-weight:600; border-radius:6px;
+    color:var(--warning, #ffa500);
+    background:rgba(255,165,0,0.10);
+    border:1px solid rgba(255,165,0,0.30);
+    cursor:help;
+}
 
 /* ============= SESSION ITEMS ============= */
 .session-item {

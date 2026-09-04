@@ -25,7 +25,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from urllib.parse import quote
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, desc, func, or_, text
@@ -42,7 +43,11 @@ from database import (
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
 from email_service import generate_otp, send_otp_email, send_ticket_confirmation, send_ticket_update, send_ticket_reminder, send_ticket_notification_to_staff, send_charging_receipt
-from ocpp_server import get_active_charge_point, active_charge_points, firmware_events, force_close_charge_point, ocpp_state_healer_loop
+from ocpp_server import (
+    get_active_charge_point, active_charge_points, firmware_events,
+    force_close_charge_point, ocpp_state_healer_loop, orphan_session_watchdog,
+)
+from ocpp_server_v201 import OcppOperationUnsupported
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -64,6 +69,17 @@ from security import (
     audit_log,
     get_client_ip,
     create_access_token,
+)
+
+# Nothing configured logging, so Python's default left the root logger at
+# WARNING and every logger.info in the OCPP handlers went nowhere. That is the
+# entire message trace for a charging session — StatusNotification,
+# TransactionEvent, every remote command — invisible, which is why diagnosing a
+# live charger meant guessing. Default to INFO and let the environment lower it
+# if the volume ever becomes a problem.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
 logger = logging.getLogger(__name__)
@@ -173,6 +189,16 @@ PENDING_SESSION_WINDOW_MINUTES = int(os.getenv("PENDING_SESSION_WINDOW_MINUTES",
 # Malaysia time for OCPP-derived naive datetimes (charger sends +08, DB stores naive wall time)
 MYT = timezone(timedelta(hours=8))
 UTC = timezone.utc
+
+
+def _connector_state(charger, connector_id) -> Optional[str]:
+    """The stored state of one gun, from the per-connector map."""
+    if not charger or not getattr(charger, "connector_status", None):
+        return None
+    try:
+        return (json.loads(charger.connector_status) or {}).get(str(connector_id))
+    except Exception:
+        return None
 
 
 def _iso_myt_naive_local(v: Optional[datetime]) -> Optional[str]:
@@ -463,6 +489,47 @@ async def require_admin_or_staff_manager(
 
     raise HTTPException(status_code=401, detail="Authentication required")
 
+
+async def require_charging_caller(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Authorize a start or stop: operator staff, or an ordinary app customer.
+
+    Every charging path used to demand admin or manager. AppEV calls these
+    endpoints, so a real customer received 401 on start, on the session list
+    and on live metering, and the app degraded silently to a screen of zeros.
+    Of four accounts two were admins, which is why it was never noticed.
+
+    Returns the caller's mode. "user" is deliberately weaker than the operator
+    modes: the endpoints below restrict a customer to a free connector and to
+    their own session, whereas staff keep the operator-wide behaviour.
+    """
+    if current_user and current_user.is_admin:
+        return {"mode": "jwt_admin", "user_id": current_user.id, "user": current_user}
+
+    staff_token = _extract_staff_token(request)
+    if staff_token:
+        session = _get_staff_session_db(staff_token, db)
+        if session and session.get("role") in ("admin", "manager"):
+            return {"mode": "staff_admin", "staff_id": session.get("id"), "user": None}
+
+    if current_user:
+        return {"mode": "user", "user_id": current_user.id, "user": current_user}
+
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _session_belongs_to(sess: "ChargingSession", user: User) -> bool:
+    """Whether an app customer owns this session.
+
+    Sessions record `user_id` as the OCPP id_tag. A customer start now sends
+    the numeric user id, so ownership is an exact match. The generic
+    'APP_USER' and 'DASHBOARD_USER' labels predate that and belong to nobody.
+    """
+    return bool(user) and str(sess.user_id or "") == str(user.id)
+
 # ── CORS — restrict origins in production ──
 _allowed_origins = os.getenv("CORS_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
@@ -578,6 +645,22 @@ async def health_check() -> dict:
         raise HTTPException(status_code=503, detail="Service unavailable")
 
 
+@app.exception_handler(OcppOperationUnsupported)
+async def _ocpp_unsupported_handler(request: Request, exc: OcppOperationUnsupported) -> Any:
+    """An OCPP operation the 2.0.1 handler does not implement yet.
+
+    The console offers one button per 1.6 operation regardless of which
+    protocol the selected charger speaks, so this is reachable by ordinary
+    use. Answering 501 with the reason tells the operator the platform is
+    missing the feature — a generic 500 would read as the charger failing.
+    """
+    logger.info(f"Unsupported OCPP operation requested: {exc}")
+    return JSONResponse(
+        status_code=501,
+        content={"success": False, "message": str(exc), "detail": str(exc)},
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> Any:
     """
@@ -603,9 +686,20 @@ class ChargerStatus(BaseModel):
     vendor: Optional[str]
     model: Optional[str]
     firmware_version: Optional[str]
+    # OCPP version negotiated at the last handshake — "1.6" or "2.0.1".
+    ocpp_version: Optional[str] = None
+    # OCPI publication override: True always, False never, None automatic.
+    is_public: Optional[bool] = None
+    # How the charger authenticated on its last handshake, and whether it
+    # would survive enforcement being switched on.
+    auth_method: Optional[str] = None
+    auth_ok: Optional[bool] = None
     status: str
     availability: str
     connector_status: Optional[Dict[str, str]] = None  # {"1": "available", "2": "faulted"}
+    # Live transaction per gun, e.g. {"1": 252}. Lets the dashboard put a Stop
+    # button on the right connector of a multi-gun charger.
+    active_transactions: Optional[Dict[str, int]] = None
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None
     number_of_connectors: Optional[int] = None
@@ -615,8 +709,12 @@ class ChargerStatus(BaseModel):
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
     max_power_kw: Optional[float] = None
-    # Pricing (filled at query time)
+    # Pricing (filled at query time) — from the `pricing` table, used by
+    # analytics/reporting. Falls back to RM 0.50 when that table is empty.
     price_per_kwh: Optional[float] = None
+    # The rate the kiosk and OCPP auto-stop actually bill on. Editable per
+    # charger from the Payment Terminals page. Distinct from price_per_kwh above.
+    tariff_per_kwh: Optional[float] = None
     ws_connected: Optional[bool] = None  # True = live OCPP WebSocket in pool
     # Idle-fee config (terminal kiosk feature) — surfaced so admin UI can edit
     idle_fee_enabled: Optional[bool] = None
@@ -648,6 +746,11 @@ class ChargingSessionResponse(BaseModel):
     stop_time: Optional[datetime]
     energy_consumed: float
     status: str
+    # Why the session ended, as the charger reported it. status is "completed"
+    # for anything the charger closed cleanly, so on its own it cannot tell a
+    # finished charge from one the vehicle cut short — three DC3001 sessions on
+    # 17 August all read COMPLETED when only the last had actually finished.
+    stop_reason: Optional[str] = None
     charger_id: int
     charge_point_id: str
 
@@ -666,11 +769,38 @@ class MeterValueResponse(BaseModel):
     power: Optional[float]
     total_kwh: Optional[float]
     transaction_id: Optional[int]
+    # Vehicle state of charge, when the charger reports it. Stored since the
+    # meter_soc migration but never returned, so no client could show it.
+    soc: Optional[float] = None
 
     @field_serializer("timestamp")
     def _ser_mv_ts(self, v: datetime, _info) -> str:
         out = _iso_myt_naive_local(v)
         return out if out is not None else ""
+
+
+class ConnectorMeterReading(BaseModel):
+    """Latest meter reading for one gun of a charger.
+
+    MeterValue has no connector_id — it is tied to a transaction — so the gun
+    is resolved through the session that owns that transaction. Field names
+    carry their unit because the stored columns do not: `power` is already kW
+    and `total_kwh` is kWh (ocpp_server normalises both on ingest).
+    """
+    connector_id: Optional[int] = None
+    transaction_id: Optional[int] = None
+    voltage: Optional[float] = None
+    current: Optional[float] = None
+    power_kw: Optional[float] = None
+    # Vehicle battery percentage, as the charger's own screen shows it.
+    soc: Optional[float] = None
+    # The charger's cumulative lifetime meter register, not this session's
+    # energy. The console labelled this one "Energy (session)" and so showed
+    # 512 kWh for a session that had delivered nothing.
+    energy_kwh: Optional[float] = None
+    # What this session has actually delivered, from the session's own tally.
+    session_kwh: Optional[float] = None
+    timestamp: Optional[str] = None
 
 
 class FaultResponse(BaseModel):
@@ -957,7 +1087,10 @@ async def get_chargers(
         # Include both active and recent pending sessions (within PENDING_SESSION_WINDOW_MINUTES)
         pending_cutoff = _utcnow() - timedelta(minutes=PENDING_SESSION_WINDOW_MINUTES)
         # Include interrupted/stopping so Stop button still gets a real OCPP transaction id
-        active_session = db.query(ChargingSession).filter(
+        # .all() rather than .first(): a multi-gun charger can hold one live
+        # session per connector, and the dashboard needs a transaction id for
+        # each so Stop can target the right gun.
+        active_sessions = db.query(ChargingSession).filter(
             ChargingSession.charger_id == charger.id,
             ChargingSession.transaction_id > 0,
             or_(
@@ -967,7 +1100,22 @@ async def get_chargers(
                     ChargingSession.start_time >= pending_cutoff
                 ),
             ),
-        ).order_by(desc(ChargingSession.start_time)).first()
+        ).order_by(desc(ChargingSession.start_time)).all()
+        active_session = active_sessions[0] if active_sessions else None
+
+        # {connector_id: transaction_id}. Sessions arrive newest-first, so the
+        # first hit per connector wins. Rows with no connector_id are skipped —
+        # they cannot be attributed to a gun.
+        active_txn_by_conn: dict[str, int] = {}
+        for _s in active_sessions:
+            if _s.connector_id is None:
+                continue
+            try:
+                _txn = int(_s.transaction_id)
+            except (TypeError, ValueError):
+                continue
+            if _txn > 0:
+                active_txn_by_conn.setdefault(str(int(_s.connector_id)), _txn)
 
         # Compute effective status: recent heartbeat = online.
         # active_charge_points is in-memory and can desync on race conditions;
@@ -1022,13 +1170,28 @@ async def get_chargers(
             "connector_status": _conn_status_dict(charger.connector_status),
             "last_heartbeat": charger.last_heartbeat,
             "active_transaction_id": active_txn_id,
+            "active_transactions": active_txn_by_conn or None,
             "number_of_connectors": charger.number_of_connectors,
             "location": charger.location,
             "latitude": charger.latitude,
             "longitude": charger.longitude,
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
+            "ocpp_version": charger.ocpp_version,
+            "is_public": charger.is_public,
+            "auth_method": charger.auth_method,
+            "auth_ok": charger.auth_ok,
             "price_per_kwh": price_per_kwh,
+            "tariff_per_kwh": float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else None,
+            # The idle-fee settings the Payment Terminals dialog edits. The
+            # response model declared them but this dict never filled them, so
+            # the dialog received undefined and fell back to its placeholder
+            # defaults — showing RM0.40 and 15 minutes for a charger actually
+            # set to RM0.15 and 10. Saving from that screen would have written
+            # the placeholders over the real figures.
+            "idle_fee_enabled": bool(charger.idle_fee_enabled) if charger.idle_fee_enabled is not None else None,
+            "idle_fee_per_min": float(charger.idle_fee_per_min) if charger.idle_fee_per_min is not None else None,
+            "idle_grace_minutes": int(charger.idle_grace_minutes) if charger.idle_grace_minutes is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
         }
         result.append(ChargerStatus(**charger_dict))
@@ -1185,22 +1348,65 @@ async def update_charger_info(
     }
 
 
-@app.patch("/api/admin/chargers/{charge_point_id}/idle-fee")
+@app.patch("/api/admin/chargers/{charge_point_id}/publish")
+async def set_charger_ocpi_publication(
+    charge_point_id: str,
+    request: Request,
+    admin_ctx: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """Control whether a charger is published to OCPI roaming partners.
+
+    Body: { "is_public": true | false | null }
+      true  → always publish, even while offline
+      false → never publish
+      null  → automatic: publish only while the heartbeat is recent
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    body = await request.json()
+    if "is_public" not in body:
+        raise HTTPException(status_code=400, detail="is_public is required (true, false or null)")
+    value = body["is_public"]
+    if value is not None and not isinstance(value, bool):
+        raise HTTPException(status_code=400, detail="is_public must be true, false or null")
+
+    charger.is_public = value
+    db.commit()
+    mode = {True: "always published", False: "never published", None: "automatic (by heartbeat)"}[value]
+    logger.info(f"OCPI publication for {charge_point_id} set to {mode}")
+    return {"success": True, "charge_point_id": charge_point_id, "is_public": value, "mode": mode}
+
+
+@app.patch("/api/admin/chargers/{charge_point_id}/pricing")
+@app.patch("/api/admin/chargers/{charge_point_id}/idle-fee")  # legacy path, same handler
 async def update_charger_idle_fee(
     charge_point_id: str,
     request: Request,
     admin_ctx: dict = Depends(require_admin_or_staff_admin),
     db: Session = Depends(get_db),
 ):
-    """Toggle / configure the post-charge idle fee on a single charger.
+    """Configure per-charger money settings: energy tariff and post-charge idle fee.
 
-    Body: { enabled?: bool, per_min?: float, grace_minutes?: int }
+    Body: { tariff_per_kwh?: float, enabled?: bool, per_min?: float, grace_minutes?: int }
     Only fields supplied are updated.
     """
     charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Charger not found")
     body = await request.json()
+    if "tariff_per_kwh" in body:
+        try:
+            v = float(body["tariff_per_kwh"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="tariff_per_kwh must be a number")
+        # 0 is allowed (free / promotional charging). Upper bound is a sanity
+        # guard — Malaysian market sits around RM 0.50–1.60/kWh.
+        if v < 0 or v > 10:
+            raise HTTPException(status_code=400, detail="tariff_per_kwh must be 0-10 RM")
+        charger.tariff_per_kwh = Decimal(str(round(v, 4)))
     if "enabled" in body:
         charger.idle_fee_enabled = bool(body["enabled"])
     if "per_min" in body:
@@ -1223,6 +1429,7 @@ async def update_charger_idle_fee(
     return {
         "success": True,
         "charge_point_id": charge_point_id,
+        "tariff_per_kwh": float(charger.tariff_per_kwh or 0),
         "idle_fee_enabled": bool(charger.idle_fee_enabled),
         "idle_fee_per_min": float(charger.idle_fee_per_min or 0),
         "idle_grace_minutes": int(charger.idle_grace_minutes or 0),
@@ -1430,6 +1637,172 @@ async def get_latest_metering(
     # Graceful empty: 200 with null body, NOT a 404. The frontend treats null
     # as "no readings yet" and keeps any cached state instead of flashing red.
     return meter_value
+
+
+@app.get("/api/metering/{charge_point_id}/latest-by-connector",
+         response_model=List[ConnectorMeterReading])
+async def get_latest_metering_by_connector(
+    charge_point_id: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Latest meter reading for each gun of a charger.
+
+    /latest returns a single row for the whole charger, so on a dual-gun unit
+    whichever gun reported most recently hides the other. This resolves each
+    reading to its connector via the session that owns its transaction and
+    returns one entry per gun, newest reading per gun.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    conn_by_txn: dict[int, int] = {}
+    energy_by_txn: dict[int, float] = {}
+    for txn, conn, delivered in db.query(
+        ChargingSession.transaction_id,
+        ChargingSession.connector_id,
+        ChargingSession.energy_consumed,
+    ).filter(
+        ChargingSession.charger_id == charger.id,
+        ChargingSession.transaction_id > 0,
+    ).all():
+        if conn is not None:
+            conn_by_txn[int(txn)] = int(conn)
+        energy_by_txn[int(txn)] = float(delivered or 0)
+
+    # Newest first, then keep the first hit per connector. The window is
+    # bounded so a long-running charger does not scan its whole history;
+    # at one sample per gun per minute this still covers a few hours.
+    rows = db.query(MeterValue).filter(
+        MeterValue.charger_id == charger.id
+    ).order_by(desc(MeterValue.timestamp)).limit(400).all()
+
+    seen: dict[Optional[int], ConnectorMeterReading] = {}
+    # Not every sample carries SoC, so the newest reading for a gun may have
+    # none even though one arrived a minute earlier. Remember the most recent
+    # non-null value per gun rather than showing a blank.
+    soc_by_conn: dict[Optional[int], float] = {}
+    for mv in rows:
+        # The reading's own connector is authoritative. Fall back to the
+        # owning session only for rows written before connector_id existed.
+        conn = mv.connector_id
+        if conn is None and mv.transaction_id:
+            conn = conn_by_txn.get(int(mv.transaction_id))
+        conn = int(conn) if conn is not None else None
+        if mv.soc is not None and conn not in soc_by_conn:
+            soc_by_conn[conn] = mv.soc
+        if conn in seen:
+            continue
+        seen[conn] = ConnectorMeterReading(
+            connector_id=conn,
+            transaction_id=mv.transaction_id,
+            voltage=mv.voltage,
+            current=mv.current,
+            power_kw=mv.power,
+            soc=mv.soc,
+            energy_kwh=mv.total_kwh,
+            session_kwh=(
+                energy_by_txn.get(int(mv.transaction_id))
+                if mv.transaction_id else None
+            ),
+            timestamp=_iso_myt_naive_local(mv.timestamp),
+        )
+
+    # The newest row for a gun may not have carried SoC even though a slightly
+    # older one did. Fill those in only now: the loop above builds each gun's
+    # entry on its first (newest) row, before the older rows that hold the
+    # value have been seen.
+    for conn, reading in seen.items():
+        if reading.soc is None:
+            reading.soc = soc_by_conn.get(conn)
+
+    # Named guns first in order, then any reading we could not attribute.
+    return sorted(seen.values(), key=lambda r: (r.connector_id is None, r.connector_id or 0))
+
+
+class MySessionResponse(BaseModel):
+    """The caller's own charging session, with live metering folded in.
+
+    One call rather than three. AppEV previously read the operator endpoints
+    /api/sessions and /api/metering/{id}/latest, both admin only, so a
+    customer got 401 from each and the Live Charging screen rendered zeros.
+    """
+
+    transaction_id: Optional[int] = None
+    charge_point_id: Optional[str] = None
+    connector_id: Optional[int] = None
+    status: Optional[str] = None
+    start_time: Optional[str] = None
+    energy: float = 0.0
+    voltage: float = 0.0
+    current: float = 0.0
+    power: float = 0.0
+    # None means the charger never reported it. The app shows no percentage at
+    # all in that case, rather than an incorrect 0%.
+    soc: Optional[float] = None
+    tariff_per_kwh: Optional[float] = None
+    cost: Optional[float] = None
+
+
+@app.get("/api/me/session/active", response_model=Optional[MySessionResponse])
+async def get_my_active_session(
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """The caller's active session, or null when they are not charging.
+
+    Scoped by user_id, which a customer start sets to their own numeric id, so
+    one customer can never read another's meter.
+    """
+    sess = (
+        db.query(ChargingSession)
+        .filter(
+            ChargingSession.user_id == str(me.id),
+            ChargingSession.status.in_(["active", "pending"]),
+        )
+        .order_by(desc(ChargingSession.start_time))
+        .first()
+    )
+    if not sess:
+        return None
+
+    charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+
+    out = MySessionResponse(
+        transaction_id=sess.transaction_id,
+        charge_point_id=charger.charge_point_id if charger else None,
+        connector_id=sess.connector_id,
+        status=sess.status,
+        start_time=_iso_myt_naive_local(sess.start_time),
+        energy=float(sess.energy_consumed or 0.0),
+    )
+
+    # Live electrical values come from the newest reading for this gun. SoC is
+    # not present on every sample, so it is taken from the newest sample that
+    # carried one instead of being blanked between readings.
+    q = db.query(MeterValue).filter(MeterValue.charger_id == sess.charger_id)
+    if sess.connector_id is not None:
+        q = q.filter(
+            or_(MeterValue.connector_id == sess.connector_id,
+                MeterValue.connector_id.is_(None))
+        )
+    recent = q.order_by(desc(MeterValue.timestamp)).limit(30).all()
+    if recent:
+        newest = recent[0]
+        out.voltage = float(newest.voltage or 0.0)
+        out.current = float(newest.current or 0.0)
+        out.power = float(newest.power or 0.0)
+        for mv in recent:
+            if mv.soc is not None:
+                out.soc = float(mv.soc)
+                break
+
+    if charger and charger.tariff_per_kwh is not None:
+        out.tariff_per_kwh = float(charger.tariff_per_kwh)
+        out.cost = round(out.energy * out.tariff_per_kwh, 2)
+
+    return out
 
 
 @app.get("/api/faults", response_model=List[FaultResponse])
@@ -1708,6 +2081,28 @@ class GetCompositeScheduleRequest(BaseModel):
     charging_rate_unit: Optional[str] = None  # W or A
 
 
+class VariableRef(BaseModel):
+    """One (component, variable) address in the 2.0.1 device model."""
+    component: str
+    variable: str
+
+
+class GetVariablesRequest(BaseModel):
+    items: List[VariableRef]
+
+
+class VariableAssignment(VariableRef):
+    value: str
+
+
+class SetVariablesRequest(BaseModel):
+    items: List[VariableAssignment]
+
+
+class GetBaseReportRequest(BaseModel):
+    report_base: str = "ConfigurationInventory"
+
+
 class ClearChargingProfileRequest(BaseModel):
     id: Optional[int] = None
     connector_id: Optional[int] = None
@@ -1807,12 +2202,65 @@ async def qr_generator_page():
         raise HTTPException(status_code=500, detail=f"Error loading QR generator: {str(e)}")
 
 
+def _emsp_deeplink(charge_point_id: str, connector: str) -> Optional[str]:
+    """Where a scanned charger sticker should send the driver, if not to us.
+
+    The stickers already on the chargers encode our own /pay page, so a driver
+    who holds a roaming partner's app still lands on our checkout instead of
+    theirs. Rather than reprint every sticker, /pay can forward them.
+
+    The destination is configuration, not code, because we do not control the
+    partner's URL scheme and must not guess it: a wrong guess sends a driver
+    standing at a charger to a broken page. QR_REDIRECT_TEMPLATE holds the
+    partner's link with placeholders, and forwarding stays off until it is set.
+
+    Supported placeholders: {charge_point_id} {connector} {evse_uid}
+    {location_id}
+    """
+    template = (os.getenv("QR_REDIRECT_TEMPLATE") or "").strip()
+    if not template:
+        return None
+
+    # Only ever forward to an absolute https destination. Without this an
+    # edited template could turn the sticker into an open redirect.
+    if not template.lower().startswith("https://"):
+        logger.error(
+            "QR_REDIRECT_TEMPLATE ignored: must start with https:// (got %r)",
+            template[:40],
+        )
+        return None
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party = os.getenv("OCPI_PARTY_ID", "PLG")
+    location_id = f"{country}{party}-{charge_point_id}"
+
+    try:
+        return template.format(
+            charge_point_id=quote(charge_point_id, safe=""),
+            connector=quote(str(connector), safe=""),
+            location_id=quote(location_id, safe=""),
+            evse_uid=quote(f"{location_id}-EVSE{connector}", safe=""),
+        )
+    except KeyError as e:
+        logger.error("QR_REDIRECT_TEMPLATE uses unknown placeholder %s", e)
+        return None
+
+
 @app.get("/pay")
-async def quick_pay_page():
+async def quick_pay_page(charger: str = "", connector: str = "1"):
     """Guest-facing quick-pay page — opened from the QR sticker on a charger.
     Reads ?charger=<id>&connector=<n> from the URL, asks for amount + email,
     creates a payment via /api/charging/quick-pay, then polls for completion
-    while showing the TNG QR. On success the backend triggers RemoteStart."""
+    while showing the TNG QR. On success the backend triggers RemoteStart.
+
+    When QR_REDIRECT_TEMPLATE is configured the scan is forwarded to that
+    partner instead, so the existing printed stickers reach their app without
+    being reprinted."""
+    if charger:
+        target = _emsp_deeplink(charger, connector or "1")
+        if target:
+            logger.info("QR scan for %s gun %s forwarded to partner", charger, connector)
+            return RedirectResponse(target, status_code=302)
     try:
         file_path = _BASE_DIR / "templates" / "pay.html"
         if not file_path.exists():
@@ -3060,8 +3508,110 @@ async def ocpp_get_composite_schedule(charge_point_id: str, request: GetComposit
     if not resp:
         return OcppOperationResponse(success=False, message="No response from charger.")
     status = getattr(resp, "status", "Unknown")
+    # 1.6 returns the periods under charging_schedule; 2.0.1 wraps them in a
+    # CompositeSchedule and calls the field `schedule`. Reading only the 1.6
+    # name handed back a null schedule for every 2.0.1 charger, which defeats
+    # the point of the call — this is how you confirm the limit that will
+    # actually be applied.
     schedule = getattr(resp, "charging_schedule", None)
+    if schedule is None:
+        schedule = getattr(resp, "schedule", None)
     return OcppOperationResponse(success=status == "Accepted", message=f"Status: {status}", data={"status": status, "charging_schedule": schedule})
+
+
+# ── OCPP 2.0.1 device model ──
+# 2.0.1 replaces GetConfiguration/ChangeConfiguration with an addressed device
+# model: every setting is a (component, variable) pair. There is no 1.6
+# equivalent, so these three are the only operations in the console that are
+# 2.0.1-only — the guard below is the mirror image of the ones in the 2.0.1
+# handler that reject 1.6-only operations.
+
+def _all_attributes_accepted(results: list) -> bool:
+    """The library hands back the wire payload untouched, and chargers differ on
+    whether they send attributeStatus or attribute_status. Accept either."""
+    if not results:
+        return False
+    return all(
+        (r or {}).get("attributeStatus", (r or {}).get("attribute_status")) == "Accepted"
+        for r in results
+    )
+
+
+def _require_v201(cp: Any, charge_point_id: str, operation: str) -> None:
+    if getattr(cp, "ocpp_version", "1.6") != "2.0.1":
+        raise OcppOperationUnsupported(
+            f"{operation} is an OCPP 2.0.1 operation and {charge_point_id} is "
+            f"connected over OCPP {getattr(cp, 'ocpp_version', '1.6')}"
+        )
+
+
+@app.post("/api/ocpp/{charge_point_id}/get-variables", response_model=OcppOperationResponse)
+async def ocpp_get_variables(charge_point_id: str, request: GetVariablesRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 GetVariables — read settings out of the device model."""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "GetVariables")
+    resp = await cp.get_variables([(i.component, i.variable) for i in request.items])
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    results = getattr(resp, "get_variable_result", None) or []
+    accepted = _all_attributes_accepted(results)
+    return OcppOperationResponse(
+        success=accepted,
+        message=f"{len(results)} variable(s) read",
+        data={"get_variable_result": results},
+    )
+
+
+@app.post("/api/ocpp/{charge_point_id}/set-variables", response_model=OcppOperationResponse)
+async def ocpp_set_variables(charge_point_id: str, request: SetVariablesRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 SetVariables — write settings into the device model."""
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "SetVariables")
+    resp = await cp.set_variables([(i.component, i.variable, i.value) for i in request.items])
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    results = getattr(resp, "set_variable_result", None) or []
+    accepted = _all_attributes_accepted(results)
+    return OcppOperationResponse(
+        success=accepted,
+        message=f"{len(results)} variable(s) written",
+        data={"set_variable_result": results},
+    )
+
+
+@app.post("/api/ocpp/{charge_point_id}/get-base-report", response_model=OcppOperationResponse)
+async def ocpp_get_base_report(charge_point_id: str, request: GetBaseReportRequest, db: Session = Depends(get_db), _: dict = Depends(require_admin_or_staff_admin)):
+    """OCPP 2.0.1 GetBaseReport.
+
+    The reply only acknowledges the request; the device model itself arrives
+    afterwards as a series of NotifyReport calls, which the 2.0.1 handler logs.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail=f"Charger {charge_point_id} not found")
+    cp = get_active_charge_point(charge_point_id)
+    if not cp:
+        return OcppOperationResponse(success=False, message=f"Charger {charge_point_id} is not connected.")
+    _require_v201(cp, charge_point_id, "GetBaseReport")
+    resp = await cp.get_base_report(report_base=request.report_base)
+    if not resp:
+        return OcppOperationResponse(success=False, message="No response from charger.")
+    status = getattr(resp, "status", "Unknown")
+    return OcppOperationResponse(
+        success=status == "Accepted",
+        message=f"Status: {status} — contents follow as NotifyReport in the logs",
+        data={"status": status},
+    )
 
 
 @app.post("/api/ocpp/{charge_point_id}/clear-charging-profile", response_model=OcppOperationResponse)
@@ -3122,10 +3672,10 @@ class ChargingResponse(BaseModel):
 
 
 @app.post("/api/charging/start", response_model=ChargingResponse, status_code=200)
-async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
+async def start_charging(request: StartChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_charging_caller)):
     """
     Start charging session via RemoteStartTransaction
-    
+
     Flow:
     1. AppEV sends request → ChargingPlatform API
     2. ChargingPlatform validates charger status
@@ -3134,6 +3684,24 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
     5. Returns success response to AppEV
     """
     try:
+        # An ordinary customer may start, under two limits that do not apply to
+        # staff. The id_tag is taken from the session rather than the request,
+        # so a customer cannot start under someone else's identity, and it is
+        # what makes the session theirs for /api/me/session/active. One active
+        # session at a time also stops a single account occupying several guns.
+        if _auth.get("mode") == "user":
+            _me = _auth["user"]
+            request.id_tag = str(_me.id)
+            mine = db.query(ChargingSession).filter(
+                ChargingSession.user_id == str(_me.id),
+                ChargingSession.status.in_(["active", "pending"]),
+            ).first()
+            if mine:
+                return ChargingResponse(
+                    success=False,
+                    message="You already have a charging session in progress.",
+                )
+
         logger.info(f"Start charging request received: charger_id={request.charger_id}, connector_id={request.connector_id}, id_tag={request.id_tag}")
         
         # Check if charger exists
@@ -3162,14 +3730,45 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                 message=f"Charger {request.charger_id} is offline"
             )
         
-        # Check if charger is available
-        if charger.availability not in ["available", "preparing"]:
-            logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
-            return ChargingResponse(
-                success=False,
-                message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
-            )
-        
+        # Check if charger is available.
+        #
+        # `availability` is one field for the whole charger, so on a dual-gun
+        # unit the first gun to start charging sets it to "charging" and the
+        # second gun can never be started. The guns are independent, so the
+        # question that actually matters is whether *this* connector is busy.
+        # Only fall back to the charger-wide verdict for states that really do
+        # affect the whole unit (faulted, unavailable).
+        #
+        # A session whose connector is unknown counts as busy on every gun. The
+        # TNG kiosk opens its pending session without one, and a paid session
+        # must never be the reason this check decides a gun is free.
+        # "finishing" belongs with the startable states. The transaction has
+        # ended but the charger keeps the EV session alive for a short while and
+        # will accept a fresh start — DC3001 accepted three in a row from
+        # Finishing on 17 August, each within forty seconds, and only refused one
+        # attempted fifteen minutes later. Blocking it here would remove a
+        # working path; let the charger be the one to decide it has timed out.
+        if charger.availability not in ["available", "preparing", "finishing"]:
+            connector_busy = db.query(ChargingSession).filter(
+                ChargingSession.charger_id == charger.id,
+                or_(
+                    ChargingSession.connector_id == request.connector_id,
+                    ChargingSession.connector_id.is_(None),
+                ),
+                ChargingSession.status.in_(["active", "pending"]),
+            ).first()
+            if charger.availability == "charging" and not connector_busy:
+                logger.info(
+                    f"Charger {request.charger_id} is charging on another connector; "
+                    f"connector {request.connector_id} is free — allowing start"
+                )
+            else:
+                logger.warning(f"Charger {request.charger_id} is not available (status: {charger.availability})")
+                return ChargingResponse(
+                    success=False,
+                    message=f"Charger {request.charger_id} is not available (status: {charger.availability})"
+                )
+
         # Get active charge point connection
         charge_point = get_active_charge_point(request.charger_id)
         if not charge_point:
@@ -3192,12 +3791,16 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
             # Don't create session with transaction_id = 0 (unique constraint violation)
             # Instead, create pending session without transaction_id, or wait for StartTransaction
             try:
-                # Check if pending session already exists
+                # Check if pending session already exists. Scoped to the
+                # connector: a pending session on gun 1 must not be mistaken
+                # for gun 2's, or gun 2 never gets a session of its own and
+                # its StartTransaction later adopts gun 1's row.
                 existing_pending = db.query(ChargingSession).filter(
                     ChargingSession.charger_id == charger.id,
+                    ChargingSession.connector_id == request.connector_id,
                     ChargingSession.status == "pending"
                 ).first()
-                
+
                 if not existing_pending:
                     # Create pending session using a unique negative transaction_id.
                     # We flush first to get the auto-increment PK, then set
@@ -3205,6 +3808,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
                     # on_start_transaction will overwrite it with the real assigned ID.
                     session = ChargingSession(
                         charger_id=charger.id,
+                        connector_id=request.connector_id,
                         transaction_id=0,  # placeholder; replaced below after flush
                         start_time=datetime.now(MYT).replace(tzinfo=None),
                         status="pending",
@@ -3252,7 +3856,18 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
             else:
                 status = response.status if hasattr(response, 'status') else str(response)
                 if status == "Rejected":
-                    error_msg = "Charger rejected the start request. Charger may be unavailable or already charging."
+                    # This is where the unplug advice belongs — after the charger
+                    # has actually refused, not before it has been asked. A
+                    # connector that has been sitting in Finishing has usually
+                    # timed out its EV session, and replugging is the remedy.
+                    if _connector_state(charger, request.connector_id) == "finishing":
+                        error_msg = (
+                            f"The charger refused the start. Gun {request.connector_id} has finished "
+                            f"its last session and appears to have timed out with the cable still in — "
+                            f"unplug it and plug in again, then start."
+                        )
+                    else:
+                        error_msg = "Charger rejected the start request. Charger may be unavailable or already charging."
                 elif status == "NotSupported":
                     error_msg = "Charger does not support RemoteStartTransaction."
                 else:
@@ -3273,7 +3888,7 @@ async def start_charging(request: StartChargingRequest, db: Session = Depends(ge
 
 
 @app.post("/api/charging/stop", response_model=ChargingResponse, status_code=200)
-async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_admin_or_staff_manager)):
+async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_db), _auth: dict = Depends(require_charging_caller)):
     """
     Stop charging session via RemoteStopTransaction
     
@@ -3340,6 +3955,21 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message="No active charging session found and no charger_id provided for fallback stop"
             )
 
+        # A customer may stop only their own session. Staff keep the operator
+        # fallback that stops whatever is running on a charger, because that is
+        # what a support call needs; a customer must never reach it, or sending
+        # someone else's charger_id would cut their charge short.
+        if _auth.get("mode") == "user":
+            if session is None or not _session_belongs_to(session, _auth["user"]):
+                logger.warning(
+                    "Stop refused: user %s does not own session %s",
+                    _auth.get("user_id"), getattr(session, "id", None),
+                )
+                return ChargingResponse(
+                    success=False,
+                    message="No charging session of yours is running on this charger.",
+                )
+
         # Get active charge point connection
         charge_point = get_active_charge_point(charger.charge_point_id)
         if not charge_point:
@@ -3355,6 +3985,43 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             txn_id_for_stop = int(session.transaction_id)
         elif request.transaction_id and request.transaction_id > 0:
             txn_id_for_stop = int(request.transaction_id)
+        if txn_id_for_stop <= 0:
+            # Desync recovery. Our session can be closed while the charger is
+            # still running — a missed StopTransaction, a dropped socket, or a
+            # StatusNotification that never came. The charger keeps stamping
+            # its live transaction id on every MeterValues, so the newest
+            # reading is direct evidence of what it still believes is open.
+            # Meter timestamps are Malaysia wall time, so the window has to be
+            # measured on that clock. Comparing them against utcnow made a
+            # "last 30 minutes" filter reach back eight and a half hours.
+            window_start = (datetime.now(UTC) + timedelta(hours=8)).replace(tzinfo=None) - timedelta(minutes=30)
+            candidates = db.query(MeterValue).filter(
+                MeterValue.charger_id == charger.id,
+                MeterValue.transaction_id.isnot(None),
+                MeterValue.transaction_id > 0,
+                MeterValue.timestamp >= window_start,
+            ).order_by(desc(MeterValue.timestamp)).limit(20).all()
+
+            for mv in candidates:
+                # A charger keeps sending meter values for a while after a
+                # transaction ends, so the newest reading is not proof that its
+                # transaction is still open. Stopping a finished one is refused
+                # by the charger and leaves the live session running, which is
+                # what happened on DC3001 when a second Stop was answered
+                # Rejected. Skip any transaction we have already closed.
+                closed = db.query(ChargingSession).filter(
+                    ChargingSession.transaction_id == int(mv.transaction_id),
+                    ChargingSession.status.in_(["completed", "interrupted"]),
+                ).first()
+                if closed:
+                    continue
+                txn_id_for_stop = int(mv.transaction_id)
+                logger.warning(
+                    f"RemoteStop desync recovery on {charger.charge_point_id}: no open session, "
+                    f"using transaction_id={txn_id_for_stop} from a meter reading at {mv.timestamp}"
+                )
+                break
+
         if txn_id_for_stop <= 0:
             logger.error(
                 f"Cannot RemoteStop: no transaction id (charger={charger.charge_point_id}, session={session})"
@@ -3400,9 +4067,19 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
                 message="No response from charger for RemoteStopTransaction.",
             )
         logger.error(f"RemoteStopTransaction failed: {status}")
+        # Say who refused and what it refused. "Failed to stop charging:
+        # Rejected" reads as a platform fault, and on a gun that is plugged in
+        # but not charging it is doubly confusing — there was no charging to
+        # stop. The charger answered Rejected to a transaction id it issued
+        # itself, which is a charger-side decision we cannot override.
         return ChargingResponse(
             success=False,
-            message=f"Failed to stop charging: {status}",
+            message=(
+                f"The charger refused the request ({status}). It was asked to end "
+                f"transaction {txn_id_for_stop}, which the charger itself reported. "
+                f"Nothing on the platform can override that — the charger has to "
+                f"accept RequestStopTransaction, or end the transaction itself."
+            ),
         )
     except Exception as e:
         logger.error(f"Error stopping charging: {e}", exc_info=True)
@@ -7412,10 +8089,15 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
     # Either Accepted, or no response (charger may still start locally).
     # Create a pending ChargingSession so the live screen / banner can pick it up.
     try:
+        # Scoped to the gun that was paid for. Unscoped, a customer paying at
+        # gun 2 while gun 1 already has a pending session would have their
+        # money attached to gun 1's session — wrong quota, wrong receipt, and
+        # gun 2 left with no session of its own.
         existing_pending = (
             db.query(ChargingSession)
             .filter(
                 ChargingSession.charger_id == charger.id,
+                ChargingSession.connector_id == connector_id,
                 ChargingSession.status == "pending",
             )
             .first()
@@ -7436,6 +8118,7 @@ async def _trigger_remote_start_after_payment(db: Session, txn: PaymentTransacti
         if not existing_pending:
             session = ChargingSession(
                 charger_id=charger.id,
+                connector_id=connector_id,
                 transaction_id=0,  # placeholder, replaced below
                 start_time=datetime.now(MYT).replace(tzinfo=None),
                 status="pending",
@@ -8280,7 +8963,10 @@ async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, de
             f"[stop-fallback] session {session_id} on {charger_id}: charger "
             f"did not send StopTransaction within {delay_s}s — force-closing"
         )
-        sess.stop_time = _utcnow()
+        # Session times are stored as Malaysia wall time, the same basis the
+        # charger's own timestamps land on after normalisation. Writing UTC
+        # here put the close eight hours before the start.
+        sess.stop_time = (datetime.now(UTC) + timedelta(hours=8)).replace(tzinfo=None)
         sess.status = "completed"
         sess.stop_reason = sess.stop_reason or "Local"
         charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
@@ -8477,6 +9163,18 @@ async def _process_session_refund(db: Session, sess: ChargingSession):
 
 
 @app.on_event("startup")
+async def _start_ocpi_push_worker():
+    """Drain the OCPI push queue in the background.
+
+    Call sites only enqueue, so nothing on the OCPP path waits on a roaming
+    partner's API. Without this worker those enqueues are silently dropped,
+    which is the correct behaviour for any process that is not the API.
+    """
+    from ocpi.push import start_worker
+    await start_worker()
+
+
+@app.on_event("startup")
 async def _start_reminder_scheduler():
     """Start the background SLA reminder task on app startup."""
     asyncio.create_task(_ticket_reminder_loop())
@@ -8487,6 +9185,23 @@ async def _start_refund_worker():
     """Background loop that processes pending TNG refunds from completed
     deposit/refund-flow sessions."""
     asyncio.create_task(_refund_worker_loop())
+
+
+@app.on_event("startup")
+async def _start_orphan_session_watchdog():
+    """Close sessions the charger will never close itself.
+
+    This loop already existed but was only ever launched from
+    ChargingPlatform/main.py, which is not the entrypoint of any running
+    service, so it had never run. Sessions that opened and never charged
+    therefore stayed active forever and blocked their gun, which is what a
+    driver hits as "charger not available".
+
+    It belongs here rather than there: this is the process holding the OCPP
+    connections, so active_charge_points is populated and the loop can tell an
+    absent charger from a present one.
+    """
+    asyncio.create_task(orphan_session_watchdog(interval_seconds=120))
 
 
 @app.on_event("startup")
@@ -8841,7 +9556,7 @@ async def _dev_auto_init():
         async def _ocpp():
             async with serve(
                 on_connect, "0.0.0.0", 9000,
-                subprotocols=["ocpp1.6"],
+                subprotocols=["ocpp1.6", "ocpp2.0.1"],
                 ping_interval=None, close_timeout=10, compression=None,
             ):
                 await asyncio.Future()

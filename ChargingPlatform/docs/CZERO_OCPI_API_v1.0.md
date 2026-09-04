@@ -14,14 +14,12 @@
 | **Operator (Legal Entity)** | C Zero Sdn Bhd |
 | **Operator Registered Address** | 2, Jalan Gergaji 15/14, Seksyen 15, 40200 Shah Alam, Selangor, Malaysia |
 | **Trading Brand** | PlagSini |
-| **OCPI Party ID** | `CZS` (3-letter) |
+| **OCPI Party ID** | `PLG` (3-letter) |
 | **OCPI Country Code** | `MY` (ISO 3166-1 alpha-2) |
 | **OCPI Role** | CPO (Charge Point Operator) |
 | **Protocol Version** | OCPI 2.2.1 |
 | **Production Base URL** | `https://charger.czeros.tech/ocpi` |
 | **Sandbox Base URL** | Available on request after eRoaming agreement signed |
-| **Primary Contact** | Aqid — aqidishak28@gmail.com |
-| **Technical Contact** | engineering@plagsini.com |
 
 ---
 
@@ -48,10 +46,10 @@ All endpoints conform to the OCPI 2.2.1 specification published by the EVRoaming
 All authenticated endpoints require an HTTP header:
 
 ```
-Authorization: Token <base64-encoded-token>
+Authorization: Token <your-token>
 ```
 
-The token is exchanged during the OCPI credentials handshake (`POST /2.2.1/credentials`). Until the handshake completes, partners may use a pre-shared bootstrap token issued by C Zero Sdn Bhd upon agreement execution.
+The token may be sent either as a plain string or base64-encoded per OCPI 2.2.1 §7.1 — the server accepts both. It is exchanged during the OCPI credentials handshake (`POST /2.2.1/credentials`). Until the handshake completes, partners may use a pre-shared bootstrap token issued by C Zero Sdn Bhd upon agreement execution.
 
 **Token rotation:** supported per OCPI spec via subsequent `PUT /credentials`.
 
@@ -172,36 +170,36 @@ Paginated list of all charging locations operated by C Zero.
   "status_code": 1000,
   "data": [
     {
-      "id": "DC3001",
+      "id": "MYPLG-DC3001",
       "publish": true,
-      "name": "C Zero Guard House",
-      "address": "Tiang Depan Bilik Ozone",
-      "city": "Shah Alam",
-      "postal_code": "40200",
-      "country": "MYS",
-      "coordinates": { "latitude": 3.0738, "longitude": 101.5183 },
+      "name": "DC3001",
+      "address": "Charging Station",
+      "city": "Kuala Lumpur",
+      "postal_code": "50000",
+      "country": "MY",
+      "coordinates": { "latitude": 3.1390, "longitude": 101.6869 },
       "evses": [
         {
-          "uid": "DC3001",
-          "evse_id": "MY*CZS*E*DC3001",
+          "uid": "MYPLG-DC3001-EVSE1",
+          "evse_id": "MY*PLG*E*DC3001",
           "status": "AVAILABLE",
           "connectors": [
             {
               "id": "1",
-              "standard": "IEC_62196_T2_COMBO",
-              "format": "CABLE",
-              "power_type": "DC",
-              "max_electric_power": 30000,
-              "tariff_ids": ["default-dc"],
-              "last_updated": "2026-06-25T06:47:54Z"
+              "standard": "IEC_62196_T2",
+              "format": "SOCKET",
+              "power_type": "AC_1_PHASE",
+              "voltage": 230,
+              "amperage": 32,
+              "max_electric_power": 7360,
+              "last_updated": "2026-07-23T01:46:23Z"
             }
           ],
-          "last_updated": "2026-06-25T06:47:54Z"
+          "last_updated": "2026-07-23T01:46:23Z"
         }
       ],
       "time_zone": "Asia/Kuala_Lumpur",
-      "charging_when_closed": true,
-      "last_updated": "2026-06-25T06:47:54Z"
+      "last_updated": "2026-07-23T01:46:23Z"
     }
   ]
 }
@@ -345,7 +343,7 @@ Active and recently completed charging sessions.
         "contract_id": "VLT-CONTRACT-001"
       },
       "auth_method": "AUTH_REQUEST",
-      "location_id": "DC3001",
+      "location_id": "MYPLG-DC3001",
       "evse_uid": "DC3001",
       "connector_id": "1",
       "currency": "MYR",
@@ -379,7 +377,7 @@ Final billing records for completed sessions. CDRs are immutable; once created t
       "end_datetime": "2026-06-25T09:02:00Z",
       "auth_id": "ROAMING-VLT-001",
       "auth_method": "AUTH_REQUEST",
-      "location_id": "DC3001",
+      "location_id": "MYPLG-DC3001",
       "evse_uid": "DC3001",
       "connector_id": "1",
       "currency": "MYR",
@@ -429,7 +427,7 @@ Start a charging session remotely on behalf of an eMSP user.
     "whitelist": "ALWAYS",
     "last_updated": "2026-06-25T08:00:00Z"
   },
-  "location_id": "DC3001",
+  "location_id": "MYPLG-DC3001",
   "evse_uid": "DC3001",
   "connector_id": "1",
   "authorization_reference": "AUTH-REF-XYZ"
@@ -509,284 +507,6 @@ Operators authorised to consume our roaming traffic.
 
 ---
 
-## 5.13 AION Vendor Extension
-
-Non-standard modules mounted under the OCPI namespace at `/ocpi/2.2.1/aion/*`. These expose AION-specific charger controls that are not part of the OCPI 2.2.1 specification but are required for fleet operators managing the AION E7-A hardware family.
-
-**Firmware requirement:** `TK-AMC003-LCD_V2.0.04` or later.
-
-**Authentication:** same `Authorization: Token …` header used across all OCPI endpoints.
-
-**Response envelope:** identical to standard OCPI (§4).
-
-**Common request pattern:** `POST` endpoints only apply fields that are supplied — omit a field to leave it unchanged. All `POST` endpoints return `applied: [<keys changed>]` so the caller can audit what was actually written to the charger.
-
-**Common error responses:**
-
-| HTTP | Meaning |
-|---|---|
-| 400 | No field supplied in POST body |
-| 403 | Missing / invalid OCPI token |
-| 404 | Unknown `charger_id` |
-| 502 | Charger rejected the OCPP command (returned `Rejected` or `NotSupported`) |
-| 503 | Charger's OCPP WebSocket is not currently connected |
-
----
-
-### 5.13.1 Lights — Front-panel LEDs
-
-Toggle the three AION front-housing LEDs individually.
-
-#### `POST /ocpi/2.2.1/aion/lights`
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `charger_id` | string | Yes | Physical charger ID |
-| `status_light` | boolean | No | Status ring LED on/off |
-| `logo_light` | boolean | No | Logo backlight LED on/off |
-| `background_light` | boolean | No | Background accent LED on/off |
-
-**Example**
-
-```bash
-curl -X POST https://charger.czeros.tech/ocpi/2.2.1/aion/lights \
-  -H "Authorization: Token $OCPI_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"charger_id":"0748911403000093","status_light":true,"logo_light":false}'
-```
-
-**Response 200**
-
-```json
-{
-  "status_code": 1000,
-  "status_message": "Success",
-  "timestamp": "2026-07-15T03:09:38Z",
-  "data": {
-    "charger_id": "0748911403000093",
-    "applied": ["StatusLight", "LogoLight"]
-  }
-}
-```
-
-#### `GET /ocpi/2.2.1/aion/lights?charger_id={id}`
-
-Returns current LED states. Response `data`:
-
-```json
-{
-  "charger_id": "0748911403000093",
-  "status_light": true,
-  "logo_light": true,
-  "background_light": true
-}
-```
-
----
-
-### 5.13.2 Display — LCD text and wallpaper
-
-The AION LCD shows a customisable header text (`home_number`) and a background wallpaper selected from a preset library (`background`).
-
-#### `POST /ocpi/2.2.1/aion/display`
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `charger_id` | string | Yes | Physical charger ID |
-| `home_number` | string | No | LCD header text, max 24 characters |
-| `background` | string | No | Wallpaper preset name (e.g. `Verdant Pulse`, `Eco Wave`, `Nature`, `Aurora`, `Ocean`, `Neon`, `Classic`) |
-
-**Example**
-
-```bash
-curl -X POST https://charger.czeros.tech/ocpi/2.2.1/aion/display \
-  -H "Authorization: Token $OCPI_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"charger_id":"0748911403000093","home_number":"PLAGSINI KL","background":"Aurora"}'
-```
-
-**Response 200**
-
-```json
-{
-  "status_code": 1000,
-  "status_message": "Success",
-  "timestamp": "2026-07-15T03:09:38Z",
-  "data": {
-    "charger_id": "0748911403000093",
-    "applied": ["HomeNumber", "BackSelection"]
-  }
-}
-```
-
-#### `GET /ocpi/2.2.1/aion/display?charger_id={id}`
-
-```json
-{
-  "charger_id": "0748911403000093",
-  "home_number": "PLAGSINI KL",
-  "background": "Aurora"
-}
-```
-
----
-
-### 5.13.3 Local Admin Credentials
-
-Change the credentials used to log in to the AION on-device web console (used by technicians on site). These credentials are **unrelated** to the OCPI token or OCPP authentication key.
-
-#### `POST /ocpi/2.2.1/aion/credentials`
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `charger_id` | string | Yes | Physical charger ID |
-| `username` | string | No | New username, max 32 chars |
-| `password` | string | No | New password, max 32 chars |
-
-**Response 200**
-
-```json
-{
-  "status_code": 1000,
-  "status_message": "Success",
-  "timestamp": "2026-07-15T03:09:38Z",
-  "data": {
-    "charger_id": "0748911403000093",
-    "applied": ["UserName", "UserPass"]
-  }
-}
-```
-
-#### `GET /ocpi/2.2.1/aion/credentials?charger_id={id}`
-
-Returns username only. **Password is never echoed** — rotate via POST if the password is lost.
-
-```json
-{
-  "charger_id": "0748911403000093",
-  "username": "admin"
-}
-```
-
----
-
-### 5.13.4 Schedule — Auto start/stop window
-
-Configure the single auto start/stop window supported by AION firmware v2.0.04.
-
-Sends `Sch_State`, `Sch_Day`, `Sch_StartTime`, `Sch_StopTime` via OCPP `ChangeConfiguration`.
-
-#### `POST /ocpi/2.2.1/aion/schedule`
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `charger_id` | string | Yes | Physical charger ID |
-| `enabled` | boolean | No | `true` to activate the schedule, `false` to disable |
-| `day` | integer | No | `0` Sunday … `6` Saturday |
-| `start_time` | string | No | `HH:MM` (24-hour) |
-| `stop_time` | string | No | `HH:MM` (24-hour) |
-
-**Example**
-
-```bash
-curl -X POST https://charger.czeros.tech/ocpi/2.2.1/aion/schedule \
-  -H "Authorization: Token $OCPI_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"charger_id":"0748911403000093","enabled":true,"day":1,"start_time":"10:00","stop_time":"18:00"}'
-```
-
-**Response 200**
-
-```json
-{
-  "status_code": 1000,
-  "status_message": "Success",
-  "timestamp": "2026-07-15T03:09:48Z",
-  "data": {
-    "charger_id": "0748911403000093",
-    "applied": ["Sch_State", "Sch_Day", "Sch_StartTime", "Sch_StopTime"]
-  }
-}
-```
-
-#### `GET /ocpi/2.2.1/aion/schedule?charger_id={id}`
-
-```json
-{
-  "charger_id": "0748911403000093",
-  "enabled": true,
-  "day": 1,
-  "start_time": "10:00",
-  "stop_time": "18:00"
-}
-```
-
-**Limitation:** AION firmware v2.0.04 supports one schedule window per charger. Multiple schedules or per-day windows are not currently supported.
-
----
-
-### 5.13.5 Lock — Availability toggle
-
-Lock or unlock a charger (or a specific connector) via OCPP `ChangeAvailability`. Active sessions are **not** interrupted; only new sessions are affected.
-
-- `lock` → `Inoperative` (charger refuses new sessions)
-- `unlock` → `Operative` (normal operation)
-
-#### `POST /ocpi/2.2.1/aion/lock`
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `charger_id` | string | Yes | Physical charger ID |
-| `action` | string | Yes | `lock` or `unlock` |
-| `connector_id` | integer | No | `0` (default) locks the whole charger; `1..N` locks a specific connector |
-
-**Example**
-
-```bash
-curl -X POST https://charger.czeros.tech/ocpi/2.2.1/aion/lock \
-  -H "Authorization: Token $OCPI_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"charger_id":"0748911403000093","action":"lock"}'
-```
-
-**Response 200**
-
-```json
-{
-  "status_code": 1000,
-  "status_message": "Success",
-  "timestamp": "2026-07-15T03:09:38Z",
-  "data": {
-    "charger_id": "0748911403000093",
-    "connector_id": 0,
-    "action": "lock",
-    "ocpp_status": "Accepted"
-  }
-}
-```
-
-#### `GET /ocpi/2.2.1/aion/lock?charger_id={id}`
-
-```json
-{
-  "charger_id": "0748911403000093",
-  "locked": false,
-  "availability": "available"
-}
-```
-
----
-
 ## 6. Integration Checklist (for Partner Onboarding)
 
 1. **Sign eRoaming Agreement** with C Zero Sdn Bhd (template provided separately).
@@ -820,16 +540,7 @@ Typical onboarding timeline: **5–7 business days** from token issuance to prod
 |---|---|---|---|
 | 1.0 | 25 June 2026 | C Zero Engineering | Initial release covering 10 standard OCPI modules |
 | 1.1 | 15 July 2026 | C Zero Engineering | Added §5.13 AION Vendor Extension — 5 new modules (lights, display, credentials, schedule, lock) under `/ocpi/2.2.1/aion/*` for AION E7-A firmware ≥ TK-AMC003-LCD_V2.0.04 |
-
----
-
-## 9. Contact
-
-For technical questions, sandbox credentials, or integration support:
-
-- **Project Lead:** Aqid Ishak — aqid@c-zero.my
-- **Production endpoint:** https://charger.czeros.tech/ocpi
-- **Status page:** https://charger.czeros.tech/health
+| 1.2 | 23 July 2026 | C Zero Engineering | Accuracy sweep: Party ID corrected to `PLG`, EVSE / Location ID format aligned with live endpoint output (`MYPLG-<id>-EVSE1`, `MYPLG-<id>`), authentication note updated (plain-string token, not base64). |
 
 ---
 

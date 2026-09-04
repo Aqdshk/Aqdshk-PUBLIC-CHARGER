@@ -170,7 +170,11 @@ services:
         - BOT_BASE_URL=${BOT_BASE_URL}
     container_name: plagsini-web
     ports:
-      - "3000:80"
+      # Loopback only. nginx runs on the host and proxies /app/ to
+      # localhost:3000, so nothing outside the machine needs to reach it, and
+      # Docker publishes ports through its own iptables rules that UFW does
+      # not filter. This keeps the exposure the app already had.
+      - "127.0.0.1:3000:80"
     networks:
       - ev-network
     depends_on:

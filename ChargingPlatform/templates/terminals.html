@@ -59,10 +59,10 @@
     }
     .deposit-edit input:focus { outline:none; border-color:var(--accent); }
 
-    /* Idle-fee modal — per-charger toggles */
+    /* Pricing modal — per-charger tariff + idle-fee toggles */
     .idle-charger-row {
         display:grid;
-        grid-template-columns: 1fr 70px 80px 60px;
+        grid-template-columns: 1fr 82px 70px 78px 62px;
         gap:10px; align-items:center;
         padding:10px 12px;
         background:var(--bg-base);
@@ -382,12 +382,14 @@
 <!-- Idle-fee Modal -->
 <div class="modal-overlay" id="idleModal">
     <div class="modal">
-        <h2>🧊 Idle fee settings</h2>
+        <h2>💰 Pricing &amp; idle fee</h2>
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">
-            Charge customers a penalty fee per minute if they leave the plug connected after charging completes. Encourages drivers to free up the bay.
+            <b>RM/kWh</b> is the energy rate this charger bills at — it drives the kWh estimate on the kiosk and the final amount charged.
+            <b>Idle fee</b> is an optional per-minute penalty once charging completes and the grace period expires, to free up the bay.
+            Changes save automatically.
         </div>
         <div class="idle-charger-row idle-row-head" style="background:none;border:none;">
-            <span>Charger</span><span>Enabled</span><span>RM/min</span><span>Grace</span>
+            <span>Charger</span><span>RM/kWh</span><span>Idle on</span><span>RM/min</span><span>Grace</span>
         </div>
         <div id="idleChargersList">Loading…</div>
         <div class="modal-actions">
@@ -512,7 +514,7 @@ function render() {
                 <a href="${kioskUrl}" target="_blank" class="btn-secondary" style="text-decoration:none;display:inline-block;">↗ Open kiosk</a>
                 <button class="btn-secondary" onclick="openEditModal(${t.id})">✏️ Edit details</button>
                 <button class="btn-secondary" onclick="openAssignModal(${t.id})">⚡ Assign chargers</button>
-                <button class="btn-secondary" onclick="openIdleModal(${t.id})">🧊 Idle fees</button>
+                <button class="btn-secondary" onclick="openIdleModal(${t.id})">💰 Pricing</button>
                 <button class="btn-secondary" onclick="toggleTestMode(${t.id}, ${!t.test_mode})" style="${t.test_mode ? 'background:rgba(255,165,0,0.15);color:#ffa500;border-color:rgba(255,165,0,0.3);' : ''}">${t.test_mode ? '🧪 Disable Test Mode' : '🧪 Enable Test Mode'}</button>
                 <button class="btn-secondary btn-danger" onclick="deleteTerminal(${t.id}, '${safeName}')">🗑 Delete</button>
             </div>
@@ -721,6 +723,7 @@ async function openIdleModal(termId) {
         list.innerHTML = subset.map(c => `
             <div class="idle-charger-row" data-cp="${c.charge_point_id}">
                 <span class="cp">⚡ ${c.charge_point_id}</span>
+                <input type="number" step="0.05" min="0" max="10" value="${c.tariff_per_kwh ?? 0.10}" data-field="tariff" title="Energy rate in RM per kWh">
                 <span class="switch ${c.idle_fee_enabled ? 'on' : ''}" onclick="toggleIdleSwitch(this)"></span>
                 <input type="number" step="0.05" min="0" max="10" value="${c.idle_fee_per_min ?? 0.40}" data-field="per_min">
                 <input type="number" step="1" min="0" max="240" value="${c.idle_grace_minutes ?? 15}" data-field="grace">
@@ -743,13 +746,19 @@ function closeIdleModal() {
 async function saveIdleRow(row) {
     const cp = row.dataset.cp;
     const enabled = row.querySelector('.switch').classList.contains('on');
+    const tariff  = parseFloat(row.querySelector('[data-field="tariff"]').value);
     const per_min = parseFloat(row.querySelector('[data-field="per_min"]').value);
-    const grace = parseInt(row.querySelector('[data-field="grace"]').value, 10);
+    const grace   = parseInt(row.querySelector('[data-field="grace"]').value, 10);
+    if (!Number.isFinite(tariff) || tariff < 0 || tariff > 10) {
+        alert('RM/kWh must be between 0 and 10.');
+        return;
+    }
     try {
-        await api(`/api/admin/chargers/${encodeURIComponent(cp)}/idle-fee`, {
-            method: 'PATCH', body: { enabled, per_min, grace_minutes: grace },
+        await api(`/api/admin/chargers/${encodeURIComponent(cp)}/pricing`, {
+            method: 'PATCH',
+            body: { tariff_per_kwh: tariff, enabled, per_min, grace_minutes: grace },
         });
-        toast(`${cp} updated`);
+        toast(`${cp} · RM ${tariff.toFixed(2)}/kWh saved`);
     } catch (e) { alert(e.message); }
 }
 
