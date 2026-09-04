@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class CarbonFootprintScreen extends StatefulWidget {
   const CarbonFootprintScreen({super.key});
@@ -34,6 +35,9 @@ class _CarbonFootprintScreenState extends State<CarbonFootprintScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -215,6 +219,9 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -247,6 +254,9 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Column(
       children: [
         Text(value,

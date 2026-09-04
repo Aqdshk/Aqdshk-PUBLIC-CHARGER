@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Flat minimalist 2D illustration of a person charging an EV car
 class EVChargingIllustration extends StatelessWidget {
@@ -10,6 +12,9 @@ class EVChargingIllustration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return SizedBox(
       width: double.infinity,
       height: height,
@@ -746,6 +751,9 @@ class EVRegisterIllustration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return SizedBox(
       width: double.infinity,
       height: height,

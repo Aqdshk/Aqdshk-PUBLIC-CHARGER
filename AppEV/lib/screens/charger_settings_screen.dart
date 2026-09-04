@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/api_service.dart';
 import 'charging_schedule_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class ChargerSettingsScreen extends StatefulWidget {
   final String chargerId;
@@ -315,6 +317,9 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

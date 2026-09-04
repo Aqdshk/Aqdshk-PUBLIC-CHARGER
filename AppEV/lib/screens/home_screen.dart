@@ -23,6 +23,7 @@ import 'chat_support_screen.dart';
 import 'favourite_stations_screen.dart';
 import 'charger_detail_screen.dart';
 import 'notifications_screen.dart';
+import '../providers/theme_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOME SHELL — bottom-nav scaffold + animated tab switcher.
@@ -69,6 +70,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final bool goingForward = _currentIndex > _previousIndex;
     final screenW = MediaQuery.sizeOf(context).width;
     const double kMaxContentWidth = 600.0;
@@ -141,6 +145,9 @@ class _SupportFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return FloatingActionButton(
       onPressed: onPressed,
       backgroundColor: AppColors.primaryGreen,
@@ -183,6 +190,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       color: AppColors.background,
       child: SafeArea(
@@ -285,6 +295,9 @@ class _HeroBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Consumer<SessionProvider>(
@@ -443,6 +456,9 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
@@ -471,6 +487,9 @@ class _SectionLabelRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
@@ -505,6 +524,9 @@ class _QuickRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
@@ -555,6 +577,9 @@ class _QuickItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -596,6 +621,9 @@ class _StationRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id']?.toString() ?? 'Station';
     final status = charger['status']?.toString() ?? 'unknown';
     final availability = charger['availability']?.toString() ?? 'unknown';
@@ -729,6 +757,9 @@ class _EmptyRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
@@ -756,6 +787,9 @@ class _LoadingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
@@ -792,6 +826,9 @@ class _WalletHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final balance = (wallet?['balance'] as num?)?.toDouble() ?? 0.0;
     final points = (wallet?['points'] as num?)?.toInt() ?? 0;
 
@@ -964,6 +1001,9 @@ class _ActionStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
@@ -1032,6 +1072,9 @@ class _PromoBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
@@ -1120,6 +1163,9 @@ class _StatsStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
@@ -1144,6 +1190,9 @@ class _StatPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
       decoration: BoxDecoration(
@@ -1197,6 +1246,9 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(

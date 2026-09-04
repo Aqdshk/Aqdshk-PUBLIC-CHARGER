@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class NavItem extends StatelessWidget {
   final IconData icon;
@@ -17,6 +19,9 @@ class NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return GestureDetector(
       onTap: onTap,
       child: Column(

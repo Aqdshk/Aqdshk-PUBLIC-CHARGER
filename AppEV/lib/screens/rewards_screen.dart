@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
@@ -386,6 +387,9 @@ class _RewardsScreenState extends State<RewardsScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -863,6 +867,9 @@ class _RewardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final canRedeem = userPoints >= points;
     final progress = (userPoints / points).clamp(0.0, 1.0);
 

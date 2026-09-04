@@ -5,6 +5,7 @@ import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
 import '../widgets/charging_battery_car.dart';
 import 'dart:ui';
+import '../providers/theme_provider.dart';
 
 class LiveChargingScreen extends StatefulWidget {
   const LiveChargingScreen({super.key});
@@ -89,6 +90,9 @@ class _LiveChargingScreenState extends State<LiveChargingScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -402,6 +406,9 @@ class _SessionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -471,6 +478,9 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
       decoration: BoxDecoration(
@@ -537,6 +547,9 @@ class _PowerChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     // fl_chart needs ≥2 spots when isCurved=true; single-point curve crashes in release.
     // Also guard against NaN/Infinity in y values that would break maxY calculation.
     final safeSpots = spots.where((s) => s.y.isFinite).toList();

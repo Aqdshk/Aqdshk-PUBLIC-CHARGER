@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../screens/charger_detail_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class NearbyStationCard extends StatelessWidget {
   final dynamic charger;
@@ -9,6 +11,9 @@ class NearbyStationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id']?.toString() ?? 'Station';
     final status = charger['status']?.toString() ?? 'unknown';
     final availability = charger['availability']?.toString() ?? 'unknown';

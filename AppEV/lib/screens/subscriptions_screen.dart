@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class SubscriptionsScreen extends StatefulWidget {
   const SubscriptionsScreen({super.key});
@@ -13,6 +15,9 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -291,6 +296,9 @@ class _PlanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Stack(
       children: [
         Container(
@@ -443,6 +451,9 @@ class _FAQItemState extends State<_FAQItem> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Column(
       children: [
         InkWell(

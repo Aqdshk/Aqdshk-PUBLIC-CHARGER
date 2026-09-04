@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class ChargerTypeChip extends StatelessWidget {
   final String text;
@@ -9,6 +11,9 @@ class ChargerTypeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

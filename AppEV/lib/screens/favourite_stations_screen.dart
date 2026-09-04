@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import 'charger_detail_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class FavouriteStationsScreen extends StatefulWidget {
   const FavouriteStationsScreen({super.key});
@@ -15,6 +17,9 @@ class _FavouriteStationsScreenState extends State<FavouriteStationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -147,6 +152,9 @@ class _FavouriteStationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id'] ?? 'Unknown';
     final status = charger['availability'] ?? 'unknown';
     final isAvailable = status == 'available' || status == 'preparing';

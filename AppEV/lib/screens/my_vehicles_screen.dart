@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class MyVehiclesScreen extends StatefulWidget {
   const MyVehiclesScreen({super.key});
@@ -229,6 +230,9 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -375,6 +379,9 @@ class _VehicleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final make = vehicle['make'] ?? 'Unknown';
     final model = vehicle['model'] ?? '';
     final plate = vehicle['license_plate'] ?? '';
@@ -517,6 +524,9 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(

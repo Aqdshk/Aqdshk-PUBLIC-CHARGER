@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FLOATING BOTTOM NAV — capsule-shaped, hovers over content. Each cell owns
@@ -31,6 +33,9 @@ class BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 8, 12, 12 + bottomInset),
@@ -62,6 +67,9 @@ class _FloatingBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     const double height = 60;
     return Container(
       height: height,
@@ -137,6 +145,9 @@ class _NavCellState extends State<_NavCell> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final activeColor = AppColors.primaryGreen;
     final idleColor = Colors.white.withOpacity(0.55);
     final color = widget.isActive ? activeColor : idleColor;

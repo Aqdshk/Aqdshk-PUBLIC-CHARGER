@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 /// Chat Support Screen — AI Bot powered by CustomerService microservice.
 /// Creates tickets via ChargingPlatform API through the bot's escalate endpoint.
@@ -332,6 +333,9 @@ class _ChatSupportScreenState extends State<ChatSupportScreen> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
