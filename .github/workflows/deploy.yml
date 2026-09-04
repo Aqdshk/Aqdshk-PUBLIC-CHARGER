@@ -32,8 +32,8 @@ on:
         type: boolean
         required: false
         default: false
-      rebuild_api:
-        description: 'Rebuild charging-platform image (only if Dockerfile/requirements.txt changed)'
+      run_migrations:
+        description: 'Run alembic upgrade head before restarting (tick when the commit adds a migration)'
         type: boolean
         required: false
         default: false
@@ -129,53 +129,56 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           REF: ${{ inputs.ref }}
           REBUILD_APPEV: ${{ inputs.rebuild_appev }}
-          REBUILD_API: ${{ inputs.rebuild_api }}
+          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
         run: |
           ssh -p "${VPS_PORT}" -i ~/.ssh/id_ed25519 \
               -o StrictHostKeyChecking=no -o BatchMode=yes \
               "${VPS_USER}@${VPS_HOST}" \
-              "REF='${REF}' REBUILD_APPEV='${REBUILD_APPEV}' REBUILD_API='${REBUILD_API}' bash -s" <<'REMOTE_SCRIPT'
+              "REF='${REF}' REBUILD_APPEV='${REBUILD_APPEV}' RUN_MIGRATIONS='${RUN_MIGRATIONS}' bash -s" <<'REMOTE_SCRIPT'
             set -euo pipefail
+
+            # The deploy user is `plagsini`; root SSH was disabled on
+            # 2026-06-29. /opt/plagsini-ev/.git is owned by root and the user
+            # is not in the docker group, so git and docker both need sudo.
+            # /etc/sudoers.d/plagsini-deploy grants these without a password.
+            COMPOSE="sudo docker compose -f docker-compose.prod.yml"
 
             cd /opt/plagsini-ev
 
             echo "=== Fetch + checkout ${REF} ==="
-            git fetch origin --tags
-            git checkout "${REF}"
+            sudo git fetch origin --tags
+            sudo git checkout "${REF}"
             # Only pull if on a branch (not detached on a SHA)
-            if git symbolic-ref -q HEAD > /dev/null; then
-              git pull --ff-only origin "${REF}"
+            if sudo git symbolic-ref -q HEAD > /dev/null; then
+              sudo git pull --ff-only origin "${REF}"
             fi
-            DEPLOYED_SHA=$(git rev-parse --short HEAD)
+            DEPLOYED_SHA=$(sudo git rev-parse --short HEAD)
             echo "Deployed SHA: ${DEPLOYED_SHA}"
 
-            echo "=== Sync code into running containers ==="
-            # Charging Platform (Python files — hot-copy + restart)
-            for f in api.py database.py ocpp_server.py email_service.py payment_gateway.py \
-                     features_router.py pdf_receipt.py security.py edge_sync.py push_service.py main.py; do
-              if [ -f "ChargingPlatform/${f}" ]; then
-                docker cp "ChargingPlatform/${f}" plagsini-api:/app/${f}
-              fi
-            done
-            docker cp ChargingPlatform/templates plagsini-api:/app/ 2>/dev/null || true
-            docker cp ChargingPlatform/static plagsini-api:/app/ 2>/dev/null || true
+            # Production runs a BUILT image with `python main.py` and no
+            # reloader, so the code that runs is the code baked into the image.
+            # This step used to `docker cp` the .py files into the running
+            # container and restart it. That appears to work and then silently
+            # reverts on the next rebuild, which is exactly the drift that
+            # caused the 2026-08-28 outage. Build the image instead.
+            echo "=== Build charging-platform ==="
+            ${COMPOSE} build charging-platform
 
-            if [ -d ChargingPlatform/migrations ]; then
-              docker cp ChargingPlatform/migrations plagsini-api:/app/ 2>/dev/null || true
+            if [ "${RUN_MIGRATIONS}" = "true" ]; then
+              # Against the new image, before the running container is swapped,
+              # so the app never starts against a schema it does not expect.
+              echo "=== Alembic upgrade head ==="
+              ${COMPOSE} run --rm --no-deps charging-platform alembic upgrade head
             fi
 
             echo "=== Restart charging-platform ==="
-            if [ "${REBUILD_API}" = "true" ]; then
-              docker compose -f docker-compose.prod.yml build charging-platform
-              docker compose -f docker-compose.prod.yml up -d charging-platform
-            else
-              docker restart plagsini-api
-            fi
+            # --no-deps so a deploy never restarts MySQL underneath the API.
+            ${COMPOSE} up -d --no-deps charging-platform
 
             echo "=== AppEV rebuild (if requested) ==="
             if [ "${REBUILD_APPEV}" = "true" ]; then
-              docker compose -f docker-compose.prod.yml build --no-cache appev
-              docker compose -f docker-compose.prod.yml up -d appev
+              ${COMPOSE} build appev
+              ${COMPOSE} up -d --no-deps appev
             fi
 
             echo "=== Wait for API health ==="
@@ -184,13 +187,13 @@ jobs:
               CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || echo "000")
               echo "Health check #${i}: HTTP ${CODE}"
               if [ "${CODE}" = "200" ]; then
-                echo "✅ API healthy at SHA ${DEPLOYED_SHA}"
+                echo "API healthy at SHA ${DEPLOYED_SHA}"
                 exit 0
               fi
             done
 
-            echo "❌ Health check FAILED after 30s — recent api logs:"
-            docker logs --tail 30 plagsini-api 2>&1
+            echo "Health check FAILED after 30s — recent api logs:"
+            sudo docker logs --tail 30 plagsini-api 2>&1
             exit 1
           REMOTE_SCRIPT
 
