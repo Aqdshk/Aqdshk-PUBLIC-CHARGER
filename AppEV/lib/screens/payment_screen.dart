@@ -61,7 +61,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(method['name'] ?? 'Unknown', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                              Text(method['name'] ?? 'Unknown', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                               Text(method['details'] ?? '', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                             ],
                           ),
@@ -124,14 +124,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       children: [
                         CircleAvatar(
                           backgroundColor: transaction['status'] == 'completed' ? AppColors.primaryGreen : Colors.orange,
-                          child: Icon(Icons.receipt, color: Colors.white),
+                          child: Icon(Icons.receipt, color: AppColors.textPrimary),
                         ),
                         SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('RM ${transaction['amount']?.toStringAsFixed(2) ?? '0.00'}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                              Text('RM ${transaction['amount']?.toStringAsFixed(2) ?? '0.00'}', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                               Text(transaction['date'] ?? '', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                             ],
                           ),
@@ -221,7 +221,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           children: [
             TextField(
               controller: nameCtrl,
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Cardholder Name',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -234,7 +234,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             TextField(
               controller: cardNumberCtrl,
               keyboardType: TextInputType.number,
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Card Number',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -247,7 +247,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             SizedBox(height: 12),
             TextField(
               controller: expiryCtrl,
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
                 labelText: 'Expiry (MM/YY)',
                 labelStyle: TextStyle(color: AppColors.textLight),
@@ -309,7 +309,7 @@ class _PaymentOption extends StatelessWidget {
       ),
       child: ListTile(
         leading: Icon(icon, color: AppColors.primaryGreen),
-        title: Text(title, style: TextStyle(color: Colors.white)),
+        title: Text(title, style: TextStyle(color: AppColors.textPrimary)),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

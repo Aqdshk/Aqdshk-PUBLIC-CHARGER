@@ -112,7 +112,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                     Text(
                       'Report Charger Issue',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: AppColors.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -125,7 +125,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 DropdownButtonFormField<String>(
                   value: _selectedIssue,
                   dropdownColor: AppColors.surface,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: AppColors.textPrimary),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.borderLight)),
@@ -143,7 +143,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 TextField(
                   controller: _descController,
                   maxLines: 3,
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: AppColors.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Describe the issue (optional)...',
                     hintStyle: TextStyle(color: AppColors.textLight),
@@ -175,8 +175,8 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         );
                       }
                     },
-                    icon: Icon(Icons.send, color: Colors.white),
-                    label: Text(_submitting ? 'Submitting...' : 'SUBMIT REPORT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    icon: Icon(Icons.send, color: AppColors.textPrimary),
+                    label: Text(_submitting ? 'Submitting...' : 'SUBMIT REPORT', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -247,12 +247,12 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
             expandedHeight: 200,
             pinned: true,
             backgroundColor: AppColors.primaryGreen,
-            iconTheme: const IconThemeData(color: Colors.white),
+            iconTheme: IconThemeData(color: AppColors.textPrimary),
             actions: [
               IconButton(
                 icon: Icon(
                   _isFavourite ? Icons.bookmark : Icons.bookmark_border,
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                 ),
                 onPressed: () {
                   setState(() => _isFavourite = !_isFavourite);
@@ -267,7 +267,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                icon: Icon(Icons.settings_outlined, color: AppColors.textPrimary),
                 tooltip: 'Charger Settings',
                 onPressed: () {
                   final chargerId = widget.charger['charge_point_id']?.toString() ?? '';
@@ -285,7 +285,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                 },
               ),
               IconButton(
-                icon: Icon(Icons.share, color: Colors.white),
+                icon: Icon(Icons.share, color: AppColors.textPrimary),
                 onPressed: () {
                   final shareText = '⚡ Check out $name charger on PlagSini!\n'
                       'Status: ${isAvailable ? "Available" : "Offline"}\n'
@@ -420,7 +420,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               'Location',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -499,7 +499,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               'Charger Information',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -537,7 +537,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               'Select Connector',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -584,7 +584,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               'Nearby Amenities',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -627,7 +627,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               'Rating & Reviews',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -656,7 +656,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                             Text(
                               _avgRating > 0 ? _avgRating.toStringAsFixed(1) : '—',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 36,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -781,7 +781,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
                         Text(
                           priceStr,
                           style: TextStyle(
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -842,7 +842,7 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
               SizedBox(height: 16),
               Text(
                 'Starting charging session...',
-                style: TextStyle(color: Colors.white),
+                style: TextStyle(color: AppColors.textPrimary),
               ),
             ],
           ),
@@ -915,7 +915,7 @@ class _InfoItem extends StatelessWidget {
         Text(
           value,
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
@@ -948,7 +948,7 @@ class _DetailRow extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              color: Colors.white,
+              color: AppColors.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
@@ -1004,7 +1004,7 @@ class _ConnectorTile extends StatelessWidget {
                 child: Text(
                   type,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1018,7 +1018,7 @@ class _ConnectorTile extends StatelessWidget {
                     Text(
                       name,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: AppColors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1083,7 +1083,7 @@ class _AmenityChip extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white,
+              color: AppColors.textPrimary,
               fontSize: 12,
             ),
           ),

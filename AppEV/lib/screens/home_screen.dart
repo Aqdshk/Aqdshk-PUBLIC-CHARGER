@@ -339,8 +339,8 @@ class _HeroBlock extends StatelessWidget {
                     children: [
                       Text(
                         energy.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
                           fontSize: 68,
                           fontWeight: FontWeight.w200,
                           height: 1.0,
@@ -401,13 +401,13 @@ class _HeroBlock extends StatelessWidget {
               const SizedBox(height: 18),
               // FittedBox shrinks the headline cleanly on narrow viewports
               // (avoids the right-edge overflow seen on small mobile widths).
-              const FittedBox(
+              FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Ready to charge.',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 38,
                     fontWeight: FontWeight.w300,
                     height: 1.1,
@@ -566,12 +566,12 @@ class _QuickItem extends StatelessWidget {
         ),
         child: Column(
           children: [
-            Icon(icon, color: Colors.white, size: 22),
+            Icon(icon, color: AppColors.textPrimary, size: 22),
             const SizedBox(height: 10),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: AppColors.textPrimary,
                 fontSize: 12,
                 fontWeight: FontWeight.w400,
                 letterSpacing: 0.3,
@@ -645,8 +645,8 @@ class _StationRow extends StatelessWidget {
                 Expanded(
                   child: Text(
                     name,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.2,
@@ -692,8 +692,8 @@ class _StationRow extends StatelessWidget {
                 if (maxKw is num) ...[
                   Text(
                     '${maxKw.toStringAsFixed(0)} kW',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
                     ),
@@ -837,7 +837,7 @@ class _WalletHero extends StatelessWidget {
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
+                    children: [
                       Icon(Icons.bolt_rounded, color: Colors.white, size: 11),
                       SizedBox(width: 3),
                       Text(
@@ -867,7 +867,7 @@ class _WalletHero extends StatelessWidget {
                     const SizedBox(width: 5),
                     Text(
                       balance.toStringAsFixed(2),
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 36,
                         fontWeight: FontWeight.w800,
@@ -992,7 +992,7 @@ class _ActionStrip extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Icon(s.icon, color: Colors.white, size: 24),
+                  child: Icon(s.icon, color: AppColors.textPrimary, size: 24),
                 ),
                 const SizedBox(height: 7),
                 SizedBox(
@@ -1089,7 +1089,7 @@ class _PromoBanner extends StatelessWidget {
                   Text(
                     'Charge today and stack rewards faster.',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: AppColors.textPrimary.withOpacity(0.85),
                       fontSize: 11.5,
                       fontWeight: FontWeight.w400,
                     ),
@@ -1105,7 +1105,7 @@ class _PromoBanner extends StatelessWidget {
                 color: Colors.white.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Icon(Icons.local_fire_department_rounded, color: Colors.white, size: 36),
+              child: Icon(Icons.local_fire_department_rounded, color: AppColors.textPrimary, size: 36),
             ),
           ],
         ),
@@ -1175,8 +1175,8 @@ class _StatPill extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             value,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppColors.textPrimary,
               fontSize: 17,
               fontWeight: FontWeight.w700,
               letterSpacing: -0.3,
@@ -1203,8 +1203,8 @@ class _SectionHeader extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppColors.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
               letterSpacing: -0.2,

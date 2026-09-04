@@ -19,7 +19,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
         title: Text(
           'My Subscriptions',
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -94,7 +94,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                       child: Text(
                         '10% OFF on all charging sessions',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -208,7 +208,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                   Text(
                     'Frequently Asked Questions',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -240,7 +240,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.cardBackground,
-        title: Text('Subscribe to $plan?', style: TextStyle(color: Colors.white)),
+        title: Text('Subscribe to $plan?', style: TextStyle(color: AppColors.textPrimary)),
         content: Text(
           'You will be charged monthly. You can cancel anytime.',
           style: TextStyle(color: AppColors.textLight),
@@ -313,7 +313,7 @@ class _PlanCard extends StatelessWidget {
                   Text(
                     planName,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -372,7 +372,7 @@ class _PlanCard extends StatelessWidget {
                       child: Text(
                         feature,
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                           fontSize: 13,
                         ),
                       ),
@@ -388,7 +388,7 @@ class _PlanCard extends StatelessWidget {
                     onPressed: onSubscribe,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isPopular ? AppColors.primaryGreen : AppColors.surface,
-                      foregroundColor: isPopular ? Colors.white : AppColors.primaryGreen,
+                      foregroundColor: isPopular ? AppColors.textPrimary : AppColors.primaryGreen,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -416,7 +416,7 @@ class _PlanCard extends StatelessWidget {
               child: Text(
                 'POPULAR',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),
@@ -455,7 +455,7 @@ class _FAQItemState extends State<_FAQItem> {
                   child: Text(
                     widget.question,
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),

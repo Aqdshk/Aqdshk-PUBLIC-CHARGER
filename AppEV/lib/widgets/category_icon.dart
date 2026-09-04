@@ -78,7 +78,7 @@ class CategoryIcon extends StatelessWidget {
                           child: Text(
                             badge!,
                             style: TextStyle(
-                              color: Colors.white,
+                              color: AppColors.textPrimary,
                               fontSize: 8,
                               fontWeight: FontWeight.bold,
                             ),
@@ -92,7 +92,7 @@ class CategoryIcon extends StatelessWidget {
                   label,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 10.5,
                     fontWeight: FontWeight.w600,
                   ),

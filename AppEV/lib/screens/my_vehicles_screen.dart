@@ -258,7 +258,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
           ? FloatingActionButton(
               onPressed: _showAddVehicleDialog,
               backgroundColor: AppColors.primaryGreen,
-              child: Icon(Icons.add, color: Colors.white),
+              child: Icon(Icons.add, color: AppColors.textPrimary),
             )
           : null,
     );
@@ -308,7 +308,7 @@ class _MyVehiclesScreenState extends State<MyVehiclesScreen> {
               label: Text('ADD VEHICLE'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryGreen,
-                foregroundColor: Colors.white,
+                foregroundColor: AppColors.textPrimary,
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -436,7 +436,7 @@ class _VehicleCard extends StatelessWidget {
                               child: Text(
                                 'DEFAULT',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.textPrimary,
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                 ),

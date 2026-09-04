@@ -47,7 +47,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardBackground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Cancel Booking?', style: TextStyle(color: Colors.white)),
+        title: Text('Cancel Booking?', style: TextStyle(color: AppColors.textPrimary)),
         content: Text('Are you sure you want to cancel this booking?', style: TextStyle(color: AppColors.textLight)),
         actions: [
           TextButton(
@@ -113,15 +113,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       appBar: AppBar(
         title: Text('My Bookings'),
         backgroundColor: AppColors.primaryGreen,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(
-          color: Colors.white,
+          color: AppColors.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.bold,
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(Icons.refresh, color: AppColors.textPrimary),
             onPressed: () {
               setState(() => _isLoading = true);
               _loadBookings();
@@ -141,7 +141,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                       Text(
                         'No Bookings Yet',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -187,7 +187,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                                   child: Text(
                                     chargerId,
                                     style: TextStyle(
-                                      color: Colors.white,
+                                      color: AppColors.textPrimary,
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -277,7 +277,7 @@ class _BookingInfoRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
           ),
         ),
       ],

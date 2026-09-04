@@ -118,7 +118,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
               ),
               child: Icon(
                 Icons.bolt_rounded,
-                color: Colors.white,
+                color: AppColors.textPrimary,
                 size: 20,
               ),
             ),
@@ -159,7 +159,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
               children: [
                 CircularProgressIndicator(color: AppColors.primaryGreen),
                 SizedBox(height: 16),
-                Text('Starting charging...', style: TextStyle(color: Colors.white)),
+                Text('Starting charging...', style: TextStyle(color: AppColors.textPrimary)),
               ],
             ),
           ),
@@ -183,7 +183,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
       if (mounted) {
         if (activeSession != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text('Charging started successfully!'),
               backgroundColor: AppColors.primaryGreen,
               duration: Duration(seconds: 2),
@@ -197,7 +197,7 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text('Failed to start charging. Please try again.'),
               backgroundColor: AppColors.error,
               duration: Duration(seconds: 3),

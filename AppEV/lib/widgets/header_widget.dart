@@ -30,14 +30,14 @@ class HeaderWidget extends StatelessWidget {
               const SizedBox(width: 10),
               // Flexible so the brand name shrinks rather than overflowing on
               // narrow viewports (small phones, embedded webviews).
-              const Flexible(
+              Flexible(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'PlagSini',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5,

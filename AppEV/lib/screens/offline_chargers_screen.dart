@@ -38,7 +38,7 @@ class OfflineChargersScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Under Maintenance', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text('Under Maintenance', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text('These chargers are currently offline for maintenance or repair.', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                     ],
@@ -86,7 +86,7 @@ class OfflineChargersScreen extends StatelessWidget {
               child: Icon(Icons.check_circle_outline, size: 64, color: AppColors.primaryGreen),
             ),
             SizedBox(height: 24),
-            Text('All Chargers Online!', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            Text('All Chargers Online!', style: TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
             Text('Great news! All nearby chargers are currently operational.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight, fontSize: 14)),
           ],
@@ -127,7 +127,7 @@ class _OfflineChargerCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(name, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 4),
                   Row(
                     children: [

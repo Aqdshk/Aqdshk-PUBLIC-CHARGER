@@ -200,7 +200,7 @@ class _AnimatedLoginPromptState extends State<_AnimatedLoginPrompt>
                         children: [
                           // Title with gradient
                           ShaderMask(
-                            shaderCallback: (bounds) => const LinearGradient(
+                            shaderCallback: (bounds) => LinearGradient(
                               colors: [AppColors.primaryGreen, Color(0xFF00D977), Color(0xFF88FFD0)],
                             ).createShader(bounds),
                             child: Text(
@@ -469,7 +469,7 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppColors.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text('Account', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black54)])),
+        title: Text('Account', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black54)])),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -486,7 +486,7 @@ class ProfileScreen extends StatelessWidget {
                 children: [
                   Icon(Icons.flag, color: AppColors.primaryGreen, size: 16),
                   SizedBox(width: 4),
-                  Text('MY', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+                  Text('MY', style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.w500)),
                 ],
               ),
             ),
@@ -533,7 +533,7 @@ class ProfileScreen extends StatelessWidget {
                           children: [
                             Text(
                               user?.name.isNotEmpty == true ? user!.name : 'User',
-                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                             ),
                             SizedBox(height: 4),
                             Text(
@@ -551,11 +551,11 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.eco, color: Colors.white, size: 16),
+                            Icon(Icons.eco, color: AppColors.textPrimary, size: 16),
                             SizedBox(width: 4),
                             Text(
                               '${user?.walletPoints ?? 0} pts',
-                              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -602,7 +602,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       Container(
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: AppColors.primaryGradient),
+                          gradient: LinearGradient(colors: AppColors.primaryGradient),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Material(
@@ -614,9 +614,9 @@ class ProfileScreen extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               child: Row(
                                 children: [
-                                  Icon(Icons.add, color: Colors.white, size: 20),
+                                  Icon(Icons.add, color: AppColors.textPrimary, size: 20),
                                   SizedBox(width: 4),
-                                  Text('TOP UP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                                  Text('TOP UP', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 12)),
                                 ],
                               ),
                             ),
@@ -663,6 +663,91 @@ class ProfileScreen extends StatelessWidget {
                 SizedBox(height: 24),
                 _SectionHeader('Others'),
                 SizedBox(height: 8),
+                // Appearance switcher tile. Auto follows the device, which is
+                // what most people expect once their phone schedules dark mode
+                // by time of day.
+                Consumer<ThemeProvider>(
+                  builder: (context, themeProvider, _) {
+                    Widget seg(String label, ThemeMode mode, BorderRadius radius) {
+                      final selected = themeProvider.themeMode == mode;
+                      return GestureDetector(
+                        onTap: () => themeProvider.setMode(mode),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? AppColors.primaryGreen
+                                : AppColors.surface,
+                            borderRadius: radius,
+                            border: Border.all(
+                                color: AppColors.primaryGreen.withOpacity(0.5)),
+                          ),
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              color: selected
+                                  ? (AppColors.isDark
+                                      ? Colors.black
+                                      : Colors.white)
+                                  : AppColors.textLight,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBackground,
+                        borderRadius: BorderRadius.circular(12),
+                        border:
+                            Border.all(color: AppColors.borderLight, width: 1),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              themeProvider.isDark
+                                  ? Icons.dark_mode_outlined
+                                  : Icons.light_mode_outlined,
+                              color: AppColors.primaryGreen,
+                              size: 20,
+                            ),
+                            SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                'Appearance',
+                                style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w400),
+                              ),
+                            ),
+                            seg(
+                                'LIGHT',
+                                ThemeMode.light,
+                                const BorderRadius.horizontal(
+                                    left: Radius.circular(8))),
+                            seg('DARK', ThemeMode.dark, BorderRadius.zero),
+                            seg(
+                                'AUTO',
+                                ThemeMode.system,
+                                const BorderRadius.horizontal(
+                                    right: Radius.circular(8))),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
                 // Language switcher tile
                 Consumer<LocaleProvider>(
                   builder: (context, localeProvider, _) {
@@ -682,7 +767,7 @@ class ProfileScreen extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 'Language / Bahasa',
-                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400),
+                                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w400),
                               ),
                             ),
                             GestureDetector(
@@ -771,9 +856,9 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.logout, color: Colors.white, size: 20),
+                            Icon(Icons.logout, color: AppColors.textPrimary, size: 20),
                             SizedBox(width: 12),
-                            Text('LOG OUT', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                            Text('LOG OUT', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w500)),
                           ],
                         ),
                       ),

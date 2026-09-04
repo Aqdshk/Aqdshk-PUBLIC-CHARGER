@@ -39,14 +39,14 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                    child: Icon(Icons.business_center, color: Colors.white, size: 32),
+                    child: Icon(Icons.business_center, color: AppColors.textPrimary, size: 32),
                   ),
                   SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Business Charging', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        Text('Business Charging', style: TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
                         SizedBox(height: 4),
                         Text('Link your company account for fleet charging', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                       ],
@@ -65,7 +65,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Business Account Benefits', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('Business Account Benefits', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 16),
                   _BenefitItem(icon: Icons.receipt_long, title: 'Consolidated Billing', description: 'All charges billed directly to your company'),
                   SizedBox(height: 12),
@@ -127,7 +127,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Want to register your company?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        Text('Want to register your company?', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
                         SizedBox(height: 4),
                         Text('Contact our business team to set up a corporate account.', style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                         SizedBox(height: 8),
@@ -156,7 +156,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
         children: [
           Icon(Icons.business_center_outlined, size: 48, color: AppColors.textLight),
           SizedBox(height: 16),
-          Text('No Business Account Linked', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+          Text('No Business Account Linked', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
           SizedBox(height: 8),
           Text('Link your company account to enjoy business charging benefits', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textLight, fontSize: 13)),
         ],
@@ -185,7 +185,7 @@ class _BusinessAccountsScreenState extends State<BusinessAccountsScreen> {
             SizedBox(height: 20),
             TextField(
               controller: codeController,
-              style: TextStyle(color: Colors.white, letterSpacing: 2),
+              style: TextStyle(color: AppColors.textPrimary, letterSpacing: 2),
               textCapitalization: TextCapitalization.characters,
               decoration: InputDecoration(
                 labelText: 'Invitation Code',
@@ -266,7 +266,7 @@ class _BenefitItem extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(title, style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
               Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
             ],
           ),
@@ -298,7 +298,7 @@ class _BusinessAccountCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(companyName, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(companyName, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                 SizedBox(height: 4),
                 Row(
                   children: [

@@ -204,7 +204,7 @@ class FAQScreen extends StatelessWidget {
                     label: Text('CONTACT SUPPORT'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.textPrimary,
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

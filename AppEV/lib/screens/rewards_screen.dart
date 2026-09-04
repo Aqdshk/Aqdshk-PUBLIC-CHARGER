@@ -138,7 +138,7 @@ class _RewardsScreenState extends State<RewardsScreen>
             Icon(Icons.lock_outline, color: AppColors.warning, size: 28),
             SizedBox(width: 10),
             Text('Not Enough Points',
-                style: TextStyle(color: Colors.white, fontSize: 18)),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
           ],
         ),
         content: Column(
@@ -199,7 +199,7 @@ class _RewardsScreenState extends State<RewardsScreen>
         backgroundColor: AppColors.cardBackground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Confirm Redemption',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -216,7 +216,7 @@ class _RewardsScreenState extends State<RewardsScreen>
             SizedBox(height: 16),
             Text(title,
                 style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
             SizedBox(height: 20),
@@ -310,7 +310,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                     fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
             Text(title,
-                style: TextStyle(color: Colors.white, fontSize: 16)),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
             SizedBox(height: 16),
             if (walletCredit > 0)
               Container(
@@ -372,7 +372,7 @@ class _RewardsScreenState extends State<RewardsScreen>
       SnackBar(
         content: Row(
           children: [
-            Icon(Icons.error_outline, color: Colors.white, size: 20),
+            Icon(Icons.error_outline, color: AppColors.textPrimary, size: 20),
             SizedBox(width: 8),
             Expanded(child: Text(message)),
           ],
@@ -541,7 +541,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                           SizedBox(height: 16),
                           Text('Redeeming...',
                               style: TextStyle(
-                                  color: Colors.white,
+                                  color: AppColors.textPrimary,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600)),
                         ],
@@ -580,7 +580,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                   width: double.infinity,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           colors: AppColors.primaryGradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -596,7 +596,7 @@ class _RewardsScreenState extends State<RewardsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.stars, color: Colors.white.withOpacity(0.9), size: 22),
+              Icon(Icons.stars, color: AppColors.textPrimary.withOpacity(0.9), size: 22),
               SizedBox(width: 8),
               Text('Your Points',
                   style: TextStyle(
@@ -638,7 +638,7 @@ class _RewardsScreenState extends State<RewardsScreen>
                   ? '🎉 You can redeem $cheapestTitle!'
                   : '${cheapestCost - points} pts more for $cheapestTitle',
               style: TextStyle(
-                  color: Colors.white.withOpacity(0.85),
+                  color: AppColors.textPrimary.withOpacity(0.85),
                   fontSize: 12,
                   fontWeight: FontWeight.w500),
                       ),
@@ -653,7 +653,7 @@ class _RewardsScreenState extends State<RewardsScreen>
             icon: Icon(Icons.history, size: 18),
             label: Text('View History'),
             style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
+                          foregroundColor: AppColors.textPrimary,
               side: BorderSide(color: Colors.white.withOpacity(0.4)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
@@ -767,7 +767,7 @@ class _RewardsScreenState extends State<RewardsScreen>
               children: [
                 Text(title,
                     style: TextStyle(
-                        color: Colors.white,
+                        color: AppColors.textPrimary,
                         fontWeight: FontWeight.w600,
                         fontSize: 14)),
                 SizedBox(height: 4),
@@ -902,7 +902,7 @@ class _RewardCard extends StatelessWidget {
               children: [
                     Text(title,
                         style: TextStyle(
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             fontWeight: FontWeight.bold,
                             fontSize: 15)),
                     SizedBox(height: 4),

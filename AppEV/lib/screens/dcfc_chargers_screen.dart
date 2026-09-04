@@ -41,14 +41,14 @@ class _DCFCChargersScreenState extends State<DCFCChargersScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-                  child: Icon(Icons.bolt, color: Colors.white, size: 32),
+                  child: Icon(Icons.bolt, color: AppColors.textPrimary, size: 32),
                 ),
                 SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('DC Fast Charging', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text('DC Fast Charging', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text('Charge up to 80% in just 30 minutes!', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     ],
@@ -147,7 +147,7 @@ class _DCFCChargersScreenState extends State<DCFCChargersScreen> {
         children: [
           Icon(Icons.bolt, size: 64, color: AppColors.textLight),
           SizedBox(height: 16),
-          Text('No DC Fast Chargers nearby', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          Text('No DC Fast Chargers nearby', style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
           SizedBox(height: 8),
           Text('Try expanding your search area', style: TextStyle(color: AppColors.textLight, fontSize: 14)),
         ],
@@ -197,7 +197,7 @@ class _DCFCChargerCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(name, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Row(
                         children: [
@@ -219,7 +219,7 @@ class _DCFCChargerCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(color: isAvailable ? AppColors.primaryGreen : Colors.red, borderRadius: BorderRadius.circular(12)),
-                      child: Text(isAvailable ? 'Available' : 'In Use', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                      child: Text(isAvailable ? 'Available' : 'In Use', style: TextStyle(color: AppColors.textPrimary, fontSize: 11, fontWeight: FontWeight.w600)),
                     ),
                     SizedBox(height: 8),
                     Text('RM 0.80/kWh', style: TextStyle(color: AppColors.textLight, fontSize: 12)),

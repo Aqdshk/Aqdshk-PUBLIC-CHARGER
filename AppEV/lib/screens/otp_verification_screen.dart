@@ -398,7 +398,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen>
                 onPressed: _isVerifying ? null : _verifyAndRegister,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryGreen,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.textPrimary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

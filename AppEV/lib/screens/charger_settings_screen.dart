@@ -176,7 +176,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
   void _showSnack(String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg, style: const TextStyle(color: Colors.white)),
+        content: Text(msg, style: TextStyle(color: AppColors.textPrimary)),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
@@ -198,12 +198,12 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
         return StatefulBuilder(builder: (ctx, setDlg) {
           return AlertDialog(
             backgroundColor: AppColors.surface,
-            title: Text(title, style: const TextStyle(color: Colors.white)),
+            title: Text(title, style: TextStyle(color: AppColors.textPrimary)),
             content: TextField(
               controller: controller,
               obscureText: obscure && !showPwd,
               keyboardType: keyboard,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
                 filled: true,
                 fillColor: AppColors.cardBackground,
@@ -295,12 +295,12 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                         const SizedBox(height: 4),
                         Text(
                           (bg['name'] as String).split(' ').first,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                              color: AppColors.textPrimary, fontSize: 9, fontWeight: FontWeight.w600),
                           textAlign: TextAlign.center,
                         ),
                         if (selected)
-                          const Icon(Icons.check_circle, color: Colors.white, size: 14),
+                          Icon(Icons.check_circle, color: AppColors.textPrimary, size: 14),
                       ],
                     ),
                   ),
@@ -320,14 +320,14 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Charger Settings',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Charger Settings',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
             Text(widget.chargerName,
                 style: TextStyle(color: AppColors.primaryGreen, fontSize: 12)),
           ],
@@ -366,7 +366,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.refresh, color: Colors.white, size: 22),
+                : Icon(Icons.refresh, color: AppColors.textPrimary, size: 22),
             tooltip: 'Refresh settings',
             onPressed: (_refreshing || _saving)
                 ? null
@@ -381,7 +381,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryGreen))
+          ? Center(child: CircularProgressIndicator(color: AppColors.primaryGreen))
           : _error != null
               ? _buildError()
               : RefreshIndicator(
@@ -646,7 +646,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
                 Text(subtitle, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
               ],
             ),
@@ -689,7 +689,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
                   Text(subtitle, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                 ],
               ),
@@ -729,7 +729,7 @@ class _ChargerSettingsScreenState extends State<ChargerSettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text(title, style: const TextStyle(color: Colors.white)),
+        title: Text(title, style: TextStyle(color: AppColors.textPrimary)),
         content: Text(content, style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(

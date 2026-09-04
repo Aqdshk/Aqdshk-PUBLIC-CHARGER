@@ -47,7 +47,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
         title: Text(
           'Credits History',
           style: TextStyle(
-            color: Colors.white,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -147,7 +147,7 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
                 Text(
                   transaction.displayTitle,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),

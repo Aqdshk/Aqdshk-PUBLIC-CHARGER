@@ -214,7 +214,7 @@ class _ScanScreenState extends State<ScanScreen>
             SizedBox(height: 8),
             Text(name,
                 style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600)),
             if (vendor.isNotEmpty || model.isNotEmpty)
@@ -412,7 +412,7 @@ class _ScanScreenState extends State<ScanScreen>
               ),
               Text('Enter Charger ID',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: AppColors.textPrimary,
                       fontSize: 20,
                       fontWeight: FontWeight.bold)),
               SizedBox(height: 8),
@@ -426,7 +426,7 @@ class _ScanScreenState extends State<ScanScreen>
                 autofocus: true,
                 textCapitalization: TextCapitalization.characters,
                 style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 2),
@@ -601,7 +601,7 @@ class _ScanScreenState extends State<ScanScreen>
                     SizedBox(height: 16),
                     Text('Looking up charger...',
                         style: TextStyle(
-                            color: Colors.white, fontSize: 14)),
+                            color: AppColors.textPrimary, fontSize: 14)),
                   ],
                 ),
               ),
@@ -630,7 +630,7 @@ class _ScanScreenState extends State<ScanScreen>
             SizedBox(height: 24),
             Text('Camera Permission Required',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
             SizedBox(height: 12),
@@ -691,7 +691,7 @@ class _ScanScreenState extends State<ScanScreen>
             SizedBox(height: 24),
             Text('Camera Not Available',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.bold)),
             SizedBox(height: 12),

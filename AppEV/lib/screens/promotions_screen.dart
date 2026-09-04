@@ -41,11 +41,11 @@ class PromotionsScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-                    child: Text('LIMITED TIME', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                    child: Text('LIMITED TIME', style: TextStyle(color: AppColors.textPrimary, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
                   SizedBox(height: 16),
-                  Text('15% OFF', style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
-                  Text('All Charging Sessions', style: TextStyle(color: Colors.white, fontSize: 18)),
+                  Text('15% OFF', style: TextStyle(color: AppColors.textPrimary, fontSize: 36, fontWeight: FontWeight.bold)),
+                  Text('All Charging Sessions', style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
                   SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -54,14 +54,14 @@ class PromotionsScreen extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text('Code: ', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-                        Text('CHARGE15', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                        Text('CHARGE15', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 2)),
                         SizedBox(width: 12),
                         GestureDetector(
                           onTap: () {
                             Clipboard.setData(const ClipboardData(text: 'CHARGE15'));
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Promo code copied!'), backgroundColor: AppColors.primaryGreen));
                           },
-                          child: Icon(Icons.copy, color: Colors.white, size: 18),
+                          child: Icon(Icons.copy, color: AppColors.textPrimary, size: 18),
                         ),
                       ],
                     ),
@@ -80,14 +80,14 @@ class PromotionsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Have a promo code?', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('Have a promo code?', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: TextField(
                           textCapitalization: TextCapitalization.characters,
-                          style: TextStyle(color: Colors.white, letterSpacing: 2),
+                          style: TextStyle(color: AppColors.textPrimary, letterSpacing: 2),
                           decoration: InputDecoration(
                             hintText: 'Enter code',
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -127,7 +127,7 @@ class PromotionsScreen extends StatelessWidget {
                 children: [
                   Icon(Icons.local_offer_outlined, size: 48, color: AppColors.textLight),
                   SizedBox(height: 16),
-                  Text('No active promotions', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                  Text('No active promotions', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
                   SizedBox(height: 8),
                   Text('Apply a promo code above to get started', style: TextStyle(color: AppColors.textLight, fontSize: 13)),
                 ],
@@ -173,7 +173,7 @@ class _PromoCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(title, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text(description, style: TextStyle(color: AppColors.textLight, fontSize: 12)),
                     ],
