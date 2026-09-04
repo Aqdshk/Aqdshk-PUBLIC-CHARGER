@@ -98,6 +98,63 @@ def _charger_ts_to_myt(value, fallback=None):
     return as_local
 
 
+# ─── Connector status ────────────────────────────────────────────────────
+# How usable each socket state is, best first. charger.availability is the
+# best socket the station has, so one faulted gun does not take a working
+# station off the map.
+_CONNECTOR_RANK = {'available': 0, 'preparing': 1, 'charging': 2,
+                   'finishing': 3, 'reserved': 4, 'unavailable': 5,
+                   'faulted': 6, 'unknown': 7}
+
+
+def parse_connector_status(raw):
+    """Read the chargers.connector_status JSON column into a dict."""
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw) or {}
+    except Exception:
+        return {}
+
+
+def best_connector_availability(conn_map):
+    """The most usable socket in the map, or None if there are no sockets."""
+    return min(conn_map.values(),
+               key=lambda s: _CONNECTOR_RANK.get(s, 7), default=None)
+
+
+def is_phantom_connector(charger, connector_id):
+    """True when the charger reports a gun the operator says it does not have.
+
+    Only trusted once connectors_locked is set — an unlocked charger is still
+    allowed to teach us how many guns it has.
+    """
+    if not connector_id or connector_id < 1:
+        return False
+    if not bool(getattr(charger, "connectors_locked", False)):
+        return False
+    return connector_id > (charger.number_of_connectors or 1)
+
+
+def forget_phantom_connector(charger, connector_id):
+    """Erase a phantom gun's leftover status and re-derive availability.
+
+    The phantom was recorded before it was recognised as one: DC3001 carried
+    {"1": "available", "2": "faulted"} long after its count was locked to 1,
+    and the station showed as faulted on the map. Returns True if the row
+    changed.
+    """
+    conn_map = parse_connector_status(charger.connector_status)
+    if str(connector_id) not in conn_map:
+        return False
+    conn_map.pop(str(connector_id))
+    charger.connector_status = json.dumps(conn_map)
+    best = best_connector_availability(conn_map)
+    if best:
+        charger.availability = best
+    return True
+
+
 # ─── Globals ─────────────────────────────────────────────────────────────
 # Active charger WebSocket connections (charge_point_id → ChargePoint instance)
 # Used by API to send RemoteStart, UpdateFirmware, etc. to connected chargers
@@ -499,6 +556,34 @@ class ChargePoint(cp):
                     self.db.rollback()
                 return call_result.StatusNotification()
 
+            # A charger can announce a gun it does not physically have. DC3001
+            # has one gun but reports a second connector as Faulted on every
+            # status sweep, and that report must change nothing: not
+            # availability, not connector_status, not the fault log.
+            #
+            # This has to run before the availability update below. The first
+            # version of the check sat further down and only skipped the
+            # connector_status write — by then availability was already
+            # 'faulted' and the whole station showed red on the map while its
+            # real gun sat available.
+            if is_phantom_connector(charger, connector_id):
+                logger.info(
+                    f"[{self.id}] ignoring connector {connector_id}: only "
+                    f"{charger.number_of_connectors or 1} declared and the "
+                    f"count is locked"
+                )
+                # Clear whatever the phantom recorded before it was pinned, so
+                # a stale status cannot outlive the lock.
+                forget_phantom_connector(charger, connector_id)
+                charger.last_heartbeat = _utcnow()
+                charger.status = 'online'
+                try:
+                    self.db.commit()
+                except Exception as e:
+                    logger.error(f"Error committing phantom-connector StatusNotification for {self.id}: {e}")
+                    self.db.rollback()
+                return call_result.StatusNotification()
+
             # Map OCPP status to our availability status
             # If connector is "Charging", set availability to "charging" (charger might be charging locally)
             status_map = {
@@ -636,30 +721,14 @@ class ChargePoint(cp):
             # best (most usable) socket — a free socket keeps the charger
             # usable even if another socket is faulted.
             try:
-                import json as _json
-                conn_map = {}
-                if charger.connector_status:
-                    try:
-                        conn_map = _json.loads(charger.connector_status) or {}
-                    except Exception:
-                        conn_map = {}
-                declared = charger.number_of_connectors or 1
+                conn_map = parse_connector_status(charger.connector_status)
                 locked = bool(getattr(charger, "connectors_locked", False))
 
-                # A charger can announce a gun it does not physically have.
-                # DC3001 reports a second connector and calls it Faulted; it
-                # has never carried a session, and it was published to roaming
-                # partners as an out-of-order bay that does not exist. When the
-                # operator has pinned the count, the hardware in the ground
-                # wins over what the firmware claims.
-                if locked and connector_id and connector_id > declared:
-                    logger.info(
-                        f"[{self.id}] ignoring connector {connector_id}: only "
-                        f"{declared} declared and the count is locked"
-                    )
-                elif connector_id and connector_id >= 1:
+                # Phantom guns already returned above, so anything reaching
+                # here is a socket the operator agrees exists.
+                if connector_id and connector_id >= 1:
                     conn_map[str(connector_id)] = status_map.get(status, 'unknown')
-                    charger.connector_status = _json.dumps(conn_map)
+                    charger.connector_status = json.dumps(conn_map)
                     # Let the charger declare its own gun count. Without this the
                     # column keeps its default of 1 and /charging/start rejects
                     # any connector_id > 1 — a 2-gun DC unit looks single-gun.
@@ -677,11 +746,7 @@ class ChargePoint(cp):
                             )
                     except ValueError:
                         pass
-                    _rank = {'available': 0, 'preparing': 1, 'charging': 2,
-                             'finishing': 3, 'reserved': 4, 'unavailable': 5,
-                             'faulted': 6, 'unknown': 7}
-                    best = min(conn_map.values(),
-                               key=lambda s: _rank.get(s, 7), default=None)
+                    best = best_connector_availability(conn_map)
                     if best:
                         charger.availability = best
             except Exception as e:
