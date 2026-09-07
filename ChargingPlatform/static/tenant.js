@@ -42,6 +42,8 @@
             })
             .then(function (rows) {
                 if (!rows || !rows.length) return;
+                var before = currentValue();
+                _loaded = true;
                 TENANTS = [ALL_ROW].concat(rows.map(function (t) {
                     return {
                         value: t.key,
@@ -52,7 +54,13 @@
                 }));
                 // A tenant that has since been removed must not leave the
                 // dashboard filtered to something that no longer exists.
-                updateButton(currentValue());
+                var after = currentValue();
+                updateButton(after);
+                if (after !== before) {
+                    // The stored tenant is gone. Tell the page so it refetches
+                    // rather than showing rows for a scope no longer selected.
+                    window.dispatchEvent(new CustomEvent('tenantChange', { detail: { tenant: after } }));
+                }
             })
             .catch(function (e) {
                 // Keep the fallback list, but say so. Failing silently here is
@@ -63,11 +71,18 @@
             });
     }
 
+    // Whether the real list has arrived from the API yet. Until it has, the
+    // stored selection is trusted as-is: validating it against the fallback
+    // list meant a tenant added later resolved to 'all' on every page load,
+    // so the page fetched the whole fleet, then snapped to the right scope
+    // seconds later when the list finally loaded.
+    var _loaded = false;
+
     function currentValue() {
         var v = null;
         try { v = localStorage.getItem(KEY); } catch (e) {}
         if (!v) return 'all';
-        if (!TENANTS.some(function (t) { return t.value === v; })) return 'all';
+        if (_loaded && !TENANTS.some(function (t) { return t.value === v; })) return 'all';
         return v;
     }
 

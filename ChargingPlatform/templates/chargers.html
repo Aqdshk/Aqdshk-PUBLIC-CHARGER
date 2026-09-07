@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=19">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=2"></script>
+    <script src="/static/tenant.js?v=3"></script>
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -1177,7 +1177,18 @@
                 const res = await fetch(`${API_BASE}/admin/chargers`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
-                    body: JSON.stringify({ charge_point_id: cpId, vendor: 'ESP32', model: 'EV Charger' })
+                    // Join whichever tenant the sidebar is scoped to, so the
+                    // charger appears in the list the operator is looking at
+                    // instead of landing in the default one and seeming lost.
+                    body: JSON.stringify({
+                        charge_point_id: cpId,
+                        vendor: 'ESP32',
+                        model: 'EV Charger',
+                        tenant: (function () {
+                            const t = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                            return (t && t !== 'all') ? t : undefined;
+                        })(),
+                    })
                 });
                 const data = await res.json();
                 if (res.ok && !data.detail) {

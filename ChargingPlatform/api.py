@@ -734,6 +734,10 @@ class CreateChargerRequest(BaseModel):
     vendor: Optional[str] = None
     model: Optional[str] = None
     firmware_version: Optional[str] = None
+    # Which tenant the new charger joins. The dashboard sends whichever tenant
+    # is selected, because adding a charger while scoped to one and then not
+    # finding it in the list reads as the add having failed.
+    tenant: Optional[str] = None
 
 
 class ChargingSessionResponse(BaseModel):
@@ -1295,7 +1299,7 @@ async def admin_create_charger(
     existing = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Charger {cp_id} already exists")
-    charger = Charger(
+    kwargs = dict(
         charge_point_id=cp_id,
         vendor=req.vendor or "Manual",
         model=req.model or "ESP32",
@@ -1303,6 +1307,13 @@ async def admin_create_charger(
         status="offline",
         availability="unknown",
     )
+    if req.tenant:
+        key = req.tenant.strip()
+        known = db.query(Tenant).filter(Tenant.key == key, Tenant.is_active == True).first()
+        if not known:
+            raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
+        kwargs["tenant"] = key
+    charger = Charger(**kwargs)
     db.add(charger)
     db.commit()
     db.refresh(charger)
