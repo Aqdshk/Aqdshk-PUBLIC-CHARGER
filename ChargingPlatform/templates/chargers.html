@@ -519,6 +519,34 @@
             } catch(e){ console.error('Error:',e); document.getElementById('chargerStatusList').innerHTML = '<div class="empty-state">Error loading chargers</div>'; }
         }
 
+        // Fleet counters above the list. Extracted so the empty case updates
+        // them too: it used to return early, leaving the previous load's
+        // numbers on screen, so the bar claimed hundreds of chargers at 100%
+        // utilisation above an empty list.
+        function _renderStats(rows) {
+            const stats = (rows || []).reduce((s, c) => {
+                s.total++;
+                const st = (c.status || 'offline'), av = (c.availability || 'unknown');
+                if (st === 'online') s.online++; else s.offline++;
+                if (st === 'online' && av === 'available') s.available++;
+                // Counted from availability alone. Treating any open
+                // transaction as charging is the same bad inference the card
+                // header made: an OCPP 2.0.1 charger opens a transaction when
+                // the cable is plugged in, so a plugged-in car with no energy
+                // flowing was counted here — and dragged Utilisation with it.
+                if (av === 'charging') s.charging++;
+                return s;
+            }, {total:0, online:0, offline:0, available:0, charging:0});
+            const denom = stats.online || 1;
+            const util = Math.round((stats.charging / denom) * 100);
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statOnline').textContent = stats.online;
+            document.getElementById('statAvailable').textContent = stats.available;
+            document.getElementById('statCharging').textContent = stats.charging;
+            document.getElementById('statOffline').textContent = stats.offline;
+            document.getElementById('statUtil').textContent = stats.online ? `${util}%` : '—';
+        }
+
         // Filter (search box) + sort (online first) + render the charger cards.
         // Kept separate from loadChargerStatus so typing in search re-renders
         // instantly without a network call, and the filter survives auto-refresh.
@@ -528,18 +556,40 @@
             const q = (document.getElementById('chargerSearch')?.value || '').trim().toLowerCase();
 
             if (_allChargers.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🔌</div>
-                        <div>No chargers registered</div>
-                        <p style="margin-top:12px;font-size:13px;color:var(--text-secondary);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
-                        <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
-                            <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
-                            <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
-                        </div>
-                        <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
-                    </div>`;
+                // The Add Charger field lives inside this block, and the page
+                // re-renders every 5 seconds, so rebuilding it while someone is
+                // mid-typing wiped what they had entered. Leave the block alone
+                // once it exists and the field holds anything.
+                const existing = document.getElementById('addCpId');
+                const busy = existing && (existing.value !== '' || document.activeElement === existing);
+                if (!busy) {
+                    // An empty list usually means the tenant filter, not an
+                    // empty platform. Saying "no chargers registered" while the
+                    // fleet has hundreds sends people looking for a fault that
+                    // is not there.
+                    const _t = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                    const scoped = _t && _t !== 'all';
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔌</div>
+                            <div>${scoped ? 'No chargers in this tenant yet' : 'No chargers registered'}</div>
+                            <p style="margin-top:12px;font-size:13px;color:var(--text-secondary);">
+                                ${scoped
+                                    ? 'The sidebar is filtered to one tenant. Move a charger into it from its Edit dialog, or switch to All Tenants.'
+                                    : 'Add your ESP32 charger manually if it has not connected via OCPP yet.'}
+                            </p>
+                            <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
+                                <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
+                                <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
+                            </div>
+                            <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
+                        </div>`;
+                }
                 countEl.textContent = '0 chargers';
+                // Fall through to the stats block. Returning here left the bar
+                // showing the previous load's numbers, so the page claimed 480
+                // chargers at 100% utilisation above an empty list.
+                _renderStats([]);
                 return;
             }
 
@@ -567,27 +617,7 @@
 
             // Fleet stats — computed across ALL chargers (not just filtered list)
             // so the snapshot doesn't change when the user types in search.
-            const stats = _allChargers.reduce((s, c) => {
-                s.total++;
-                const st = (c.status || 'offline'), av = (c.availability || 'unknown');
-                if (st === 'online') s.online++; else s.offline++;
-                if (st === 'online' && av === 'available') s.available++;
-                // Counted from availability alone. Treating any open
-                // transaction as charging is the same bad inference the card
-                // header made: an OCPP 2.0.1 charger opens a transaction when
-                // the cable is plugged in, so a plugged-in car with no energy
-                // flowing was counted here — and dragged Utilisation with it.
-                if (av === 'charging') s.charging++;
-                return s;
-            }, {total:0, online:0, offline:0, available:0, charging:0});
-            const denom = stats.online || 1;
-            const util = Math.round((stats.charging / denom) * 100);
-            document.getElementById('statTotal').textContent = stats.total;
-            document.getElementById('statOnline').textContent = stats.online;
-            document.getElementById('statAvailable').textContent = stats.available;
-            document.getElementById('statCharging').textContent = stats.charging;
-            document.getElementById('statOffline').textContent = stats.offline;
-            document.getElementById('statUtil').textContent = stats.online ? `${util}%` : '—';
+            _renderStats(_allChargers);
 
             if (list.length === 0) {
                 container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div>No charger matches your search</div></div>`;
