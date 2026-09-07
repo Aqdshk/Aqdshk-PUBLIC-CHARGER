@@ -560,7 +560,13 @@
                 // re-renders every 5 seconds, so rebuilding it while someone is
                 // mid-typing wiped what they had entered. Leave the block alone
                 // once it exists and the field holds anything.
-                const existing = document.getElementById('addCpId');
+                //
+                // This field carries its own id. It used to reuse addCpId,
+                // which the header panel already owns, and getElementById
+                // returns the first match — so the guard inspected the header's
+                // permanently empty box, concluded nobody was typing, and wiped
+                // this one anyway.
+                const existing = document.getElementById('addCpIdInline');
                 const busy = existing && (existing.value !== '' || document.activeElement === existing);
                 if (!busy) {
                     // An empty list usually means the tenant filter, not an
@@ -579,10 +585,10 @@
                                     : 'Add your ESP32 charger manually if it has not connected via OCPP yet.'}
                             </p>
                             <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
-                                <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
-                                <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
+                                <input type="text" id="addCpIdInline" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
+                                <button class="btn btn-success btn-small" onclick="addChargerManual('inline')">➕ Add Charger</button>
                             </div>
-                            <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
+                            <div id="addChargerMsgInline" style="margin-top:12px;font-size:12px;"></div>
                         </div>`;
                 }
                 countEl.textContent = '0 chargers';
@@ -1154,9 +1160,15 @@
             if (msg) msg.textContent = '';
         }
 
-        async function addChargerManual() {
-            const cpId = document.getElementById('addCpId')?.value?.trim();
-            const msgEl = document.getElementById('addChargerMsg');
+        // `where` is 'inline' for the field in the empty state, or omitted for
+        // the header panel. They are separate elements: sharing one id meant
+        // the empty state's messages were written into the hidden header panel
+        // and never seen.
+        async function addChargerManual(where) {
+            const inline = where === 'inline';
+            const inputEl = document.getElementById(inline ? 'addCpIdInline' : 'addCpId');
+            const msgEl = document.getElementById(inline ? 'addChargerMsgInline' : 'addChargerMsg');
+            const cpId = inputEl?.value?.trim();
             if (!cpId) { if (msgEl) msgEl.textContent = 'Enter Charge Point ID'; return; }
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { if (msgEl) msgEl.textContent = 'Login required'; return; }
@@ -1170,9 +1182,11 @@
                 const data = await res.json();
                 if (res.ok && !data.detail) {
                     if (msgEl) msgEl.innerHTML = '<span style="color:var(--accent)">✅ Charger added!</span>';
-                    document.getElementById('addCpId').value = '';
+                    if (inputEl) inputEl.value = '';
                     loadChargerStatus();
-                    setTimeout(() => { toggleAddCharger(); }, 1500);
+                    // Only the header panel is a collapsible card; closing it
+                    // is meaningless for the empty state's inline field.
+                    if (!inline) setTimeout(() => { toggleAddCharger(); }, 1500);
                 } else {
                     if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">❌ ' + (data.detail || data.message || 'Failed') + '</span>';
                 }
