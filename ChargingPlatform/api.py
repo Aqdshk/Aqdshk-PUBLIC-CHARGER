@@ -38,7 +38,7 @@ from database import (
     Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
     OTPVerification, PartnerAPIKey, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
-    Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, TicketMessage,
+    Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, Tenant, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
@@ -1193,6 +1193,11 @@ async def get_chargers(
             "idle_fee_per_min": float(charger.idle_fee_per_min) if charger.idle_fee_per_min is not None else None,
             "idle_grace_minutes": int(charger.idle_grace_minutes) if charger.idle_grace_minutes is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
+            # Declared on the response model but never filled, so every charger
+            # came back with tenant null. The sidebar filter worked because it
+            # is applied in SQL, but nothing could show which tenant a charger
+            # belongs to, and the Edit dialog could not preselect it.
+            "tenant": charger.tenant,
         }
         result.append(ChargerStatus(**charger_dict))
 
@@ -1305,12 +1310,171 @@ async def admin_create_charger(
     return charger
 
 
+# ── Tenants ────────────────────────────────────────────────────────────────
+# The dashboard's tenant switcher used to read a hardcoded array in
+# static/tenant.js, so adding a fleet operator meant editing code and
+# deploying. These endpoints back it with a table instead.
+
+class TenantResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    badge: Optional[str] = None
+    hint: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 100
+    # How many chargers currently point at this key. Shown in the UI so an
+    # operator can see what a tenant actually holds before removing it.
+    charger_count: int = 0
+
+
+class TenantWriteRequest(BaseModel):
+    key: Optional[str] = None
+    label: Optional[str] = None
+    badge: Optional[str] = None
+    hint: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+_TENANT_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,49}$")
+
+
+def _tenant_counts(db: Session) -> dict:
+    rows = (
+        db.query(Charger.tenant, func.count(Charger.id))
+        .group_by(Charger.tenant)
+        .all()
+    )
+    return {k: n for k, n in rows}
+
+
+@app.get("/api/tenants", response_model=List[TenantResponse])
+async def list_tenants(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Fleet operators the dashboard can be scoped to."""
+    q = db.query(Tenant)
+    if not include_inactive:
+        q = q.filter(Tenant.is_active == True)
+    counts = _tenant_counts(db)
+    out = []
+    for t in q.order_by(Tenant.sort_order, Tenant.label).all():
+        row = TenantResponse.model_validate(t)
+        row.charger_count = counts.get(t.key, 0)
+        out.append(row)
+    return out
+
+
+@app.post("/api/tenants", response_model=TenantResponse, status_code=201)
+async def create_tenant(
+    req: TenantWriteRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    key = (req.key or "").strip().lower()
+    label = (req.label or "").strip()
+    if not _TENANT_KEY_RE.match(key):
+        raise HTTPException(
+            status_code=400,
+            detail="Key must be lowercase letters, digits or hyphens, 2-50 characters.",
+        )
+    if not label:
+        raise HTTPException(status_code=400, detail="Label is required.")
+    if db.query(Tenant).filter(Tenant.key == key).first():
+        raise HTTPException(status_code=409, detail=f"Tenant '{key}' already exists.")
+
+    t = Tenant(
+        key=key,
+        label=label,
+        badge=(req.badge or "").strip()[:12] or None,
+        hint=(req.hint or "").strip()[:255] or None,
+        is_active=True if req.is_active is None else req.is_active,
+        sort_order=req.sort_order if req.sort_order is not None else 100,
+    )
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    logger.info("Tenant %s created", key)
+    return TenantResponse.model_validate(t)
+
+
+@app.patch("/api/tenants/{key}", response_model=TenantResponse)
+async def update_tenant(
+    key: str,
+    req: TenantWriteRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Rename or retag a tenant. The key itself is immutable: chargers store it
+    directly, so changing it would orphan every charger pointing at the old
+    value."""
+    t = db.query(Tenant).filter(Tenant.key == key).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if req.key is not None and req.key.strip().lower() != t.key:
+        raise HTTPException(
+            status_code=400,
+            detail="A tenant key cannot be changed. Create a new tenant and move the chargers.",
+        )
+    if req.label is not None:
+        if not req.label.strip():
+            raise HTTPException(status_code=400, detail="Label cannot be empty.")
+        t.label = req.label.strip()
+    if req.badge is not None:
+        t.badge = req.badge.strip()[:12] or None
+    if req.hint is not None:
+        t.hint = req.hint.strip()[:255] or None
+    if req.sort_order is not None:
+        t.sort_order = req.sort_order
+    if req.is_active is not None:
+        t.is_active = req.is_active
+    db.commit()
+    db.refresh(t)
+    out = TenantResponse.model_validate(t)
+    out.charger_count = _tenant_counts(db).get(t.key, 0)
+    return out
+
+
+@app.delete("/api/tenants/{key}")
+async def delete_tenant(
+    key: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Remove a tenant, but only once nothing points at it.
+
+    Deleting one that still holds chargers would leave them filtered out of
+    every view, which reads as chargers having disappeared.
+    """
+    t = db.query(Tenant).filter(Tenant.key == key).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    count = _tenant_counts(db).get(key, 0)
+    if count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{count} charger(s) still belong to '{key}'. Move them to another tenant first.",
+        )
+    db.delete(t)
+    db.commit()
+    logger.info("Tenant %s deleted", key)
+    return {"success": True, "key": key}
+
+
 class UpdateChargerInfoRequest(BaseModel):
     location: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
     max_power_kw: Optional[float] = None
+    # Which fleet operator this charger belongs to. Previously settable only by
+    # an UPDATE against the database, so a charger could never be moved between
+    # tenants from the dashboard.
+    tenant: Optional[str] = None
 
 
 @app.patch("/api/admin/chargers/{charge_point_id}/info")
@@ -1334,6 +1498,14 @@ async def update_charger_info(
         charger.connector_type = req.connector_type
     if req.max_power_kw is not None:
         charger.max_power_kw = req.max_power_kw
+    if req.tenant is not None:
+        key = req.tenant.strip()
+        # Must be a registered tenant. An unknown key would leave the charger
+        # invisible under every filter, which looks exactly like it vanished.
+        known = db.query(Tenant).filter(Tenant.key == key, Tenant.is_active == True).first()
+        if not known:
+            raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
+        charger.tenant = key
     db.commit()
     logger.info(f"Charger {charge_point_id} info updated by admin")
     eff_power, eff_connector = _effective_charger_specs(charger.max_power_kw, charger.connector_type, charger.model)

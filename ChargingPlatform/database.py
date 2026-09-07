@@ -582,6 +582,32 @@ class OcpiPartner(Base):
     __table_args__ = (UniqueConstraint("country_code", "party_id", name="uq_ocpi_partner"),)
 
 
+class Tenant(Base):
+    """A fleet operator the dashboard can be scoped to.
+
+    `chargers.tenant` holds the key rather than a foreign key, because it
+    predates this table and is deliberately free-form: a charger can carry a
+    key that was never registered here without breaking anything. This table
+    exists so the list is editable from the dashboard instead of living in a
+    hardcoded array in static/tenant.js, which is where it used to be.
+    """
+
+    __tablename__ = "tenants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Matches chargers.tenant. Lowercase slug; changing it would orphan every
+    # charger pointing at the old value, so the API refuses to rename.
+    key = Column(String(50), unique=True, nullable=False, index=True)
+    label = Column(String(120), nullable=False)
+    # Short tag on the charger card, e.g. TNG or P2. Optional.
+    badge = Column(String(12), nullable=True)
+    hint = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=100, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class Pricing(Base):
     __tablename__ = "pricing"
     

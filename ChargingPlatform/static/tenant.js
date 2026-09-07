@@ -12,13 +12,37 @@
 (function () {
     var KEY = 'dashboard_tenant';
 
-    // Hardcoded for now — swap for GET /api/admin/tenants once we build the
-    // tenants management page. Keys must match chargers.tenant column values.
+    var ALL_ROW = { value: 'all', label: 'All Tenants', badge: '', hint: 'Combined view — used for reconciliation & totals' };
+
+    // Loaded from GET /api/tenants, which is backed by the tenants table and
+    // editable from Settings. These two are the seeded values and act as the
+    // fallback, so the switcher still works if the request fails rather than
+    // collapsing to a single option.
     var TENANTS = [
-        { value: 'all',       label: 'All Tenants',        badge: '', hint: 'Combined view — used for reconciliation & totals' },
-        { value: 'czero-tng', label: 'CZero TNG Public',   badge: 'TNG',     hint: 'Walk-up + TNG payment flow' },
-        { value: 'perodua',   label: 'Perodua Public',     badge: 'P2',      hint: 'Perodua P2 Superapp fleet' },
+        ALL_ROW,
+        { value: 'czero-tng', label: 'CZero TNG Public', badge: 'TNG', hint: 'Walk-up + TNG payment flow' },
+        { value: 'perodua',   label: 'Perodua Public',   badge: 'P2',  hint: 'Perodua P2 Superapp fleet' },
     ];
+
+    function loadTenants() {
+        return fetch('/api/tenants', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (rows) {
+                if (!rows || !rows.length) return;
+                TENANTS = [ALL_ROW].concat(rows.map(function (t) {
+                    return {
+                        value: t.key,
+                        label: t.label,
+                        badge: t.badge || '',
+                        hint : t.hint  || '',
+                    };
+                }));
+                // A tenant that has since been removed must not leave the
+                // dashboard filtered to something that no longer exists.
+                updateButton(currentValue());
+            })
+            .catch(function () { /* keep the fallback list */ });
+    }
 
     function currentValue() {
         var v = null;
@@ -108,6 +132,19 @@
             menu.appendChild(row);
         });
 
+        // Route to where tenants are actually created. Without this the list
+        // looks like a fixed set of options with no way to extend it, which is
+        // precisely how it behaved before.
+        var manage = document.createElement('a');
+        manage.className = 'tenant-menu-row tenant-menu-manage';
+        manage.href = '/settings#tenants';
+        manage.innerHTML = ''
+            + '<span class="tenant-menu-main">'
+            +   '<span class="tenant-menu-label">⚙️ Manage tenants</span>'
+            +   '<span class="tenant-menu-hint">Add, rename or remove a fleet operator</span>'
+            + '</span>';
+        menu.appendChild(manage);
+
         // Position: fixed to the anchor's location (above the toggle button)
         var rect = anchor.getBoundingClientRect();
         menu.style.left   = Math.round(rect.left) + 'px';
@@ -171,6 +208,7 @@
     function boot() {
         injectSwitcher();
         startWatcher();
+        loadTenants();
     }
 
     if (document.readyState === 'loading') {

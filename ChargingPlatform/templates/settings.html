@@ -62,6 +62,35 @@
         </header>
 
         <div class="dashboard-container fade-in">
+            <!-- Tenants — the fleet operators the sidebar switcher offers.
+                 This list used to be a hardcoded array in static/tenant.js, so
+                 adding one meant a code change and a deploy. -->
+            <div class="card" id="tenants" style="margin-bottom:20px;">
+                <div class="card-header">
+                    <span class="card-title"><span>🏢</span> Tenants</span>
+                    <button class="btn btn-primary btn-xs" onclick="openTenantForm()">+ Add tenant</button>
+                </div>
+                <div class="card-body">
+                    <div id="tenantAddForm" style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:8px;">
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Key <span style="color:var(--text-muted);">— used in the database, cannot be changed later</span></label>
+                                <input type="text" id="tnKey" placeholder="e.g. shell-recharge">
+                            </div>
+                            <div class="setting-item"><label>Name</label><input type="text" id="tnLabel" placeholder="e.g. Shell Recharge"></div>
+                            <div class="setting-item"><label>Badge <span style="color:var(--text-muted);">— optional, max 12 chars</span></label><input type="text" id="tnBadge" placeholder="e.g. SHELL"></div>
+                            <div class="setting-item"><label>Description <span style="color:var(--text-muted);">— optional</span></label><input type="text" id="tnHint" placeholder="e.g. Shell forecourt network"></div>
+                        </div>
+                        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-success btn-small" onclick="saveTenant()">Save tenant</button>
+                            <button class="btn btn-secondary btn-small" onclick="closeTenantForm()">Cancel</button>
+                            <span id="tenantMsg" style="font-size:11px;color:var(--text-muted);"></span>
+                        </div>
+                    </div>
+                    <div id="tenantList"><div class="empty-state">Loading…</div></div>
+                </div>
+            </div>
+
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header"><span class="card-title"><span>ℹ️</span> Device Information</span></div>
@@ -113,6 +142,113 @@
         sidebarOverlay.addEventListener('click', closeSidebar);
 
         document.addEventListener('DOMContentLoaded', populateChargerSelect);
+        document.addEventListener('DOMContentLoaded', loadTenantList);
+
+        // ── Tenants ────────────────────────────────────────────────────────
+        function _authHeaders(extra) {
+            const t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+            return Object.assign({}, extra || {}, t ? { 'X-Staff-Token': t } : {});
+        }
+
+        function openTenantForm() {
+            document.getElementById('tenantAddForm').style.display = 'block';
+            document.getElementById('tnKey').focus();
+        }
+        function closeTenantForm() {
+            document.getElementById('tenantAddForm').style.display = 'none';
+            ['tnKey','tnLabel','tnBadge','tnHint'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('tenantMsg').textContent = '';
+        }
+
+        async function loadTenantList() {
+            const box = document.getElementById('tenantList');
+            try {
+                const res = await fetch(`${API_BASE}/tenants?include_inactive=true`, { headers: _authHeaders() });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const rows = await res.json();
+                if (!rows.length) { box.innerHTML = '<div class="empty-state">No tenants yet</div>'; return; }
+                box.innerHTML = `
+                  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;">
+                      <th style="padding:6px 8px;">Name</th><th style="padding:6px 8px;">Key</th>
+                      <th style="padding:6px 8px;">Badge</th><th style="padding:6px 8px;">Chargers</th>
+                      <th style="padding:6px 8px;"></th></tr></thead>
+                    <tbody>` + rows.map(t => `
+                      <tr style="border-top:1px solid var(--border);">
+                        <td style="padding:8px;">${esc(t.label)}${t.is_active ? '' : ' <span style="color:var(--text-muted);">(hidden)</span>'}
+                            ${t.hint ? `<div style="color:var(--text-muted);font-size:11px;">${esc(t.hint)}</div>` : ''}</td>
+                        <td style="padding:8px;"><code>${esc(t.key)}</code></td>
+                        <td style="padding:8px;">${esc(t.badge || '—')}</td>
+                        <td style="padding:8px;">${t.charger_count}</td>
+                        <td style="padding:8px;text-align:right;">
+                          <button class="btn btn-secondary btn-xs" onclick="renameTenant('${esc(t.key)}','${esc(t.label)}')">Rename</button>
+                          <button class="btn btn-danger btn-xs" onclick="removeTenant('${esc(t.key)}',${t.charger_count})">Delete</button>
+                        </td>
+                      </tr>`).join('') + `</tbody></table>`;
+            } catch (e) {
+                box.innerHTML = `<div class="empty-state">Could not load tenants (${esc(String(e.message || e))})</div>`;
+            }
+        }
+
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c =>
+                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        async function saveTenant() {
+            const msg = document.getElementById('tenantMsg');
+            const body = {
+                key:   document.getElementById('tnKey').value.trim().toLowerCase(),
+                label: document.getElementById('tnLabel').value.trim(),
+                badge: document.getElementById('tnBadge').value.trim(),
+                hint:  document.getElementById('tnHint').value.trim(),
+            };
+            msg.textContent = 'Saving…';
+            try {
+                const res = await fetch(`${API_BASE}/tenants`, {
+                    method: 'POST',
+                    headers: _authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { msg.textContent = data.detail || `Failed (HTTP ${res.status})`; return; }
+                closeTenantForm();
+                loadTenantList();
+            } catch (e) {
+                msg.textContent = String(e.message || e);
+            }
+        }
+
+        async function renameTenant(key, current) {
+            const label = prompt(`New name for "${key}"`, current);
+            if (!label || label === current) return;
+            const res = await fetch(`${API_BASE}/tenants/${encodeURIComponent(key)}`, {
+                method: 'PATCH',
+                headers: _authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ label }),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                alert(d.detail || `Failed (HTTP ${res.status})`);
+            }
+            loadTenantList();
+        }
+
+        async function removeTenant(key, count) {
+            if (count > 0) {
+                alert(`${count} charger(s) still belong to "${key}". Move them to another tenant first, from the charger's Edit dialog.`);
+                return;
+            }
+            if (!confirm(`Delete tenant "${key}"?`)) return;
+            const res = await fetch(`${API_BASE}/tenants/${encodeURIComponent(key)}`, {
+                method: 'DELETE', headers: _authHeaders(),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                alert(d.detail || `Failed (HTTP ${res.status})`);
+            }
+            loadTenantList();
+        }
 
         async function populateChargerSelect() {
             try {

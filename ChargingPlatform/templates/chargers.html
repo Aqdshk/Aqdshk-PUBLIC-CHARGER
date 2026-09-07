@@ -209,6 +209,10 @@
                 </select>
                 <label>Max power (kW)</label>
                 <input type="number" step="0.1" id="ecPower" placeholder="22">
+                <label>Tenant</label>
+                <select id="ecTenant">
+                    <option value="">— keep current —</option>
+                </select>
                 <div class="modal-actions">
                     <button class="btn btn-secondary btn-small" onclick="closeEditCharger()">Cancel</button>
                     <button class="btn btn-success btn-small" onclick="saveEditCharger()">💾 Save</button>
@@ -760,11 +764,33 @@
             document.getElementById('ecConnector').value = c.connector_type || '';
             document.getElementById('ecPower').value = c.max_power_kw ?? '';
             document.getElementById('ecMsg').textContent = '';
+            _fillTenantOptions(c.tenant);
             document.getElementById('editChargerModal').classList.add('open');
         }
         function closeEditCharger() {
             document.getElementById('editChargerModal').classList.remove('open');
             _editingCpId = null;
+        }
+        // Tenants are editable from Settings, so the options are fetched rather
+        // than written into the markup. Failing quietly leaves "keep current"
+        // as the only choice, which changes nothing.
+        let _tenantOptions = null;
+        async function _fillTenantOptions(current) {
+            const sel = document.getElementById('ecTenant');
+            if (!_tenantOptions) {
+                try {
+                    const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                    const res = await fetch(`${API_BASE}/tenants`, { headers: token ? { 'X-Staff-Token': token } : {} });
+                    _tenantOptions = res.ok ? await res.json() : [];
+                } catch (e) { _tenantOptions = []; }
+            }
+            sel.innerHTML = '<option value="">— keep current —</option>';
+            _tenantOptions.forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.key;
+                o.textContent = t.label + (t.key === current ? ' (current)' : '');
+                sel.appendChild(o);
+            });
         }
         async function saveEditCharger() {
             if (!_editingCpId) return;
@@ -781,6 +807,8 @@
             if (lng !== '') body.longitude = parseFloat(lng);
             if (ct  !== '') body.connector_type = ct;
             if (pw  !== '') body.max_power_kw = parseFloat(pw);
+            const tn  = document.getElementById('ecTenant').value;
+            if (tn  !== '') body.tenant = tn;
             const msg = document.getElementById('ecMsg');
             msg.textContent = 'Saving…';
             try {
