@@ -163,6 +163,8 @@ jobs:
             # caused the 2026-08-28 outage. Build the image instead.
             echo "=== Build charging-platform ==="
             ${COMPOSE} build charging-platform
+            BUILT_IMAGE=$(sudo docker image inspect plagsini-ev-charging-platform:latest --format '{{.Id}}')
+            echo "Built image: ${BUILT_IMAGE}"
 
             if [ "${RUN_MIGRATIONS}" = "true" ]; then
               # Against the new image, before the running container is swapped,
@@ -173,7 +175,23 @@ jobs:
 
             echo "=== Restart charging-platform ==="
             # --no-deps so a deploy never restarts MySQL underneath the API.
-            ${COMPOSE} up -d --no-deps charging-platform
+            #
+            # --force-recreate because plain `up -d` left the container on the
+            # previous image on 2026-09-07: a new image was built and the
+            # migration ran against it, but the running container was never
+            # replaced, so the deploy reported success while serving old code.
+            ${COMPOSE} up -d --no-deps --force-recreate charging-platform
+
+            # Refuse to call a deploy successful unless the container is
+            # actually running the image we just built. This is the failure
+            # mode that hid twice: once behind docker cp, once behind up -d.
+            RUNNING_IMAGE=$(sudo docker inspect plagsini-api --format '{{.Image}}')
+            if [ "${RUNNING_IMAGE}" != "${BUILT_IMAGE}" ]; then
+              echo "Container is on ${RUNNING_IMAGE} but ${BUILT_IMAGE} was built."
+              echo "The deploy did not take effect."
+              exit 1
+            fi
+            echo "Container confirmed on the freshly built image."
 
             echo "=== AppEV rebuild (if requested) ==="
             if [ "${REBUILD_APPEV}" = "true" ]; then
