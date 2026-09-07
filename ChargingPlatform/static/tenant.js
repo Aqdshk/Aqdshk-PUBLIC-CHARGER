@@ -25,8 +25,21 @@
     ];
 
     function loadTenants() {
-        return fetch('/api/tenants', { credentials: 'same-origin' })
-            .then(function (r) { return r.ok ? r.json() : null; })
+        // The dashboard authenticates with a staff token header, not a cookie.
+        // Without it this request came back 401, the catch below kept the
+        // fallback list, and a tenant added in Settings never appeared here.
+        var headers = {};
+        try {
+            var tok = (window.STAFF_AUTH && window.STAFF_AUTH.token) ||
+                      localStorage.getItem('staffToken') || '';
+            if (tok) headers['X-Staff-Token'] = tok;
+        } catch (e) {}
+
+        return fetch('/api/tenants', { credentials: 'same-origin', headers: headers })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function (rows) {
                 if (!rows || !rows.length) return;
                 TENANTS = [ALL_ROW].concat(rows.map(function (t) {
@@ -41,7 +54,13 @@
                 // dashboard filtered to something that no longer exists.
                 updateButton(currentValue());
             })
-            .catch(function () { /* keep the fallback list */ });
+            .catch(function (e) {
+                // Keep the fallback list, but say so. Failing silently here is
+                // what made a missing tenant look like the switcher was fine.
+                if (window.console) {
+                    console.warn('[tenant] could not load tenants, using fallback list:', e);
+                }
+            });
     }
 
     function currentValue() {
