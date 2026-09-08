@@ -2695,6 +2695,54 @@ def _enforce_tenant_guard(partner: "PartnerAPIKey", charger: "Charger") -> None:
         )
 
 
+@app.get("/api/partner/chargers")
+async def partner_list_chargers(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-to-server: the chargers this partner key is allowed to drive.
+
+    A partner app cannot show a bay list without this. It previously had to be
+    hard-coded on the partner side, which meant a charger renamed or taken out
+    of service here stayed visible over there until someone noticed.
+
+    Scoping is the key's own controls_tenant, never a query parameter, so a
+    partner cannot widen its own view by asking differently. An unscoped
+    (legacy) key still sees everything, matching _enforce_tenant_guard.
+    """
+    partner_row = _authenticate_partner(request, db)
+    scope = (partner_row.controls_tenant or "").strip()
+
+    q = db.query(Charger)
+    if scope:
+        q = q.filter(Charger.tenant == scope)
+
+    rows = q.order_by(Charger.charge_point_id).all()
+    return {
+        "count": len(rows),
+        "tenant": scope or None,
+        "chargers": [
+            {
+                "charger_id": c.charge_point_id,
+                "name": c.name,
+                "location": c.location,
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "connector_type": c.connector_type,
+                "number_of_connectors": c.number_of_connectors,
+                "max_power_kw": c.max_power_kw,
+                # status is the websocket link, availability is what the gun is
+                # doing. A partner UI needs both to explain "why can't I start?".
+                "status": c.status,
+                "availability": c.availability,
+                "maintenance_mode": bool(c.maintenance_mode),
+                "tariff_per_kwh": float(c.tariff_per_kwh or Decimal("0.10")),
+            }
+            for c in rows
+        ],
+    }
+
+
 class PartnerStartChargingRequest(BaseModel):
     charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001' or '0748911403000093'")
     customer_id: Optional[str] = Field(
@@ -2959,6 +3007,11 @@ async def partner_get_session(
 class PartnerKeyCreateRequest(BaseModel):
     partner_name: str = Field(..., min_length=2, max_length=50)
     notes: Optional[str] = Field(default=None, max_length=255)
+    controls_tenant: Optional[str] = Field(
+        default=None, max_length=50,
+        description="Restrict this key to one tenant (chargers.tenant). Leave "
+                    "empty only for legacy partners that must reach every fleet.",
+    )
 
 
 @app.post("/api/admin/partners")
@@ -2980,6 +3033,7 @@ async def admin_create_partner_key(
         key_hash=_hash_partner_key(raw),
         active=True,
         notes=req.notes,
+        controls_tenant=(req.controls_tenant or "").strip() or None,
     )
     db.add(row)
     db.commit()
@@ -2991,6 +3045,7 @@ async def admin_create_partner_key(
         "partner_name": row.partner_name,
         "api_key": raw,
         "notes": row.notes,
+        "controls_tenant": row.controls_tenant,
         "created_at": row.created_at.isoformat(),
         "warning": "Store this key now — it will not be shown again.",
     }
@@ -3011,6 +3066,7 @@ async def admin_list_partner_keys(
                 "partner_name": r.partner_name,
                 "active": r.active,
                 "notes": r.notes,
+                "controls_tenant": r.controls_tenant,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "revoked_at": r.revoked_at.isoformat() if r.revoked_at else None,
                 "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
@@ -3129,6 +3185,41 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                         "meter_start_wh": session.meter_start,
                         "meter_stop_wh": session.meter_stop,
                     }
+
+                    # Live telemetry. Until now the partner payload carried
+                    # energy and duration only, so a partner app could show how
+                    # much had been delivered but not whether the car was still
+                    # drawing. Everything below already exists in meter_values;
+                    # it simply was not exposed on this side of the fence.
+                    #
+                    # Each field stays None when the charger never reported that
+                    # measurand (SoC in particular is optional in OCPP), so a
+                    # partner UI can say "not reported" instead of rendering a
+                    # confident 0.0 kW into a driver's face.
+                    latest_mv = (
+                        db.query(MeterValue)
+                        .filter(MeterValue.transaction_id == session.transaction_id)
+                        .order_by(MeterValue.timestamp.desc())
+                        .first()
+                    )
+                    peak_kw = (
+                        db.query(func.max(MeterValue.power))
+                        .filter(MeterValue.transaction_id == session.transaction_id)
+                        .scalar()
+                    )
+                    session_payload.update(
+                        {
+                            "power_kw": latest_mv.power if latest_mv else None,
+                            "current_a": latest_mv.current if latest_mv else None,
+                            "voltage_v": latest_mv.voltage if latest_mv else None,
+                            "soc": latest_mv.soc if latest_mv else None,
+                            "peak_power_kw": float(peak_kw) if peak_kw is not None else None,
+                            "reading_at": (
+                                _iso_myt_naive_local(latest_mv.timestamp)
+                                if latest_mv else None
+                            ),
+                        }
+                    )
 
     # Parse gateway_response JSON safely
     raw_response = None
