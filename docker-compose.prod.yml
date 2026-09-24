@@ -5,10 +5,20 @@
 #   2. Run: docker compose -f docker-compose.prod.yml up -d
 # ============================================
 
+# Container logs are capped. Docker writes one JSON file per container and
+# grows it forever; on this VPS they had reached 1.5 GB next to 46 GB of build
+# cache, on a box whose real data is under a gigabyte.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ── Nginx Reverse Proxy + SSL ──
   nginx:
+    logging: *logging
     build:
       context: ./nginx
       dockerfile: Dockerfile
@@ -32,6 +42,7 @@ services:
 
   # ── Let's Encrypt SSL Auto-Renewal ──
   certbot:
+    logging: *logging
     image: certbot/certbot:latest
     container_name: plagsini-certbot
     volumes:
@@ -43,6 +54,7 @@ services:
 
   # ── MySQL Database ──
   mysql:
+    logging: *logging
     image: mysql:8.0
     container_name: plagsini-mysql
     environment:
@@ -71,6 +83,7 @@ services:
 
   # ── ChargingPlatform (Main Backend) ──
   charging-platform:
+    logging: *logging
     build:
       context: ./ChargingPlatform
       dockerfile: Dockerfile
@@ -138,6 +151,7 @@ services:
 
   # ── Customer Service Bot ──
   customer-service:
+    logging: *logging
     build:
       context: ./CustomerService
       dockerfile: Dockerfile
@@ -162,6 +176,7 @@ services:
 
   # ── Flutter Web App ──
   appev:
+    logging: *logging
     build:
       context: ./AppEV
       dockerfile: Dockerfile
@@ -187,6 +202,7 @@ services:
 
   # ── Loki — Log storage ──────────────────────────────────────────────────
   loki:
+    logging: *logging
     image: grafana/loki:3.3.2
     container_name: loki
     ports:
@@ -211,6 +227,7 @@ services:
   # ── Docker Socket Proxy — limits Docker API exposure to Promtail ─────────
   # Promtail only needs to list containers — expose only that, nothing else
   docker-socket-proxy:
+    logging: *logging
     image: tecnativa/docker-socket-proxy:latest
     container_name: docker-socket-proxy
     volumes:
@@ -245,6 +262,7 @@ services:
 
   # ── Promtail — Log collector ─────────────────────────────────────────────
   promtail:
+    logging: *logging
     image: grafana/promtail:3.3.2
     container_name: promtail
     volumes:
@@ -268,6 +286,7 @@ services:
 
   # ── Grafana — Dashboard (accessible via /monitoring behind Nginx) ────────
   grafana:
+    logging: *logging
     image: grafana/grafana:10.3.3
     container_name: grafana
     ports:
