@@ -3156,8 +3156,22 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                 "location": charger.location,
             }
             if t.paid_at:
-                window_start = t.paid_at - timedelta(minutes=2)
-                window_end = t.paid_at + timedelta(hours=12)
+                # paid_at is naive UTC (written by _utcnow); ChargingSession
+                # .start_time is naive Malaysian wall time, as the charger
+                # reports it. Comparing them directly put the window eight
+                # hours early, so a payment at 10:29 MYT searched from 02:27
+                # MYT and swept up every session since breakfast. Combined with
+                # "earliest first" below, a second charge on the same charger
+                # was answered with the first charge of that day: already
+                # completed, with its kWh. A partner polling that reference saw
+                # its live session finish seconds after it began.
+                paid_utc = t.paid_at if t.paid_at.tzinfo else t.paid_at.replace(tzinfo=UTC)
+                paid_local = paid_utc.astimezone(MYT).replace(tzinfo=None)
+                # Two minutes back for a charger whose clock runs slightly
+                # ahead of ours, then the first session to start after the
+                # payment: that is the one this payment paid for.
+                window_start = paid_local - timedelta(minutes=2)
+                window_end = paid_local + timedelta(hours=12)
                 session = (
                     db.query(ChargingSession)
                     .filter(
