@@ -26,16 +26,20 @@
         }
 
         /* ═══ FULL-SCREEN LAYOUT ═══ */
-        .page{display:flex;height:100dvh;width:100vw}
+        .page{
+            display:flex;height:100dvh;width:100vw;position:relative;overflow:hidden;
+            background:#05070a; /* shows while the photo decodes */
+        }
 
         /* ═══ LEFT: HERO PANEL ═══ */
         .hero{
             flex:1;display:flex;flex-direction:column;justify-content:flex-end;
             position:relative;overflow:hidden;padding:clamp(28px, 3.6vw, 56px);
-            background:#05070a; /* shows while the photo decodes */
         }
         /* An <img> rather than a CSS background so it can be responsive and
-           high priority: this is the largest paint on the page. */
+           high priority: this is the largest paint on the page. It spans the
+           whole page, not just the hero, so the glass login panel shows the
+           rest of the picture through it instead of cutting it off. */
         .hero-photo{
             position:absolute;inset:0;width:100%;height:100%;
             object-fit:cover;object-position:60% 60%;
@@ -124,8 +128,14 @@
             display:flex;flex-direction:column;justify-content:safe center;
             gap:clamp(8px, 1.2vh, 14px);
             padding:clamp(24px, 4vw, 60px);position:relative;
-            background:linear-gradient(180deg, rgba(10,15,25,.98) 0%, rgba(8,12,20,.99) 100%);
-            border-left:1px solid rgba(0,230,118,.06);
+            /* Glass over the photo: dark enough for the form to read, light
+               enough that the picture carries on behind it. */
+            background:linear-gradient(180deg, rgba(8,12,20,.50) 0%, rgba(6,10,16,.62) 100%);
+            backdrop-filter:blur(10px) saturate(1.2);-webkit-backdrop-filter:blur(10px) saturate(1.2);
+            border-left:1px solid rgba(255,255,255,.08);
+            /* The muted grey was chosen for a solid dark panel and disappears
+               over the photo, so lift it here. */
+            --text-muted:#98a2b4;--text-sec:#b4bccb;
             overflow-y:auto;
         }
         .login-panel::before{
@@ -359,17 +369,18 @@
 </head>
 <body>
     <div class="page">
-        <!-- ═══ LEFT HERO ═══
-             A photograph rather than the drawn SVG scene it replaced. The
+        <!-- A photograph rather than the drawn SVG scene it replaced. The
              image carries the mood on its own, so the orbs, grid and particle
              layers are gone with it: they were competing with the picture and
              costing a repaint every frame on a page nobody stays on. -->
+        <img class="hero-photo"
+             src="/static/login_hero.jpg"
+             srcset="/static/login_hero.jpg 1400w, /static/login_hero@2x.jpg 1740w"
+             sizes="100vw"
+             alt="" aria-hidden="true" fetchpriority="high" decoding="async">
+
+        <!-- ═══ LEFT HERO ═══ -->
         <div class="hero">
-            <img class="hero-photo"
-                 src="/static/login_hero.jpg"
-                 srcset="/static/login_hero.jpg 1400w, /static/login_hero@2x.jpg 1740w"
-                 sizes="50vw"
-                 alt="" aria-hidden="true" fetchpriority="high" decoding="async">
             <div class="hero-scrim"></div>
 
             <div class="hero-content">
