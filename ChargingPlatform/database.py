@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
+    Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text,
     UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
@@ -347,6 +347,18 @@ class Charger(Base):
     auth_method = Column(String(48), nullable=True)   # e.g. "HTTP Basic", "query-string", "none"
     auth_ok = Column(Boolean, nullable=True)          # True = would pass enforcement
 
+    # How the charger reaches the internet. OCPP 1.6 BootNotification carries
+    # the SIM's ICCID and IMSI when there is a modem, and 2.0.1 carries them
+    # under chargingStation.modem; both were being dropped. A charger that
+    # sends neither is not thereby on WiFi (plenty of firmware simply omits
+    # them), so `connectivity_override` lets an operator say what it really
+    # uses: "cellular", "wifi" or "ethernet". See connectivity.py.
+    iccid = Column(String(32), nullable=True)
+    imsi = Column(String(20), nullable=True)
+    connectivity_override = Column(String(16), nullable=True)
+    # Where the last WebSocket came from, as the charger's public address.
+    last_remote_ip = Column(String(64), nullable=True)
+
     # Whether this charger is published over OCPI to roaming partners.
     #   None  → decide automatically from heartbeat age (the default)
     #   True  → always publish, even while offline
@@ -436,6 +448,36 @@ class PartnerAPIKey(Base):
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     revoked_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
+
+
+class ChargerConnectionEvent(Base):
+    """
+    One row per WebSocket connect, disconnect or BootNotification.
+
+    Connection drops were visible only in the container log, which is capped
+    and rotated, so "how often does this charger lose its link" could not be
+    answered for more than a day or two back, and not at all from the
+    dashboard. A charger on a weak SIM signal was seen dropping every two
+    minutes with close code 1006 while looking "online" in between.
+
+    Times are UTC, like heartbeats and faults. `duration_seconds` is how long
+    the connection that just closed had lasted (on "disconnected") or how long
+    the charger had been gone (on "connected"), so the log reads without
+    arithmetic. Rows older than 30 days are pruned (connectivity.py).
+    """
+    __tablename__ = "charger_connection_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    charge_point_id = Column(String(255), nullable=False)
+    event = Column(String(16), nullable=False)        # connected | disconnected | boot
+    at = Column(DateTime, nullable=False, default=_utcnow)
+    close_code = Column(Integer, nullable=True)       # WebSocket close code on disconnect
+    close_reason = Column(String(255), nullable=True)
+    remote_ip = Column(String(64), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    detail = Column(String(255), nullable=True)
+
+    __table_args__ = (Index("ix_conn_events_cp_at", "charge_point_id", "at"),)
 
 
 class ChargingSession(Base):
