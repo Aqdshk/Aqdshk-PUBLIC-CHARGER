@@ -33,6 +33,7 @@ from ocpp.v16 import ChargePoint as cp, call, call_result
 from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
 from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User, PaymentTransaction
+from connectivity import record_event as record_connectivity_event, remote_ip_of
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +402,7 @@ class ChargePoint(cp):
                 # first time has no row until right here.
                 charger.ocpp_version = self.ocpp_version
                 charger.last_heartbeat = _utcnow()
+
                 
                 # BootNotification means charger just rebooted — any active/pending sessions
                 # from before the reboot are orphaned (StopTransaction was never received).
@@ -440,6 +442,21 @@ class ChargePoint(cp):
                     charger.availability = "available"
                     logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
             
+            # The SIM, if the charger has one. Only written when present: a
+            # boot that leaves the fields out says nothing about the SIM being
+            # gone, and plenty of firmware never sends them. See connectivity.py.
+            if kwargs.get('iccid'):
+                charger.iccid = str(kwargs['iccid']).strip()[:32]
+            if kwargs.get('imsi'):
+                charger.imsi = str(kwargs['imsi']).strip()[:20]
+            # A reboot is part of the link's story: the log shows a charger that
+            # restarts every night at the same minute, which is otherwise
+            # indistinguishable from a network drop.
+            record_connectivity_event(
+                self.id, "boot",
+                detail=f"{charge_point_vendor} {charge_point_model}, firmware {kwargs.get('firmware_version') or '?'}",
+            )
+
             # Auto-populate max_power_kw from model name if not manually set (e.g. "30kW" → 30.0)
             if charger.max_power_kw is None and charge_point_model:
                 match = re.search(r'(\d+\.?\d*)\s*kw', charge_point_model, re.IGNORECASE)
@@ -1976,6 +1993,11 @@ async def on_connect(websocket):
         # admin force-reconnect (ws.close() alone leaves a zombie loop).
         connection_tasks[charge_point_id] = asyncio.current_task()
         logger.info(f"✅ Charge point {charge_point_id} registered. Total active connections: {len(active_charge_points)}")
+        record_connectivity_event(
+            charge_point_id, "connected",
+            remote_ip=remote_ip_of(websocket),
+            detail=f"OCPP {charge_point.ocpp_version}",
+        )
 
         try:
             # Start handling OCPP messages from charger
@@ -1992,6 +2014,14 @@ async def on_connect(websocket):
             logger.error(f"Error in charge point {charge_point_id} message handling: {e}", exc_info=True)
             # Log error but let connection close naturally
         finally:
+            # How it ended. websockets sets these once the closing handshake
+            # is done or the link is found dead; 1006 means no close frame
+            # ever arrived, which is what a lost signal looks like.
+            record_connectivity_event(
+                charge_point_id, "disconnected",
+                close_code=getattr(websocket, "close_code", None),
+                close_reason=getattr(websocket, "close_reason", None),
+            )
             # Remove from active connections when disconnected
             active_charge_points.pop(charge_point_id, None)
             connection_tasks.pop(charge_point_id, None)

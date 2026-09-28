@@ -213,6 +213,13 @@
                 <select id="ecTenant">
                     <option value="">— keep current —</option>
                 </select>
+                <label>Connectivity</label>
+                <select id="ecConnectivity" title="How this charger reaches the internet. Auto uses the SIM details the charger reports in its BootNotification.">
+                    <option value="auto">Auto (from charger's SIM report)</option>
+                    <option value="cellular">Cellular (SIM card)</option>
+                    <option value="wifi">WiFi</option>
+                    <option value="ethernet">Ethernet (LAN cable)</option>
+                </select>
                 <div class="modal-actions">
                     <button class="btn btn-secondary btn-small" onclick="closeEditCharger()">Cancel</button>
                     <button class="btn btn-success btn-small" onclick="saveEditCharger()">💾 Save</button>
@@ -220,6 +227,35 @@
                 <div id="ecMsg" style="margin-top:10px;font-size:12px;color:var(--text-secondary);"></div>
             </div>
         </div>
+        <!-- Connectivity log — GET /api/admin/chargers/{id}/connectivity -->
+        <div class="modal-backdrop" id="connModal" onclick="if(event.target===this)closeConnLog()">
+            <div class="modal-box" style="width:min(820px,95vw);max-width:820px;max-height:88vh;overflow:auto;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <h3 style="margin:0;">📶 Connectivity — <span id="cnId">—</span></h3>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-secondary btn-small conn-range" data-h="24" onclick="loadConnLog(24)">24h</button>
+                        <button class="btn btn-secondary btn-small conn-range" data-h="168" onclick="loadConnLog(168)">7 days</button>
+                        <button class="btn btn-secondary btn-small conn-range" data-h="720" onclick="loadConnLog(720)">30 days</button>
+                        <button class="btn btn-secondary btn-small" onclick="closeConnLog()">✕</button>
+                    </div>
+                </div>
+                <div id="cnBody" style="margin-top:14px;font-size:13px;">Loading…</div>
+            </div>
+        </div>
+        <style>
+            .conn-kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin-bottom:14px; }
+            .conn-kv div span { display:block; }
+            .conn-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:6px 0 16px; }
+            .conn-stat { border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+            .conn-stat b { display:block; font-size:18px; margin-top:2px; }
+            .conn-table { width:100%; border-collapse:collapse; font-size:12px; }
+            .conn-table th, .conn-table td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+            .conn-table th { color:var(--text-secondary); font-weight:600; }
+            .conn-ev { font-weight:600; white-space:nowrap; }
+            .conn-ev.up { color:#16a34a; } .conn-ev.down { color:#ef4444; } .conn-ev.boot { color:#6366f1; }
+            .conn-range.active { outline:2px solid var(--accent,#22c55e); }
+            .conn-link { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+        </style>
         <style>
             #chargerStatusList::-webkit-scrollbar { width:6px; }
             #chargerStatusList::-webkit-scrollbar-track { background:transparent; }
@@ -687,6 +723,21 @@
                         if (charger.auth_method === 'none') return {label:'✗ none sent', hint:'Sends no credentials — would be rejected if enforcement were switched on'};
                         return {label:`✗ ${charger.auth_method}`, hint:'Credentials sent but do not match the configured token — would be rejected'};
                     })();
+                    // How the charger reaches us, and how often its link dropped
+                    // in the last day. Clicking opens the full log.
+                    const conn = (() => {
+                        const c = charger.connectivity;
+                        if (!c) return { label: '—', hint: 'Not reported yet', warn: false };
+                        const icon = { cellular: '📶', wifi: '📡', ethernet: '🔌' }[c.type] || '❔';
+                        const drops = c.drops_24h || 0;
+                        const abnormal = c.abnormal_drops_24h || 0;
+                        const dropText = drops ? ` · ${drops} drop${drops === 1 ? '' : 's'}/24h` : '';
+                        return {
+                            label: `${icon} ${c.label}${dropText}`,
+                            hint: `${c.source}. ${drops} disconnect(s) in 24h, ${abnormal} of them abnormal (1006: link lost). Click for the log.`,
+                            warn: abnormal >= 5,
+                        };
+                    })();
                     const txnByConn = charger.active_transactions || {};
                     const gunButtons = Array.from({ length: connCount }, (_, i) => {
                         const gun = i + 1;
@@ -740,6 +791,7 @@
                                             <button onclick="window.location='/sessions?charger_id=${encodeURIComponent(charger.charge_point_id)}'">📊 View sessions</button>
                                             <button onclick="window.location='/metering?charger_id=${encodeURIComponent(charger.charge_point_id)}'">⚡ View metering</button>
                                             <button onclick="openOpsPanel('${cpEsc}')">🎛 OCPP Operations</button>
+                                            <button onclick="openConnLog('${cpEsc}')" title="SIM or WiFi, and every connect / disconnect">📶 Connectivity log</button>
                                             <div class="menu-sep"></div>
                                             <button onclick="setPublish('${cpEsc}')" title="Control whether roaming partners (OCPI) see this charger">🌐 Roaming visibility</button>
                                             <button onclick="forceReconnect('${cpEsc}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>
@@ -758,6 +810,7 @@
                                 <div class="info-item"><span class="info-label">OCPP</span><span class="info-value">${charger.ocpp_version ? charger.ocpp_version + (charger.ocpp_version === '2.0.1' ? ' (JSON)' : 'J') : '—'}</span></div>
                                 <div class="info-item"><span class="info-label">Roaming (OCPI)</span><span class="info-value" title="${roam.hint}">${roam.label}</span></div>
                                 <div class="info-item"><span class="info-label">Auth</span><span class="info-value" title="${auth.hint}">${auth.label}</span></div>
+                                <div class="info-item"><span class="info-label">Connectivity</span><span class="info-value conn-link" style="${conn.warn ? 'color:#d97706;font-weight:600;' : ''}" title="${conn.hint}" onclick="openConnLog('${cpEsc}')">${conn.label}</span></div>
                             </div>
                             <div class="charger-conns">
                                 <span class="info-label">Connectors (${connCount})</span>
@@ -801,6 +854,11 @@
             document.getElementById('ecPower').value = c.max_power_kw ?? '';
             document.getElementById('ecMsg').textContent = '';
             _fillTenantOptions(c.tenant);
+            // Preselect the operator's choice if one was made, else Auto.
+            const cc = c.connectivity || {};
+            const cnSel = document.getElementById('ecConnectivity');
+            cnSel.value = cc.source === 'set by operator' && ['cellular', 'wifi', 'ethernet'].includes(cc.type) ? cc.type : 'auto';
+            cnSel.dataset.initial = cnSel.value;
             document.getElementById('editChargerModal').classList.add('open');
         }
         function closeEditCharger() {
@@ -845,6 +903,8 @@
             if (pw  !== '') body.max_power_kw = parseFloat(pw);
             const tn  = document.getElementById('ecTenant').value;
             if (tn  !== '') body.tenant = tn;
+            const cn  = document.getElementById('ecConnectivity');
+            if (cn.value !== cn.dataset.initial) body.connectivity = cn.value;
             const msg = document.getElementById('ecMsg');
             msg.textContent = 'Saving…';
             try {
@@ -862,6 +922,88 @@
                 }
             } catch (e) {
                 msg.innerHTML = `<span style="color:#ef4444;">❌ ${e.message}</span>`;
+            }
+        }
+
+        // ── Connectivity log modal ──────────────────────────────────────────
+        let _connCpId = null;
+        const _esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        function _dur(sec) {
+            if (sec == null) return '—';
+            if (sec < 60) return `${sec}s`;
+            const m = Math.floor(sec / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+            if (d) return `${d}d ${h % 24}h`;
+            if (h) return `${h}h ${m % 60}m`;
+            return `${m}m ${sec % 60}s`;
+        }
+        function _myt(iso) {
+            return new Date(iso).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        function openConnLog(cpId) {
+            document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+            _connCpId = cpId;
+            document.getElementById('cnId').textContent = cpId;
+            document.getElementById('connModal').classList.add('open');
+            loadConnLog(24);
+        }
+        function closeConnLog() {
+            document.getElementById('connModal').classList.remove('open');
+            _connCpId = null;
+        }
+        async function loadConnLog(hours) {
+            if (!_connCpId) return;
+            document.querySelectorAll('.conn-range').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === hours));
+            const body = document.getElementById('cnBody');
+            body.textContent = 'Loading…';
+            try {
+                const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_connCpId)}/connectivity?hours=${hours}`, {
+                    headers: token ? { 'X-Staff-Token': token } : {},
+                });
+                if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? 'Please log in again.' : `HTTP ${res.status}`);
+                const r = await res.json();
+                const c = r.connectivity || {};
+                const icon = { cellular: '📶', wifi: '📡', ethernet: '🔌' }[c.type] || '❔';
+                const since = r.measured_since && new Date(r.measured_since) > new Date(Date.now() - hours * 3600e3)
+                    ? `<div style="color:var(--text-secondary);margin:-6px 0 10px;">Logging started ${_esc(_myt(r.measured_since))}; figures cover the time since then.</div>`
+                    : '';
+                const rows = (r.events || []).map(e => {
+                    let what = '🔁 Boot', cls = 'boot', detail = '';
+                    if (e.event === 'connected') {
+                        cls = 'up'; what = '🟢 Connected';
+                        detail = e.duration_seconds != null ? `Back after ${_dur(e.duration_seconds)} offline` : 'Connected';
+                    } else if (e.event === 'disconnected') {
+                        cls = 'down'; what = '🔴 Disconnected';
+                        detail = `${_esc(e.close_text || 'Closed')}${e.duration_seconds != null ? ` · was up ${_dur(e.duration_seconds)}` : ''}`;
+                    } else {
+                        detail = _esc(e.detail || 'Charger rebooted');
+                    }
+                    if (e.event !== 'boot' && e.detail) detail += ` <span style="color:var(--text-secondary);">· ${_esc(e.detail)}</span>`;
+                    return `<tr><td style="white-space:nowrap;">${_esc(_myt(e.at))}</td><td class="conn-ev ${cls}">${what}</td><td>${detail}</td><td style="color:var(--text-secondary);">${_esc(e.remote_ip || '')}</td></tr>`;
+                }).join('');
+                body.innerHTML = `
+                    <div class="conn-kv">
+                        <div><span class="info-label">Connection</span><span>${icon} ${_esc(c.label)}</span></div>
+                        <div><span class="info-label">Source</span><span>${_esc(c.source)}</span></div>
+                        <div><span class="info-label">Now</span><span>${r.connected_now ? '🟢 WebSocket open' : '🔴 No WebSocket'}</span></div>
+                        <div><span class="info-label">SIM ICCID</span><span style="font-family:monospace;">${_esc(c.iccid || '—')}</span></div>
+                        <div><span class="info-label">SIM IMSI</span><span style="font-family:monospace;">${_esc(c.imsi || '—')}</span></div>
+                        <div><span class="info-label">Last public IP</span><span style="font-family:monospace;">${_esc(c.remote_ip || '—')}</span></div>
+                    </div>
+                    ${since}
+                    <div class="conn-stats">
+                        <div class="conn-stat"><span class="info-label">Uptime</span><b>${r.uptime_percent == null ? '—' : r.uptime_percent + '%'}</b></div>
+                        <div class="conn-stat"><span class="info-label">Disconnects</span><b>${r.disconnects}</b></div>
+                        <div class="conn-stat" title="Close code 1006: the link died without a goodbye, usually signal or network loss"><span class="info-label">Link lost (1006)</span><b style="${r.abnormal_drops >= 5 ? 'color:#d97706;' : ''}">${r.abnormal_drops}</b></div>
+                        <div class="conn-stat"><span class="info-label">Avg connection</span><b>${_dur(r.average_connection_seconds)}</b></div>
+                        <div class="conn-stat"><span class="info-label">Longest offline</span><b>${_dur(r.longest_offline_seconds)}</b></div>
+                    </div>
+                    ${rows
+                        ? `<table class="conn-table"><thead><tr><th>Time (MYT)</th><th>Event</th><th>Detail</th><th>IP</th></tr></thead><tbody>${rows}</tbody></table>`
+                        : '<div style="color:var(--text-secondary);">No connection events in this period.</div>'}
+                `;
+            } catch (e) {
+                body.innerHTML = `<span style="color:#ef4444;">❌ ${_esc(e.message)}</span>`;
             }
         }
 

@@ -29,13 +29,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from urllib.parse import quote
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
-from sqlalchemy import and_, desc, func, or_, text
+from sqlalchemy import and_, case, desc, func, or_, text
 from sqlalchemy.orm import Session
 
 from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
-    Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
+    Charger, ChargerConnectionEvent, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
     OTPVerification, PartnerAPIKey, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
     Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, Tenant, TicketMessage,
@@ -48,6 +48,7 @@ from ocpp_server import (
     force_close_charge_point, ocpp_state_healer_loop, orphan_session_watchdog,
 )
 from ocpp_server_v201 import OcppOperationUnsupported
+import connectivity as conn_info
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -722,6 +723,11 @@ class ChargerStatus(BaseModel):
     idle_grace_minutes: Optional[int] = None
     # Multi-tenant tag — drives sidebar filter + badge on the charger card
     tenant: Optional[str] = None
+    # How the charger reaches us and how often its link dropped in the last
+    # 24h: {type, label, source, operator, drops_24h, abnormal_drops_24h}.
+    # The SIM's ICCID/IMSI are deliberately not here; they are served only by
+    # the authenticated connectivity endpoint.
+    connectivity: Optional[Dict[str, Any]] = None
 
     @field_serializer("last_heartbeat")
     def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
@@ -1084,6 +1090,28 @@ async def get_chargers(
         else:
             pricing_by_charger[p.charger_id] = float(p.price_per_kwh)
 
+    # Link drops per charger over the last 24h, in one grouped query rather
+    # than one per card.
+    drops_24h: dict[str, tuple[int, int]] = {}
+    try:
+        _since = _utcnow() - timedelta(hours=24)
+        for cp_id, total, abnormal in (
+            db.query(
+                ChargerConnectionEvent.charge_point_id,
+                func.count(ChargerConnectionEvent.id),
+                func.sum(case((ChargerConnectionEvent.close_code == 1006, 1), else_=0)),
+            )
+            .filter(
+                ChargerConnectionEvent.event == "disconnected",
+                ChargerConnectionEvent.at >= _since,
+            )
+            .group_by(ChargerConnectionEvent.charge_point_id)
+            .all()
+        ):
+            drops_24h[cp_id] = (int(total or 0), int(abnormal or 0))
+    except Exception as e:
+        logger.warning(f"[chargers] could not read connection drops: {e}")
+
     # Add active transaction_id for each charger
     result = []
     for charger in chargers:
@@ -1203,6 +1231,16 @@ async def get_chargers(
             # belongs to, and the Edit dialog could not preselect it.
             "tenant": charger.tenant,
         }
+        _c = conn_info.classify(charger)
+        _d = drops_24h.get(charger.charge_point_id, (0, 0))
+        charger_dict["connectivity"] = {
+            "type": _c["type"],
+            "label": _c["label"],
+            "source": _c["source"],
+            "operator": _c["operator"],
+            "drops_24h": _d[0],
+            "abnormal_drops_24h": _d[1],
+        }
         result.append(ChargerStatus(**charger_dict))
 
     # Strip operational/competitive fields for unauthenticated callers.
@@ -1215,7 +1253,7 @@ async def get_chargers(
         out = result
     else:
         SENSITIVE = {"vendor", "model", "firmware_version", "last_heartbeat",
-                     "active_transaction_id", "ws_connected"}
+                     "active_transaction_id", "ws_connected", "connectivity"}
         out = []
         for cs in result:
             d = cs.model_dump()
@@ -1486,6 +1524,9 @@ class UpdateChargerInfoRequest(BaseModel):
     # an UPDATE against the database, so a charger could never be moved between
     # tenants from the dashboard.
     tenant: Optional[str] = None
+    # "cellular", "wifi" or "ethernet" to state how the charger connects, or
+    # "auto" to go back to what the charger itself reports.
+    connectivity: Optional[str] = None
 
 
 @app.patch("/api/admin/chargers/{charge_point_id}/info")
@@ -1517,7 +1558,13 @@ async def update_charger_info(
         if not known:
             raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
         charger.tenant = key
+    if req.connectivity is not None:
+        value = req.connectivity.strip().lower()
+        if value not in ("auto", "cellular", "wifi", "ethernet"):
+            raise HTTPException(status_code=400, detail="connectivity must be auto, cellular, wifi or ethernet")
+        charger.connectivity_override = None if value == "auto" else value
     db.commit()
+    _CHARGERS_CACHE.clear()
     logger.info(f"Charger {charge_point_id} info updated by admin")
     eff_power, eff_connector = _effective_charger_specs(charger.max_power_kw, charger.connector_type, charger.model)
     return {
@@ -1528,6 +1575,30 @@ async def update_charger_info(
         "longitude": charger.longitude,
         "connector_type": eff_connector,
         "max_power_kw": eff_power,
+    }
+
+
+@app.get("/api/admin/chargers/{charge_point_id}/connectivity")
+async def get_charger_connectivity(
+    charge_point_id: str,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    _: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """How a charger connects, and its connect/disconnect log.
+
+    Uptime, disconnect count and abnormal drops (close code 1006, the
+    signature of a lost signal) over the last `hours`, with the events
+    themselves, newest first. Staff only: the SIM identifiers are here.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+    return {
+        "charge_point_id": charge_point_id,
+        "connected_now": charge_point_id in active_charge_points,
+        "connectivity": conn_info.classify(charger),
+        **conn_info.summarize(db, charge_point_id, hours),
     }
 
 

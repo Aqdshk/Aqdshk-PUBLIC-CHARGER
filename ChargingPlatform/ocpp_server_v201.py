@@ -35,6 +35,7 @@ from ocpp.v201 import call, call_result
 from ocpp.v201.enums import AuthorizationStatusEnumType, RegistrationStatusEnumType
 
 from database import Charger, ChargingSession, Fault, MeterValue, SessionLocal
+from connectivity import record_event as record_connectivity_event
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +181,19 @@ class ChargePoint201(cp201):
                 charger.ocpp_version = self.ocpp_version
                 charger.last_heartbeat = _utcnow()
 
+            # Kept, not just logged: it is how the dashboard tells a SIM-connected
+            # charger from one on WiFi. See connectivity.py.
             if modem:
-                logger.info(f"[v201] {self.id} modem iccid={modem.get('iccid')} imsi={modem.get('imsi')}")
+                if modem.get("iccid"):
+                    charger.iccid = str(modem["iccid"]).strip()[:32]
+                if modem.get("imsi"):
+                    charger.imsi = str(modem["imsi"]).strip()[:20]
 
             self.db.commit()
+            record_connectivity_event(
+                self.id, "boot",
+                detail=f"{vendor} {model}, firmware {firmware}, reason {reason}",
+            )
         except Exception as e:
             self.db.rollback()
             logger.error(f"[v201] BootNotification failed for {self.id}: {e}", exc_info=True)
