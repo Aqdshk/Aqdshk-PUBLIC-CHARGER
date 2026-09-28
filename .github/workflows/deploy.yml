@@ -135,6 +135,13 @@ jobs:
               -o StrictHostKeyChecking=no -o BatchMode=yes \
               "${VPS_USER}@${VPS_HOST}" \
               "REF='${REF}' REBUILD_APPEV='${REBUILD_APPEV}' RUN_MIGRATIONS='${RUN_MIGRATIONS}' bash -s" <<'REMOTE_SCRIPT'
+            # The script arrives on stdin. The braces make bash read all of it
+            # before running any of it. On 2026-09-28 `compose run` (the
+            # migration) read the rest of stdin itself: the restart, image
+            # check and health check never ran, bash reached the end of what
+            # was left and exited 0, and the deploy went green while the old
+            # container kept serving. Same failure as HICOM on 2026-09-25.
+            {
             set -euo pipefail
 
             # The deploy user is `plagsini`; root SSH was disabled on
@@ -170,7 +177,8 @@ jobs:
               # Against the new image, before the running container is swapped,
               # so the app never starts against a schema it does not expect.
               echo "=== Alembic upgrade head ==="
-              ${COMPOSE} run --rm --no-deps charging-platform alembic upgrade head
+              # -T and </dev/null: never let this read the script's stdin.
+              ${COMPOSE} run --rm --no-deps -T charging-platform alembic upgrade head < /dev/null
             fi
 
             echo "=== Restart charging-platform ==="
@@ -213,6 +221,7 @@ jobs:
             echo "Health check FAILED after 30s — recent api logs:"
             sudo docker logs --tail 30 plagsini-api 2>&1
             exit 1
+            }
           REMOTE_SCRIPT
 
       - name: Notify Telegram — deploy success
