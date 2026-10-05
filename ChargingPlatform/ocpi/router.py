@@ -1046,16 +1046,25 @@ async def post_command(
 
 # ============ Taxes ============
 def _default_taxes() -> list:
-    """Default tax rules for Malaysia. Override via system_settings key 'ocpi_taxes'."""
-    return [
-        {
-            "id": "sst-my",
-            "name": "SST",
-            "rate": 6.0,
-            "applies_to": "TOTAL",
-            "country_code": "MY",
-        }
-    ]
+    """No tax by default.
+
+    This used to return SST at 6% unconditionally. Two things were wrong with
+    that. C Zero is below the SST registration threshold, so no tax is due on a
+    charging session at all, and a roaming partner acting on that response
+    would have collected 6% from drivers that nobody was liable to remit. The
+    rate was also stale: the standard service tax rate has been 8% since March
+    2024, and the categories still at 6% do not cover EV charging.
+
+    An empty list is the honest answer and the safe default. When registration
+    happens, set OCPI_TAXES_JSON rather than editing this, for example:
+
+        OCPI_TAXES_JSON=[{"id":"sst-my","name":"SST","rate":8,
+                          "applies_to":"TOTAL","country_code":"MY"}]
+
+    Confirm the rate with a tax adviser first. Partners read this endpoint and
+    apply whatever it says on top of CDR total_cost, which is tax exclusive.
+    """
+    return []
 
 
 @router.get("/2.2.1/taxes", response_model=dict, dependencies=[Depends(_ocpi_auth)])
