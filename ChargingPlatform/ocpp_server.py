@@ -34,6 +34,7 @@ from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
 from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User, PaymentTransaction
 from connectivity import record_event as record_connectivity_event, remote_ip_of
+import idle_billing
 
 logger = logging.getLogger(__name__)
 
@@ -658,6 +659,47 @@ class ChargePoint(cp):
                 except Exception as e:
                     logger.error(f"[idle-fee] failed to mark charge_complete_at for {self.id}: {e}")
 
+            # ── Unplug detection ──────────────────────────────────────────
+            # "Available" is the only signal we get that the cable actually
+            # came out. A session stopped from the app or by a roaming partner
+            # has already closed by now, so the idle figure written at stop
+            # was provisional and has to be settled against this instant.
+            if status == 'Available':
+                try:
+                    stopped = (
+                        self.db.query(ChargingSession)
+                        .filter(
+                            ChargingSession.charger_id == charger.id,
+                            ChargingSession.status.in_(('completed', 'stopped')),
+                            ChargingSession.stop_time.isnot(None),
+                            ChargingSession.unplugged_at.is_(None),
+                        )
+                        .order_by(ChargingSession.stop_time.desc())
+                        .first()
+                    )
+                    if stopped:
+                        stopped.unplugged_at = _now_myt()
+                        # Money already moved on the kiosk flow; a second
+                        # settlement would refund against a figure the
+                        # customer was never shown. Leave those as settled
+                        # and only record when the cable came out.
+                        if stopped.refund_status in (None, "", "not_required"):
+                            idle_min, idle_fee = idle_billing.finalize_idle(stopped, charger)
+                            logger.info(
+                                f"[idle-fee] {self.id}: unplugged — session "
+                                f"{stopped.transaction_id}, idle={idle_min} min, "
+                                f"fee=RM{idle_fee:.2f}"
+                            )
+                        else:
+                            logger.info(
+                                f"[idle-fee] {self.id}: unplugged — session "
+                                f"{stopped.transaction_id}, refund already "
+                                f"{stopped.refund_status}, idle left as settled"
+                            )
+                        self.db.commit()
+                except Exception as e:
+                    logger.error(f"[idle-fee] failed to mark unplug for {self.id}: {e}")
+
             # Update availability based on actual connector status
             # Only set to "charging" if connector status is actually "Charging"
             if status == 'Charging':
@@ -1010,17 +1052,18 @@ class ChargePoint(cp):
                         kwh = float(session.energy_consumed or 0)
                         energy_cost = round(kwh * tariff, 2)
 
-                        # Idle minutes accrued past grace
-                        idle_min = 0
-                        idle_fee = 0.0
-                        if session.idle_started_at and session.stop_time:
-                            elapsed = (session.stop_time - session.idle_started_at).total_seconds() / 60.0
-                            past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
-                            idle_min = int(past_grace)
-                            idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+                        # A stop can arrive while the cable is still in — that
+                        # is exactly what a remote stop from the app or from a
+                        # roaming partner looks like. Start the idle clock here
+                        # if the connector never reported Suspended/Finishing,
+                        # otherwise the blocked bay accrues nothing at all.
+                        if not session.idle_started_at:
+                            session.idle_started_at = session.stop_time
 
-                        session.idle_minutes = idle_min
-                        session.idle_fee_amount = Decimal(str(idle_fee))
+                        # Accrues to the unplug, not to stop_time. Still open
+                        # at this point for a remote stop, so this figure is
+                        # provisional and the Available handler rewrites it.
+                        idle_min, idle_fee = idle_billing.finalize_idle(session, charger)
 
                         # A refund only means something when money was held up
                         # front, which is the kiosk flow. Roaming sessions are

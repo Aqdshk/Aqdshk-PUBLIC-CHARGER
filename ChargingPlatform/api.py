@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, case, desc, func, or_, text
 from sqlalchemy.orm import Session
 
+import idle_billing
 from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
@@ -9338,13 +9339,13 @@ async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, de
                 tariff = float(charger.tariff_per_kwh or 0.10)
                 kwh = float(sess.energy_consumed or 0)
                 energy_cost = round(kwh * tariff, 2)
-                idle_min = 0
-                idle_fee = 0.0
-                if sess.idle_started_at and sess.stop_time:
-                    elapsed = (sess.stop_time - sess.idle_started_at).total_seconds() / 60.0
-                    past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
-                    idle_min = int(past_grace)
-                    idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+                # This path is a stop requested from the app, so the cable is
+                # almost certainly still in. Start the clock here if the
+                # connector never reported Suspended/Finishing, and accrue to
+                # the unplug rather than to stop_time, which is now.
+                if not sess.idle_started_at:
+                    sess.idle_started_at = sess.stop_time
+                idle_min, idle_fee = idle_billing.compute_idle(sess, charger)
                 hold = float(sess.hold_amount_rm)
                 total = min(hold, energy_cost + idle_fee)
                 refund = round(hold - total, 2)

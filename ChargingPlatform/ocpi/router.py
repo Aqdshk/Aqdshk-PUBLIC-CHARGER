@@ -10,8 +10,10 @@ from urllib.parse import quote
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+
+import idle_billing
 
 from database import (
     Charger, ChargingSession, MeterValue, OcpiPartner, Pricing, SessionLocal, get_db,
@@ -120,7 +122,8 @@ def _build_tariff(charger, now: str) -> dict:
     elements = [
         {
             "price_components": [
-                {"type": "ENERGY", "price": round(energy_rate, 4), "step_size": 1}
+                {"type": "ENERGY", "price": round(energy_rate, 4),
+                 "vat": _vat_percent(), "step_size": 1}
             ]
         }
     ]
@@ -130,7 +133,8 @@ def _build_tariff(charger, now: str) -> dict:
         grace_seconds = int(charger.idle_grace_minutes or 0) * 60
         element = {
             "price_components": [
-                {"type": "PARKING_TIME", "price": per_hour, "step_size": 60}
+                {"type": "PARKING_TIME", "price": per_hour,
+                 "vat": _vat_percent(), "step_size": 60}
             ]
         }
         if grace_seconds:
@@ -490,8 +494,11 @@ async def get_version_details(request: Request):
         VersionEndpoint(identifier="tariffs", role="SENDER", url=f"{base}/ocpi/2.2.1/tariffs"),
         # Receiver = eMSP pushes/calls us. Commands are remote-control requests.
         VersionEndpoint(identifier="commands", role="RECEIVER", url=f"{base}/ocpi/2.2.1/commands"),
+        # tariff_groups, taxes and roaming_operators are ours, not OCPI 2.2.1
+        # modules. Advertising them as if they were sent partners looking for a
+        # spec definition that does not exist; the routes stay for anyone
+        # already calling them, but we no longer claim them here.
         VersionEndpoint(identifier="tariff_groups", role="SENDER", url=f"{base}/ocpi/2.2.1/tariff_groups"),
-        VersionEndpoint(identifier="taxes", role="SENDER", url=f"{base}/ocpi/2.2.1/taxes"),
         VersionEndpoint(identifier="roaming_operators", role="SENDER", url=f"{base}/ocpi/2.2.1/roaming_operators"),
     ]
     return {
@@ -503,6 +510,40 @@ async def get_version_details(request: Request):
             "endpoints": [e.model_dump() for e in endpoints]
         }
     }
+
+
+# ============ Pagination ============
+# Every list endpoint used to accept an uncapped `limit` and answer without a
+# single pagination header, so a partner had no way to tell a full page from
+# the end of the data and one request could ask for the whole table.
+_DEFAULT_PAGE_SIZE = 100
+_MAX_PAGE_SIZE = 1000
+
+
+def _page_size(limit: Optional[int]) -> int:
+    """The page size we will actually serve, capped.
+
+    OCPI lets the server reduce a client's requested limit as long as it says
+    so in X-Limit, which is what the caller then has to honour.
+    """
+    try:
+        cap = int(os.getenv("OCPI_MAX_PAGE_SIZE", _MAX_PAGE_SIZE))
+    except ValueError:
+        cap = _MAX_PAGE_SIZE
+    if not limit or limit <= 0:
+        return min(_DEFAULT_PAGE_SIZE, cap)
+    return min(int(limit), cap)
+
+
+def _set_pagination(response: Response, request: Optional[Request],
+                    total: int, offset: int, limit: int) -> None:
+    """X-Total-Count, X-Limit and a rel="next" Link while pages remain."""
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Limit"] = str(limit)
+    nxt = offset + limit
+    if request is not None and nxt < total:
+        url = request.url.include_query_params(offset=nxt, limit=limit)
+        response.headers["Link"] = f'<{url}>; rel="next"'
 
 
 # ============ Locations ============
@@ -544,18 +585,17 @@ def _build_location_dict(charger) -> dict:
 @router.get("/2.2.1/locations", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_locations(
     request: Request,
+    response: Response,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Get list of charging locations (from chargers)."""
-    chargers = (
-        _publishable(db.query(Charger))
-        .order_by(Charger.id)
-        .offset(offset)
-        .limit(limit or 100)
-        .all()
-    )
+    q = _publishable(db.query(Charger)).order_by(Charger.id)
+    total = q.count()
+    page = _page_size(limit)
+    chargers = q.offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
 
@@ -633,6 +673,84 @@ async def get_location(
     }
 
 
+
+def _charger_from_location_id(db, location_id: str):
+    """The charger a location id refers to, or None if it is not publishable."""
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    prefix = f"{country}{party_id}-"
+    cp_id = location_id[len(prefix):] if location_id.startswith(prefix) else location_id
+    return (
+        _publishable(db.query(Charger))
+        .filter(Charger.charge_point_id == cp_id)
+        .first()
+    )
+
+
+def _ocpi_not_found(message: str) -> dict:
+    return {
+        "status_code": 2003,
+        "status_message": message,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "data": None,
+    }
+
+
+# The Locations sender interface is four endpoints, not two. Only the list and
+# the single location existed, so a partner asking for one EVSE or one
+# connector got a 404 from the router rather than an OCPI response.
+@router.get("/2.2.1/locations/{location_id}/{evse_uid}", response_model=dict,
+            dependencies=[Depends(_ocpi_auth)])
+async def get_evse(location_id: str, evse_uid: str, db: Session = Depends(get_db)):
+    """One EVSE of one location."""
+    charger = _charger_from_location_id(db, location_id)
+    if not charger:
+        return _ocpi_not_found("Unknown location")
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    now = _to_ocpi_datetime(datetime.utcnow())
+    for evse in _build_evses(charger, loc_id, country, party_id, now):
+        data = evse.model_dump() if hasattr(evse, "model_dump") else evse
+        if data.get("uid") == evse_uid:
+            return {
+                "status_code": 1000,
+                "status_message": "Success",
+                "timestamp": now,
+                "data": data,
+            }
+    return _ocpi_not_found("Unknown EVSE")
+
+
+@router.get("/2.2.1/locations/{location_id}/{evse_uid}/{connector_id}", response_model=dict,
+            dependencies=[Depends(_ocpi_auth)])
+async def get_connector(location_id: str, evse_uid: str, connector_id: str,
+                        db: Session = Depends(get_db)):
+    """One connector of one EVSE."""
+    charger = _charger_from_location_id(db, location_id)
+    if not charger:
+        return _ocpi_not_found("Unknown location")
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    now = _to_ocpi_datetime(datetime.utcnow())
+    for evse in _build_evses(charger, loc_id, country, party_id, now):
+        data = evse.model_dump() if hasattr(evse, "model_dump") else evse
+        if data.get("uid") != evse_uid:
+            continue
+        for conn in data.get("connectors", []):
+            if str(conn.get("id")) == str(connector_id):
+                return {
+                    "status_code": 1000,
+                    "status_message": "Success",
+                    "timestamp": now,
+                    "data": conn,
+                }
+        return _ocpi_not_found("Unknown connector")
+    return _ocpi_not_found("Unknown EVSE")
+
 # ============ Sessions ============
 def _build_session_dict(sess) -> Optional[dict]:
     """One OCPI Session. Shared by the pull endpoint and by push."""
@@ -659,6 +777,7 @@ def _build_session_dict(sess) -> Optional[dict]:
         "connector_id": str(gun),
         "currency": "MYR",
         "status": "ACTIVE" if sess.status == "active" else "COMPLETED",
+        "total_cost": _price(_session_cost(sess)),
         "authorization_reference": sess.authorization_reference,
         "last_updated": _to_ocpi_datetime(sess.stop_time or sess.start_time),
     }
@@ -675,16 +794,22 @@ def _build_cdr_dict(sess) -> Optional[dict]:
 
     energy = float(sess.energy_consumed or 0)
     start_time = sess.start_time or datetime.utcnow()
-    stop_time = sess.stop_time or datetime.utcnow()
+    # The session ends when the cable comes out, not when the stop was
+    # requested — otherwise total_time excludes the parking time we bill for.
+    stop_time = sess.unplugged_at or sess.stop_time or datetime.utcnow()
     duration_h = (stop_time - start_time).total_seconds() / 3600
 
     price_per_kwh = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
     energy_cost = round(energy * price_per_kwh, 2)
 
-    idle_minutes = int(sess.idle_minutes or 0)
-    idle_cost = 0.0
-    if idle_minutes and charger.idle_fee_enabled and charger.idle_fee_per_min:
-        idle_cost = round(idle_minutes * float(charger.idle_fee_per_min), 2)
+    # A CDR is final, so it cannot be issued while the idle figure can still
+    # grow. On a remote stop the transaction closes immediately but the car
+    # may sit in the bay for another hour, and publishing here would bill the
+    # partner for a charge whose parking time is not yet known.
+    if idle_billing.awaiting_unplug(sess, charger):
+        return None
+
+    idle_minutes, idle_cost = idle_billing.compute_idle(sess, charger)
     total_cost = round(energy_cost + idle_cost, 2)
 
     # Prefer evse_id: on 2.0.1 every gun reports connector 1, so connector_id
@@ -715,7 +840,11 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "connector_id": str(gun),
         "currency": "MYR",
         "tariff_id": _tariff_id(charger),
-        "total_cost": total_cost,
+        # OCPI models this as a Price, not a bare number, so the partner can
+        # see what is tax and what is not without a side channel.
+        "total_cost": _price(total_cost),
+        "total_energy_cost": _price(energy_cost),
+        "total_parking_cost": _price(idle_cost),
         "total_energy": energy,
         "total_time": round(duration_h, 4),
         "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
@@ -732,6 +861,8 @@ def _build_cdr_dict(sess) -> Optional[dict]:
 
 @router.get("/2.2.1/sessions", response_model=dict)
 async def get_sessions(
+    request: Request,
+    response: Response,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
@@ -758,7 +889,10 @@ async def get_sessions(
             q = q.filter(ChargingSession.start_time < dt)
         except Exception:
             pass
-    sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(limit or 100).all()
+    total = q.count()
+    page = _page_size(limit)
+    sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
 
     result = [d for d in (_build_session_dict(s) for s in sessions) if d]
 
@@ -773,6 +907,8 @@ async def get_sessions(
 # ============ CDRs ============
 @router.get("/2.2.1/cdrs", response_model=dict)
 async def get_cdrs(
+    request: Request,
+    response: Response,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
@@ -800,7 +936,10 @@ async def get_cdrs(
             q = q.filter(ChargingSession.stop_time < dt)
         except Exception:
             pass
-    sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(limit or 100).all()
+    total = q.count()
+    page = _page_size(limit)
+    sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
 
     result = [d for d in (_build_cdr_dict(s) for s in sessions) if d]
 
@@ -815,11 +954,13 @@ async def get_cdrs(
 # ============ Tokens ============
 @router.get("/2.2.1/tokens", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_tokens(
+    response: Response,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Get tokens (optional - for token whitelist). Returns empty list."""
+    _set_pagination(response, None, 0, offset, _page_size(limit))
     return {
         "status_code": 1000,
         "status_message": "Success",
@@ -831,6 +972,8 @@ async def get_tokens(
 # ============ Tariffs ============
 @router.get("/2.2.1/tariffs", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_tariffs(
+    request: Request,
+    response: Response,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -842,13 +985,11 @@ async def get_tariffs(
     component. That was neither the rate the kiosk charges nor did it carry the
     idle fee, and no connector referenced it.
     """
-    chargers = (
-        _publishable(db.query(Charger))
-        .order_by(Charger.id)
-        .offset(offset)
-        .limit(limit or 100)
-        .all()
-    )
+    q = _publishable(db.query(Charger)).order_by(Charger.id)
+    total = q.count()
+    page = _page_size(limit)
+    chargers = q.offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     result = [_build_tariff(c, now) for c in chargers]
     return {
@@ -1045,6 +1186,49 @@ async def post_command(
 
 
 # ============ Taxes ============
+def _session_cost(sess) -> float:
+    """Energy plus idle for a session, in MYR, before tax.
+
+    The same arithmetic the CDR uses. Sessions previously carried no cost at
+    all, which left a partner tracking a live session with no figure to show
+    until the CDR arrived.
+    """
+    charger = getattr(sess, "charger", None)
+    if charger is None:
+        return 0.0
+    rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    cost = float(sess.energy_consumed or 0) * rate
+    _, idle_fee = idle_billing.compute_idle(sess, charger)
+    cost += idle_fee
+    return round(cost, 2)
+
+
+def _vat_percent() -> float:
+    """The VAT/SST rate to publish, as a percentage. Zero while unregistered.
+
+    One source of truth for both the Price objects on sessions and CDRs and the
+    `vat` field on tariff price components, so a partner cannot read two
+    different rates from us.
+    """
+    try:
+        return float(os.getenv("OCPI_VAT_PERCENT", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
+def _price(amount: float) -> dict:
+    """An OCPI 2.2.1 Price: the amount without tax, and with it.
+
+    OCPI models tax on the money itself, so this replaced a bare number for
+    total_cost. A partner reading a plain figure had no way to know whether tax
+    was already in it, which is what the separate /taxes endpoint was working
+    around.
+    """
+    excl = round(float(amount or 0), 2)
+    vat = _vat_percent()
+    return {"excl_vat": excl, "incl_vat": round(excl * (1 + vat / 100.0), 2)}
+
+
 def _default_taxes() -> list:
     """No tax by default.
 

@@ -536,6 +536,13 @@ class ChargingSession(Base):
     hold_amount_rm   = Column(Numeric(8, 2), nullable=True)
     charge_complete_at = Column(DateTime, nullable=True)
     idle_started_at  = Column(DateTime, nullable=True)
+    # When the cable actually came out. Idle has to be billed up to this point,
+    # not up to stop_time: a stop from the app or from a roaming partner closes
+    # the transaction while the car stays plugged in, so measuring to stop_time
+    # scored every remotely-stopped session as zero idle minutes however long
+    # the bay stayed blocked. NULL on a stopped session means we are still
+    # waiting for the connector to report Available.
+    unplugged_at     = Column(DateTime, nullable=True)
     idle_minutes     = Column(Integer, nullable=False, default=0)
     idle_fee_amount  = Column(Numeric(8, 2), nullable=False, default=Decimal("0"))
     refund_amount    = Column(Numeric(8, 2), nullable=True)
