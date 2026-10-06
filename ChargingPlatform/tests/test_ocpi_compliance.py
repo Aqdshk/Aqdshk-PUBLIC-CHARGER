@@ -205,12 +205,18 @@ class IdleAccrualTests(unittest.TestCase):
         s.unplugged_at = self.stopped_at + timedelta(minutes=5)
         self.assertFalse(idle_billing.awaiting_unplug(s, self.charger, now=self.stopped_at))
 
-    def test_cdr_is_not_held_when_the_charger_does_not_bill_idle(self):
-        # Holding every CDR would delay billing for partners on chargers that
-        # never charge for parking, which is most of them.
+    def test_cdr_is_held_even_when_the_charger_does_not_bill_idle(self):
+        # The hold is about whether the session is over, not about whether we
+        # are charging for the remaining minutes. Gating it on the fee meant
+        # Voltality's own test charger, which has idle billing off, still got
+        # a CDR the instant they stopped the session — the exact behaviour
+        # they reported.
         self.charger.idle_fee_enabled = False
         s = self._session()
-        self.assertFalse(idle_billing.awaiting_unplug(s, self.charger, now=self.stopped_at))
+        self.assertTrue(idle_billing.awaiting_unplug(s, self.charger, now=self.stopped_at))
+        # ...and still bills nothing for it.
+        s.unplugged_at = self.stopped_at + timedelta(hours=5)
+        self.assertEqual(idle_billing.compute_idle(s, self.charger), (0, 0.0))
 
     def test_hold_expires_with_the_cap(self):
         s = self._session()

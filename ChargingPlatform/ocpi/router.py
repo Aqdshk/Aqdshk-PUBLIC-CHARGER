@@ -444,6 +444,21 @@ def _ocpi_auth(authorization: Optional[str] = Header(None)):
     raise HTTPException(status_code=403, detail="Invalid OCPI token")
 
 
+def _exclude_held_cdrs(q):
+    """Drop sessions whose CDR is not issuable yet, in SQL.
+
+    The builder refuses to emit a held CDR, but X-Total-Count is taken from the
+    query. Filtering only in the builder made the header promise rows the body
+    did not contain, so a partner paging on X-Total-Count would never reach the
+    end.
+    """
+    cutoff = idle_billing.now_myt() - timedelta(minutes=idle_billing.hold_cap_minutes())
+    return q.filter(
+        ChargingSession.unplugged_at.isnot(None)
+        | (ChargingSession.stop_time <= cutoff)
+    )
+
+
 def _scope_to_caller(q, caller):
     """Restrict a ChargingSession query to what this caller may see.
 
@@ -936,6 +951,7 @@ async def get_cdrs(
             q = q.filter(ChargingSession.stop_time < dt)
         except Exception:
             pass
+    q = _exclude_held_cdrs(q)
     total = q.count()
     page = _page_size(limit)
     sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(page).all()

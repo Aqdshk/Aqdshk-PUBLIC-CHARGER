@@ -78,13 +78,16 @@ def finalize_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, f
 
 
 def awaiting_unplug(sess, charger, now: Optional[datetime] = None) -> bool:
-    """True while this session's idle figure can still grow.
+    """True while the session lifecycle has not actually finished.
 
-    Only chargers that actually bill idle hold anything back; everywhere else
-    the record is final at stop and should be published immediately.
+    Deliberately not gated on idle_fee_enabled. The question is whether the
+    session is over, not whether we are charging for it: a partner tracks the
+    session until the cable comes out and reconciles its own total against our
+    CDR, so a CDR issued at stop is a record of a session that is still
+    running whether or not any money attaches to the remaining minutes. Gating
+    this on the fee also made the behaviour differ per charger, which is worse
+    than either answer applied consistently.
     """
-    if not charger or not charger.idle_fee_enabled:
-        return False
     if getattr(sess, "unplugged_at", None) or not sess.stop_time:
         return False
     now = now or now_myt()
