@@ -224,5 +224,87 @@ class IdleAccrualTests(unittest.TestCase):
         self.assertFalse(idle_billing.awaiting_unplug(s, self.charger, now=past_cap))
 
 
+class UnplugSettlementTests(unittest.TestCase):
+    """settle_unplug is the one place the cable coming out is handled.
+
+    Both OCPP stacks call it, because 1.6 reports the unplug as a connector
+    going Available and 2.0.1 reports it as a different message entirely, and
+    the CDR push now hangs off it. Before this existed the CDR was pushed at
+    stop time, where the hold made the builder return None and the push was
+    dropped without a retry — a partner would never have received it at all.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id.in_(
+                self.db.query(Charger.id).filter(Charger.charge_point_id == "UNPLUGTEST")
+            )
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.charge_point_id == "UNPLUGTEST").delete()
+        self.db.commit()
+        self.charger = Charger(
+            charge_point_id="UNPLUGTEST", idle_fee_enabled=True,
+            idle_fee_per_min=0.40, idle_grace_minutes=15, is_public=True,
+        )
+        self.db.add(self.charger)
+        self.db.commit()
+        self.stopped_at = idle_billing.now_myt() - timedelta(minutes=75)
+
+    def tearDown(self):
+        # A test that settled without committing leaves the session dirty,
+        # and the bulk delete below then races its pending UPDATE.
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _stopped_session(self, **kw):
+        s = ChargingSession(charger_id=self.charger.id, transaction_id=7001,
+                            status="completed")
+        s.start_time = self.stopped_at - timedelta(minutes=30)
+        s.stop_time = self.stopped_at
+        s.idle_started_at = self.stopped_at
+        s.unplugged_at = None
+        for k, v in kw.items():
+            setattr(s, k, v)
+        self.db.add(s)
+        self.db.commit()
+        return s
+
+    def test_settles_the_waiting_session(self):
+        self._stopped_session()
+        settled = idle_billing.settle_unplug(self.db, self.charger)
+        self.db.commit()
+        self.assertIsNotNone(settled)
+        self.assertIsNotNone(settled.unplugged_at)
+        self.assertEqual(settled.idle_minutes, 60)
+
+    def test_nothing_waiting_is_not_an_error(self):
+        # Chargers report Available constantly, with no session behind it.
+        self.assertIsNone(idle_billing.settle_unplug(self.db, self.charger))
+
+    def test_already_unplugged_is_not_settled_twice(self):
+        self._stopped_session(unplugged_at=self.stopped_at + timedelta(minutes=5))
+        self.assertIsNone(idle_billing.settle_unplug(self.db, self.charger))
+
+    def test_a_refunded_session_records_the_unplug_without_rebilling(self):
+        s = self._stopped_session(refund_status="sent", idle_minutes=3)
+        settled = idle_billing.settle_unplug(self.db, self.charger)
+        self.db.commit()
+        self.assertIsNotNone(settled.unplugged_at)
+        self.assertEqual(settled.idle_minutes, 3)
+
+    def test_interrupted_sessions_are_settled_too(self):
+        # 2.0.1 closes an aborted transaction as "interrupted", and its CDR
+        # has to be issuable as well.
+        self._stopped_session(status="interrupted")
+        self.assertIsNotNone(idle_billing.settle_unplug(self.db, self.charger))
+
+
 if __name__ == "__main__":
     unittest.main()

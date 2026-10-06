@@ -662,43 +662,26 @@ class ChargePoint(cp):
             # ── Unplug detection ──────────────────────────────────────────
             # "Available" is the only signal we get that the cable actually
             # came out. A session stopped from the app or by a roaming partner
-            # has already closed by now, so the idle figure written at stop
-            # was provisional and has to be settled against this instant.
+            # has already closed by now, so this is where its idle figure is
+            # settled and where its CDR becomes issuable.
             if status == 'Available':
+                _settled = None
                 try:
-                    stopped = (
-                        self.db.query(ChargingSession)
-                        .filter(
-                            ChargingSession.charger_id == charger.id,
-                            ChargingSession.status.in_(('completed', 'stopped')),
-                            ChargingSession.stop_time.isnot(None),
-                            ChargingSession.unplugged_at.is_(None),
-                        )
-                        .order_by(ChargingSession.stop_time.desc())
-                        .first()
-                    )
-                    if stopped:
-                        stopped.unplugged_at = _now_myt()
-                        # Money already moved on the kiosk flow; a second
-                        # settlement would refund against a figure the
-                        # customer was never shown. Leave those as settled
-                        # and only record when the cable came out.
-                        if stopped.refund_status in (None, "", "not_required"):
-                            idle_min, idle_fee = idle_billing.finalize_idle(stopped, charger)
-                            logger.info(
-                                f"[idle-fee] {self.id}: unplugged — session "
-                                f"{stopped.transaction_id}, idle={idle_min} min, "
-                                f"fee=RM{idle_fee:.2f}"
-                            )
-                        else:
-                            logger.info(
-                                f"[idle-fee] {self.id}: unplugged — session "
-                                f"{stopped.transaction_id}, refund already "
-                                f"{stopped.refund_status}, idle left as settled"
-                            )
+                    _settled = idle_billing.settle_unplug(self.db, charger)
+                    if _settled is not None:
                         self.db.commit()
+                        logger.info(
+                            f"[idle-fee] {self.id}: unplugged — session "
+                            f"{_settled.transaction_id}, idle={_settled.idle_minutes} min"
+                        )
                 except Exception as e:
+                    self.db.rollback()
                     logger.error(f"[idle-fee] failed to mark unplug for {self.id}: {e}")
+                # Outside the try: a failed push must not look like a failed
+                # settlement, and the row is already committed either way.
+                if _settled is not None:
+                    _ocpi_push("session", _settled.id)
+                    _ocpi_push("cdr", _settled.id)
 
             # Update availability based on actual connector status
             # Only set to "charging" if connector status is actually "Charging"
@@ -1184,10 +1167,12 @@ class ChargePoint(cp):
             except (NameError, UnboundLocalError):
                 _ended = None
             if _ended is not None and getattr(_ended, "id", None):
-                # The session reaches its final state and the CDR becomes
-                # billable at the same moment, so both go out together.
+                # Only the session goes out here. The CDR is not billable
+                # yet: the car may still be plugged in, and its parking time
+                # is part of the record. It is pushed from the unplug handler
+                # instead. A charger that never reports Available leaves the
+                # CDR to be pulled once the hold window expires.
                 _ocpi_push("session", _ended.id)
-                _ocpi_push("cdr", _ended.id)
 
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}

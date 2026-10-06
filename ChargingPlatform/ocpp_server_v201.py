@@ -34,6 +34,7 @@ from ocpp.v201 import ChargePoint as cp201
 from ocpp.v201 import call, call_result
 from ocpp.v201.enums import AuthorizationStatusEnumType, RegistrationStatusEnumType
 
+import idle_billing
 from database import Charger, ChargingSession, Fault, MeterValue, SessionLocal
 from connectivity import record_event as record_connectivity_event
 
@@ -302,7 +303,31 @@ class ChargePoint201(cp201):
             self.db.rollback()
             logger.error(f"[v201] StatusNotification failed for {self.id}: {e}", exc_info=True)
 
+        # The cable coming out is what ends the session lifecycle, and on
+        # 2.0.1 it arrives here as a connector going Available. Without this
+        # the 1.6 fleet settled its idle at the unplug while 2.0.1 chargers
+        # never recorded one at all, so every one of their CDRs sat held until
+        # the fallback window expired.
+        _settled = None
+        if connector_status == "Available":
+            try:
+                charger = self._charger()
+                if charger:
+                    _settled = idle_billing.settle_unplug(self.db, charger)
+                    if _settled is not None:
+                        self.db.commit()
+                        logger.info(
+                            f"[idle-fee] [v201] {self.id}: unplugged — session "
+                            f"{_settled.id}, idle={_settled.idle_minutes} min"
+                        )
+            except Exception as e:
+                self.db.rollback()
+                logger.error(f"[idle-fee] [v201] failed to mark unplug for {self.id}: {e}")
+
         _ocpi_push("location", self.id)
+        if _settled is not None:
+            _ocpi_push("session", _settled.id)
+            _ocpi_push("cdr", _settled.id)
         return call_result.StatusNotification()
 
     @on("Authorize")
@@ -523,8 +548,8 @@ class ChargePoint201(cp201):
 
         if _pushed is not None and getattr(_pushed, "id", None):
             _ocpi_push("session", _pushed.id)
-            if getattr(_pushed, "status", None) in ("completed", "interrupted"):
-                _ocpi_push("cdr", _pushed.id)
+            # No CDR here: the car may still be plugged in and its parking
+            # time belongs in the record. The unplug handler pushes it.
 
         return call_result.TransactionEvent()
 

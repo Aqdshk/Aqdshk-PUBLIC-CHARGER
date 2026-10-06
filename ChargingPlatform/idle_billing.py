@@ -77,6 +77,38 @@ def finalize_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, f
     return minutes, fee
 
 
+def settle_unplug(db, charger, now: Optional[datetime] = None):
+    """Close out the session this charger just released the cable on.
+
+    Called from both OCPP stacks, because "the cable came out" arrives as a
+    different message on each and the billing consequence is identical.
+    Returns the session that was settled, or None if nothing was waiting.
+    """
+    from database import ChargingSession
+
+    sess = (
+        db.query(ChargingSession)
+        .filter(
+            ChargingSession.charger_id == charger.id,
+            ChargingSession.status.in_(("completed", "stopped", "interrupted")),
+            ChargingSession.stop_time.isnot(None),
+            ChargingSession.unplugged_at.is_(None),
+        )
+        .order_by(ChargingSession.stop_time.desc())
+        .first()
+    )
+    if sess is None:
+        return None
+
+    sess.unplugged_at = now or now_myt()
+    # Money already moved on the kiosk flow. Re-billing here would settle
+    # against a figure the customer was never shown and cannot be refunded a
+    # second time, so those sessions only record when the cable came out.
+    if sess.refund_status in (None, "", "not_required"):
+        finalize_idle(sess, charger, now)
+    return sess
+
+
 def awaiting_unplug(sess, charger, now: Optional[datetime] = None) -> bool:
     """True while the session lifecycle has not actually finished.
 
