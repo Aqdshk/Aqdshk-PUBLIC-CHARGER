@@ -574,6 +574,39 @@ def _ocpi_now() -> str:
     return _to_ocpi_datetime(datetime.utcnow())
 
 
+def _location_fields(charger) -> tuple:
+    """Address and coordinates for a charger, from its own row.
+
+    The chargers table has carried `location`, `latitude` and `longitude`ity
+    all along, filled in from the dashboard. The OCPI builders ignored them and
+    published one hardcoded address at one hardcoded coordinate for every
+    charge point, so DC3001 went out as "Your Charging Station Address" in the
+    middle of Kuala Lumpur while its row said Seksyen 15, Shah Alam. A driver
+    navigating from a partner app was sent 25km to the wrong place.
+
+    The environment values stay as the fallback for a charger nobody has
+    filled in yet.
+    """
+    address = (getattr(charger, "location", None) or "").strip()
+    if not address:
+        address = os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station")
+
+    lat = getattr(charger, "latitude", None)
+    lon = getattr(charger, "longitude", None)
+    # Both or neither: half a coordinate pair would place the charger on a
+    # meridian somewhere rather than admit we do not know.
+    if lat is None or lon is None:
+        lat = float(os.getenv("OCPI_LOCATION_LAT", "3.1390"))
+        lon = float(os.getenv("OCPI_LOCATION_LON", "101.6869"))
+
+    return (
+        address,
+        os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
+        os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        {"latitude": float(lat), "longitude": float(lon)},
+    )
+
+
 def _build_location_dict(charger) -> dict:
     """One OCPI Location for a charger.
 
@@ -584,20 +617,18 @@ def _build_location_dict(charger) -> dict:
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     now = _ocpi_now()
+    _addr, _city, _postal, _coords = _location_fields(charger)
     return Location(
         country_code=country,
         party_id=party_id,
         id=loc_id,
         publish=True,
         name=charger.charge_point_id,
-        address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-        city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        address=_addr,
+        city=_city,
+        postal_code=_postal,
         country=country,
-        coordinates={
-            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-        },
+        coordinates=_coords,
         evses=_build_evses(charger, loc_id, country, party_id, now),
         time_zone="Asia/Kuala_Lumpur",
         last_updated=now,
@@ -668,20 +699,18 @@ async def get_location(
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     now = _to_ocpi_datetime(datetime.utcnow())
     evses = _build_evses(charger, loc_id, country, party_id, now)
+    _addr, _city, _postal, _coords = _location_fields(charger)
     loc = Location(
         country_code=country,
         party_id=party_id,
         id=loc_id,
         publish=True,
         name=charger.charge_point_id,
-        address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-        city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        address=_addr,
+        city=_city,
+        postal_code=_postal,
         country=country,
-        coordinates={
-            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-        },
+        coordinates=_coords,
         evses=evses,
         time_zone="Asia/Kuala_Lumpur",
         last_updated=now,
@@ -859,17 +888,15 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     # We were sending the flat location_id / evse_uid / connector_id of 2.1.1,
     # which left the mandatory cdr_location absent entirely.
     std, fmt, ptype, volt, amp, maxw = _connector_spec(charger)
+    _addr, _city, _postal, _coords = _location_fields(charger)
     cdr_location = {
         "id": loc_id,
         "name": charger.charge_point_id,
-        "address": os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-        "city": os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        "postal_code": os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        "address": _addr,
+        "city": _city,
+        "postal_code": _postal,
         "country": country,
-        "coordinates": {
-            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-        },
+        "coordinates": _coords,
         "evse_uid": f"{loc_id}-EVSE{gun}",
         "evse_id": f"{country}*{party_id}*E*{charger.charge_point_id}"
                    + ("" if gun == 1 else f"*{gun}"),

@@ -474,3 +474,70 @@ class SpecFieldPayloadTests(unittest.TestCase):
         dims = {x["type"] for p in d["charging_periods"] for x in p["dimensions"]}
         self.assertIn("PARKING_TIME", dims)
         self.assertGreater(d["total_parking_cost"]["excl_vat"], 0)
+
+
+class LocationDataTests(unittest.TestCase):
+    """A charger's own address must reach OCPI.
+
+    The chargers table carried `location`, `latitude` and `longitude` all
+    along, but the builders published one hardcoded address at one hardcoded
+    coordinate for every charge point. DC3001's row said Seksyen 15, Shah
+    Alam; OCPI advertised "Your Charging Station Address" in the middle of
+    Kuala Lumpur, 25km away, which is where a partner app would have sent the
+    driver.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(
+            Charger.charge_point_id.in_(["ADDRTEST", "NOADDRTEST"])
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        self.sited = Charger(
+            charge_point_id="ADDRTEST", is_public=True,
+            location="Seksyen 15, Shah Alam, Selangor",
+            latitude=3.06566, longitude=101.533168,
+        )
+        self.bare = Charger(charge_point_id="NOADDRTEST", is_public=True)
+        self.db.add_all([self.sited, self.bare])
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(Charger).filter(
+            Charger.charge_point_id.in_(["ADDRTEST", "NOADDRTEST"])
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        self.db.close()
+
+    def test_the_chargers_own_address_is_published(self):
+        from ocpi.router import _build_location_dict
+        loc = _build_location_dict(self.sited)
+        self.assertEqual(loc["address"], "Seksyen 15, Shah Alam, Selangor")
+        self.assertAlmostEqual(loc["coordinates"]["latitude"], 3.06566)
+        self.assertAlmostEqual(loc["coordinates"]["longitude"], 101.533168)
+
+    def test_a_charger_without_an_address_falls_back(self):
+        from ocpi.router import _build_location_dict
+        loc = _build_location_dict(self.bare)
+        self.assertTrue(loc["address"])
+        self.assertIn("latitude", loc["coordinates"])
+
+    def test_the_cdr_copy_agrees_with_the_location(self):
+        # A CDR carries its own copy, so the two must not drift.
+        from ocpi.router import _build_location_dict, _build_cdr_dict
+        sess = ChargingSession(charger_id=self.sited.id, transaction_id=6001,
+                               status="completed", user_id="U")
+        stop = idle_billing.now_myt() - timedelta(minutes=300)
+        sess.start_time = stop - timedelta(minutes=10)
+        sess.stop_time = stop
+        sess.unplugged_at = stop
+        sess.energy_consumed = 1.0
+        sess.evse_id = 1
+        self.db.add(sess)
+        self.db.commit()
+        loc = _build_location_dict(self.sited)
+        cdr = _build_cdr_dict(sess)
+        self.assertEqual(cdr["cdr_location"]["address"], loc["address"])
+        self.assertEqual(cdr["cdr_location"]["coordinates"], loc["coordinates"])
