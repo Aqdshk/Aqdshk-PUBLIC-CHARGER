@@ -1258,6 +1258,31 @@ class ChargePoint(cp):
                 session = self.db.query(ChargingSession).filter(
                     ChargingSession.transaction_id == transaction_id
                 ).first()
+                # A session closed as "interrupted" that is still reporting is
+                # not over. Some chargers (AION E7) send BootNotification after
+                # a mere network reconnect, with the transaction still running,
+                # and the boot handler then closes it as an orphan. On
+                # 2026-10-07 that ended a guest's live session four minutes in
+                # while the car went on charging: the partner app saw a
+                # stop_time and showed the charge as finished. A reading for
+                # this transaction, taken after the moment we closed it, is the
+                # charger saying otherwise, so the session is reopened.
+                # Readings queued before the reboot carry earlier timestamps
+                # and leave a genuinely ended session closed.
+                if (
+                    session
+                    and session.status == "interrupted"
+                    and session.stop_time
+                    and timestamp
+                    and timestamp > session.stop_time
+                ):
+                    logger.warning(
+                        f"Session {session.id} (tx={transaction_id}) on {self.id} was closed as "
+                        f"interrupted at {session.stop_time} but reported again at {timestamp}; reopening"
+                    )
+                    session.status = "active"
+                    session.stop_time = None
+                    self.db.commit()
                 if session and total_kwh:
                     # total_kwh is the charger's cumulative lifetime register,
                     # not this session's delivery. Storing it raw billed the
