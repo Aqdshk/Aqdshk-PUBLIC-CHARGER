@@ -322,8 +322,8 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         standard=_std,
                         format=_fmt,
                         power_type=_ptype,
-                        voltage=_volt,
-                        amperage=_amp,
+                        max_voltage=_volt,
+                        max_amperage=_amp,
                         max_electric_power=_maxw,
                         # Without this an eMSP has no way to know what the
                         # connector costs — Voltality reported every connector
@@ -589,7 +589,6 @@ def _build_location_dict(charger) -> dict:
         party_id=party_id,
         id=loc_id,
         publish=True,
-        type="OTHER",
         name=charger.charge_point_id,
         address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
         city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
@@ -674,7 +673,6 @@ async def get_location(
         party_id=party_id,
         id=loc_id,
         publish=True,
-        type="OTHER",
         name=charger.charge_point_id,
         address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
         city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
@@ -785,9 +783,13 @@ def _build_session_dict(sess) -> Optional[dict]:
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     gun = sess.evse_id or sess.connector_id or 1
     return {
+        # country_code and party_id are mandatory on a 2.2.1 Session; without
+        # them a partner cannot tell whose session it is.
+        "country_code": country,
+        "party_id": party_id,
         "id": str(sess.transaction_id),
-        "start_datetime": _to_ocpi_datetime(sess.start_time),
-        "end_datetime": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
+        "start_date_time": _to_ocpi_datetime(sess.start_time),
+        "end_date_time": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
         "kwh": float(sess.energy_consumed or 0),
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
@@ -839,30 +841,57 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     # alone puts a gun 2 charge on gun 1.
     gun = int(sess.evse_id or sess.connector_id or 1)
 
+    tariff_id = _tariff_id(charger)
     periods = [{
-        "start_datetime": _to_ocpi_datetime(start_time),
+        "start_date_time": _to_ocpi_datetime(start_time),
         "dimensions": [{"type": "ENERGY", "volume": energy}],
+        "tariff_id": tariff_id,
     }]
     if idle_minutes:
         periods.append({
-            "start_datetime": _to_ocpi_datetime(sess.idle_started_at or stop_time),
+            "start_date_time": _to_ocpi_datetime(sess.idle_started_at or stop_time),
             "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
+            "tariff_id": tariff_id,
         })
 
+    # A CDR is immutable, so 2.2.1 has it carry its own copy of the location
+    # rather than a reference that could later describe a different connector.
+    # We were sending the flat location_id / evse_uid / connector_id of 2.1.1,
+    # which left the mandatory cdr_location absent entirely.
+    std, fmt, ptype, volt, amp, maxw = _connector_spec(charger)
+    cdr_location = {
+        "id": loc_id,
+        "name": charger.charge_point_id,
+        "address": os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
+        "city": os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
+        "postal_code": os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        "country": country,
+        "coordinates": {
+            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
+            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
+        },
+        "evse_uid": f"{loc_id}-EVSE{gun}",
+        "evse_id": f"{country}*{party_id}*E*{charger.charge_point_id}"
+                   + ("" if gun == 1 else f"*{gun}"),
+        "connector_id": str(gun),
+        "connector_standard": std,
+        "connector_format": fmt,
+        "connector_power_type": ptype,
+    }
+
     return {
+        # Mandatory on a 2.2.1 CDR: they say whose record this is.
+        "country_code": country,
+        "party_id": party_id,
         "id": str(sess.transaction_id),
         # Optional in OCPI 2.2.1, but Voltality reconcile CDRs against sessions.
         # Same value as the Session id: both are the transaction id.
         "session_id": str(sess.transaction_id),
-        "start_datetime": _to_ocpi_datetime(start_time),
-        "end_datetime": _to_ocpi_datetime(stop_time),
-        "auth_id": sess.user_id or "UNKNOWN",
+        "start_date_time": _to_ocpi_datetime(start_time),
+        "end_date_time": _to_ocpi_datetime(stop_time),
         "auth_method": "AUTH_REQUEST",
-        "location_id": loc_id,
-        "evse_uid": f"{loc_id}-EVSE{gun}",
-        "connector_id": str(gun),
+        "cdr_location": cdr_location,
         "currency": "MYR",
-        "tariff_id": _tariff_id(charger),
         # OCPI models this as a Price, not a bare number, so the partner can
         # see what is tax and what is not without a side channel.
         "total_cost": _price(total_cost),

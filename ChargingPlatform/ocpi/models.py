@@ -44,8 +44,8 @@ class Connector(BaseModel):
     standard: str = "IEC_62196_T2"  # Connector type
     format: str = "SOCKET"
     power_type: str = "AC_1_PHASE"
-    voltage: Optional[int] = None
-    amperage: Optional[int] = None
+    max_voltage: Optional[int] = None
+    max_amperage: Optional[int] = None
     max_electric_power: Optional[int] = None  # Watts
     tariff_ids: Optional[List[str]] = None
     terms_and_conditions: Optional[str] = None
@@ -70,7 +70,6 @@ class Location(BaseModel):
     party_id: str      # OCPI 2.2.1 §8.2.1 — required (3-char party identifier, e.g. "PLG")
     id: str
     publish: bool = True
-    type: str = "OTHER"  # OCPI 2.2.1 LocationType enum — required
     name: Optional[str] = None
     address: str
     city: str
@@ -78,12 +77,10 @@ class Location(BaseModel):
     country: str
     coordinates: Dict[str, float]  # latitude, longitude
     related_locations: Optional[List[Dict]] = None
-    evse_uid: Optional[str] = None
     evses: List[EVSE]
     operator: Optional[Dict] = None
     suboperator: Optional[Dict] = None
     owner: Optional[Dict] = None
-    facility_id: Optional[str] = None
     time_zone: str = "Asia/Kuala_Lumpur"
     opening_times: Optional[Dict] = None
     charging_when_closed: Optional[bool] = True
@@ -100,9 +97,11 @@ class CdrToken(BaseModel):
 
 
 class Session(BaseModel):
+    country_code: str
+    party_id: str
     id: str
-    start_datetime: str
-    end_datetime: Optional[str] = None
+    start_date_time: str
+    end_date_time: Optional[str] = None
     kwh: float = 0.0
     cdr_token: CdrToken
     auth_method: str = "AUTH_REQUEST"
@@ -124,15 +123,36 @@ class CdrDimension(BaseModel):
     volume: float
 
 
-class CDR(BaseModel):
+class CdrLocation(BaseModel):
+    """OCPI 2.2.1 §9.4.1 — the location as it was at the time of the charge.
+
+    A CDR is immutable, so it carries its own copy rather than a reference
+    that could later describe a different connector.
+    """
     id: str
-    start_datetime: str
-    end_datetime: str
-    auth_id: str
-    auth_method: str = "AUTH_REQUEST"
-    location_id: str
+    address: str
+    city: str
+    country: str
+    coordinates: Dict[str, float]
     evse_uid: str
+    evse_id: str
     connector_id: str
+    connector_standard: str
+    connector_format: str
+    connector_power_type: str
+    name: Optional[str] = None
+    postal_code: Optional[str] = None
+    state: Optional[str] = None
+
+
+class CDR(BaseModel):
+    country_code: str
+    party_id: str
+    id: str
+    start_date_time: str
+    end_date_time: str
+    auth_method: str = "AUTH_REQUEST"
+    cdr_location: CdrLocation
     meter_id: Optional[str] = None
     currency: str = "MYR"
     total_cost: Optional[float] = None

@@ -342,3 +342,135 @@ class UnplugSettlementTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpecFieldTests(OcpiTestBase):
+    """Mandatory 2.2.1 fields, checked against the spec rather than our habits.
+
+    These were all wrong in production until 2026-10-07 and none of them had
+    been reported yet. Several were 2.1.1 spellings that had survived the
+    version bump: a partner validating strictly would have seen required
+    fields missing and unknown fields present on nearly every object we
+    publish.
+    """
+
+    SESSION_REQUIRED = {
+        "country_code", "party_id", "id", "start_date_time", "kwh",
+        "cdr_token", "auth_method", "location_id", "evse_uid", "connector_id",
+        "currency", "status", "last_updated",
+    }
+    CDR_REQUIRED = {
+        "country_code", "party_id", "id", "start_date_time", "end_date_time",
+        "cdr_token", "auth_method", "cdr_location", "currency", "total_cost",
+        "total_energy", "total_time", "last_updated",
+    }
+    CDR_LOCATION_REQUIRED = {
+        "id", "address", "city", "country", "coordinates", "evse_uid",
+        "evse_id", "connector_id", "connector_standard", "connector_format",
+        "connector_power_type",
+    }
+    CONNECTOR_REQUIRED = {
+        "id", "standard", "format", "power_type", "max_voltage",
+        "max_amperage", "last_updated",
+    }
+    LOCATION_REQUIRED = {
+        "country_code", "party_id", "id", "publish", "address", "city",
+        "country", "coordinates", "time_zone", "last_updated",
+    }
+    # Removed between 2.1.1 and 2.2.1. Publishing them is not fatal, but it
+    # tells a partner we are speaking the older version.
+    LOCATION_GONE = {"type", "evse_uid", "facility_id"}
+    CDR_GONE = {"auth_id", "location_id", "evse_uid", "connector_id", "tariff_id"}
+
+    def _one_location(self):
+        r = self.client.get("/ocpi/2.2.1/locations", headers=AUTH)
+        return [l for l in r.json()["data"] if l["id"] == LOC][0]
+
+    def test_location_has_every_required_field(self):
+        loc = self._one_location()
+        self.assertEqual(self.LOCATION_REQUIRED - set(loc), set())
+
+    def test_location_does_not_carry_2_1_1_leftovers(self):
+        self.assertEqual(self.LOCATION_GONE & set(self._one_location()), set())
+
+    def test_connector_uses_max_voltage_and_max_amperage(self):
+        conn = self._one_location()["evses"][0]["connectors"][0]
+        self.assertEqual(self.CONNECTOR_REQUIRED - set(conn), set())
+        # The 2.1.1 spellings were what we actually sent.
+        self.assertNotIn("voltage", conn)
+        self.assertNotIn("amperage", conn)
+
+    def test_evse_has_every_required_field(self):
+        evse = self._one_location()["evses"][0]
+        self.assertEqual({"uid", "status", "connectors", "last_updated"} - set(evse), set())
+
+
+class SpecFieldPayloadTests(unittest.TestCase):
+    """Session and CDR shapes, built directly so a stopped session exists."""
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "SPECTEST").delete()
+        self.db.commit()
+        self.charger = Charger(
+            charge_point_id="SPECTEST", connector_type="CCS2", tariff_per_kwh=1.0,
+            idle_fee_enabled=True, idle_fee_per_min=0.40, idle_grace_minutes=15,
+            is_public=True,
+        )
+        self.db.add(self.charger)
+        self.db.commit()
+        stop = idle_billing.now_myt() - timedelta(minutes=75)
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=5001,
+                                    status="completed", user_id="U1")
+        self.sess.start_time = stop - timedelta(minutes=30)
+        self.sess.stop_time = stop
+        self.sess.unplugged_at = stop + timedelta(minutes=40)
+        self.sess.idle_started_at = stop
+        self.sess.energy_consumed = 10.0
+        self.sess.evse_id = 1
+        self.sess.connector_id = 1
+        self.sess.authorization_reference = "A1"
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def test_session_has_every_required_field(self):
+        from ocpi.router import _build_session_dict
+        d = _build_session_dict(self.sess)
+        self.assertEqual(SpecFieldTests.SESSION_REQUIRED - set(d), set())
+        self.assertNotIn("start_datetime", d)
+        self.assertNotIn("end_datetime", d)
+
+    def test_cdr_has_every_required_field(self):
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        self.assertIsNotNone(d)
+        self.assertEqual(SpecFieldTests.CDR_REQUIRED - set(d), set())
+        self.assertEqual(SpecFieldTests.CDR_GONE & set(d), set())
+
+    def test_cdr_location_is_complete(self):
+        from ocpi.router import _build_cdr_dict
+        loc = _build_cdr_dict(self.sess)["cdr_location"]
+        self.assertEqual(SpecFieldTests.CDR_LOCATION_REQUIRED - set(loc), set())
+
+    def test_charging_periods_use_the_2_2_1_timestamp_name(self):
+        from ocpi.router import _build_cdr_dict
+        for period in _build_cdr_dict(self.sess)["charging_periods"]:
+            self.assertIn("start_date_time", period)
+            self.assertNotIn("start_datetime", period)
+
+    def test_idle_shows_up_as_a_parking_dimension(self):
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        dims = {x["type"] for p in d["charging_periods"] for x in p["dimensions"]}
+        self.assertIn("PARKING_TIME", dims)
+        self.assertGreater(d["total_parking_cost"]["excl_vat"], 0)
