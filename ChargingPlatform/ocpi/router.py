@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import secrets
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -557,7 +557,15 @@ def _set_pagination(response: Response, request: Optional[Request],
     response.headers["X-Limit"] = str(limit)
     nxt = offset + limit
     if request is not None and nxt < total:
-        url = request.url.include_query_params(offset=nxt, limit=limit)
+        # Built from the advertised base, not from request.url. Behind nginx
+        # the app sees plain http, so the link went out as http while every
+        # other URL we publish is https. That redirects, and an HTTP client
+        # that drops the Authorization header across the redirect gets a 401
+        # on the second page of a result set it was already authorised for.
+        parts = urlsplit(str(request.url.include_query_params(offset=nxt, limit=limit)))
+        url = f"{_get_base_url(request)}{parts.path}"
+        if parts.query:
+            url = f"{url}?{parts.query}"
         response.headers["Link"] = f'<{url}>; rel="next"'
 
 

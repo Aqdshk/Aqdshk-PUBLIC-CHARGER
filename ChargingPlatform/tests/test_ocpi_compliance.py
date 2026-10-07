@@ -122,6 +122,25 @@ class PaginationTests(OcpiTestBase):
         r_last = self.client.get(f"/ocpi/2.2.1/locations?offset={total}&limit=1", headers=AUTH)
         self.assertNotIn("Link", r_last.headers)
 
+    def test_next_link_uses_the_advertised_base_url(self):
+        """The Link must be https, like every other URL we publish.
+
+        Behind nginx the app sees plain http, so a link built from request.url
+        went out as http. That redirects, and an HTTP client which drops the
+        Authorization header across the redirect gets a 401 on page two of a
+        result set it was already authorised for.
+        """
+        import os
+        os.environ["OCPI_BASE_URL"] = "https://charger.example.test"
+        try:
+            r = self.client.get("/ocpi/2.2.1/locations?offset=0&limit=1", headers=AUTH)
+            if int(r.headers["X-Total-Count"]) > 1:
+                self.assertIn("https://charger.example.test/ocpi/2.2.1/locations",
+                              r.headers["Link"])
+                self.assertNotIn("http://", r.headers["Link"])
+        finally:
+            del os.environ["OCPI_BASE_URL"]
+
     def test_headers_on_sessions_and_cdrs(self):
         for path in ("/ocpi/2.2.1/sessions", "/ocpi/2.2.1/cdrs", "/ocpi/2.2.1/tariffs"):
             with self.subTest(path=path):
