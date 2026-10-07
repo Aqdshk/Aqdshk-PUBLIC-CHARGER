@@ -701,3 +701,80 @@ class GeoAndCountryTests(OcpiTestBase):
         self.assertLessEqual(len(coords["latitude"]), 10)
         self.assertLessEqual(len(coords["longitude"]), 11)
 
+
+
+class InvalidSessionTests(unittest.TestCase):
+    """Sessions that failed must say so, and must not be billed.
+
+    Asked by Voltality on 2026-10-07. OCPI has a SessionStatus of INVALID for a
+    session that was opened but failed, typically a charger problem, and which
+    must not be billed. We mapped everything that was not active to COMPLETED,
+    so a charge that never started was published as a successful one with
+    0 kWh and a CDR went out asking the partner to reconcile it. Production
+    held 208 such sessions at the time.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "INVTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="INVTEST", tariff_per_kwh=1.0,
+                               is_public=True, idle_fee_enabled=True,
+                               idle_fee_per_min=0.20, idle_grace_minutes=5)
+        self.db.add(self.charger)
+        self.db.commit()
+        self.stopped = idle_billing.now_myt() - timedelta(minutes=30)
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _sess(self, **kw):
+        s = ChargingSession(charger_id=self.charger.id, transaction_id=4001,
+                            status="completed", user_id="U")
+        s.start_time = self.stopped - timedelta(minutes=5)
+        s.stop_time = self.stopped
+        s.unplugged_at = self.stopped
+        s.energy_consumed = 0.0
+        s.evse_id = 1
+        for k, v in kw.items():
+            setattr(s, k, v)
+        self.db.add(s)
+        self.db.commit()
+        return s
+
+    def test_a_session_that_delivered_nothing_is_invalid(self):
+        from ocpi.router import _build_session_dict
+        self.assertEqual(_build_session_dict(self._sess())["status"], "INVALID")
+
+    def test_an_interrupted_session_that_never_started_is_invalid(self):
+        from ocpi.router import _build_session_dict
+        s = self._sess(status="interrupted", stop_reason="NeverStarted")
+        self.assertEqual(_build_session_dict(s)["status"], "INVALID")
+
+    def test_a_session_that_delivered_energy_is_completed(self):
+        from ocpi.router import _build_session_dict
+        s = self._sess(energy_consumed=1.5)
+        self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
+
+    def test_a_running_session_is_active(self):
+        from ocpi.router import _build_session_dict
+        s = self._sess(status="active", stop_time=None, unplugged_at=None)
+        self.assertEqual(_build_session_dict(s)["status"], "ACTIVE")
+
+    def test_no_cdr_is_issued_for_an_invalid_session(self):
+        from ocpi.router import _build_cdr_dict
+        self.assertIsNone(_build_cdr_dict(self._sess()))
+
+    def test_zero_energy_but_billable_idle_is_still_completed(self):
+        # Money is attached, so it is not an invalid session even with no kWh.
+        from ocpi.router import _build_session_dict, _build_cdr_dict
+        s = self._sess(idle_minutes=5, idle_started_at=self.stopped)
+        self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
+        self.assertIsNotNone(_build_cdr_dict(s))

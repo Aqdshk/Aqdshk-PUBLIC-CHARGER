@@ -481,6 +481,20 @@ def _exclude_held_cdrs(q):
     )
 
 
+def _exclude_invalid_cdrs(q):
+    """Drop sessions that delivered nothing, in SQL.
+
+    Same reason the hold is expressed in SQL: X-Total-Count comes from the
+    query, so filtering only in the builder makes the header promise rows the
+    body does not carry.
+    """
+    return q.filter(
+        (ChargingSession.energy_consumed.isnot(None)
+         & (ChargingSession.energy_consumed > 0))
+        | (ChargingSession.idle_minutes > 0)
+    )
+
+
 def _scope_to_caller(q, caller):
     """Restrict a ChargingSession query to what this caller may see.
 
@@ -845,6 +859,24 @@ async def get_connector(location_id: str, evse_uid: str, connector_id: str,
     return _ocpi_not_found("Unknown EVSE")
 
 # ============ Sessions ============
+def _is_invalid_session(sess) -> bool:
+    """A session that delivered nothing and has nothing to bill.
+
+    OCPI has a SessionStatus of INVALID for exactly this: a session that was
+    opened but failed, usually a charger problem, and which must not be billed.
+    We mapped everything that was not active to COMPLETED, so a charge that
+    never started was published as a successfully completed one with 0 kWh, and
+    a CDR went out for it.
+    """
+    if sess.status in ("active", "pending"):
+        return False
+    if float(sess.energy_consumed or 0) > 0:
+        return False
+    # Idle cannot accrue on a charge that never ran, but if somehow it has,
+    # there is money attached and the session is not invalid.
+    return int(sess.idle_minutes or 0) == 0
+
+
 def _build_session_dict(sess) -> Optional[dict]:
     """One OCPI Session. Shared by the pull endpoint and by push."""
     charger = sess.charger
@@ -873,7 +905,11 @@ def _build_session_dict(sess) -> Optional[dict]:
         "evse_uid": f"{loc_id}-EVSE{gun}",
         "connector_id": str(gun),
         "currency": "MYR",
-        "status": "ACTIVE" if sess.status == "active" else "COMPLETED",
+        "status": (
+            "ACTIVE" if sess.status in ("active", "pending")
+            else "INVALID" if _is_invalid_session(sess)
+            else "COMPLETED"
+        ),
         "total_cost": _price(_session_cost(sess)),
         "authorization_reference": sess.authorization_reference,
         "last_updated": _to_ocpi_datetime(sess.stop_time or sess.start_time),
@@ -904,6 +940,12 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     # may sit in the bay for another hour, and publishing here would bill the
     # partner for a charge whose parking time is not yet known.
     if idle_billing.awaiting_unplug(sess, charger):
+        return None
+
+    # Nothing was delivered and nothing is owed, so there is nothing to bill.
+    # We used to issue a CDR for these, which asked a partner to reconcile a
+    # charge that never happened.
+    if _is_invalid_session(sess):
         return None
 
     idle_minutes, idle_cost = idle_billing.compute_idle(sess, charger)
@@ -1059,7 +1101,7 @@ async def get_cdrs(
             q = q.filter(ChargingSession.stop_time < dt)
         except Exception:
             pass
-    q = _exclude_held_cdrs(q)
+    q = _exclude_invalid_cdrs(_exclude_held_cdrs(q))
     total = q.count()
     page = _page_size(limit)
     sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(page).all()

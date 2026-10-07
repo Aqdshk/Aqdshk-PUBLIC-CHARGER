@@ -1210,7 +1210,15 @@ class ChargePoint(cp):
                     value = float(sv.get('value', 0) or 0)
                 except (ValueError, TypeError):
                     value = 0.0
-                measurand = sv.get('measurand', '')
+                # OCPP 1.6 makes measurand optional and defines the default as
+                # Energy.Active.Import.Register. VOLTALITYTEST1 sends exactly
+                # that bare form — {"value": "431"} with no measurand and no
+                # unit — and we dropped every one of those readings, so a
+                # session's kWh sat at zero the whole way through and only
+                # appeared at StopTransaction. Voltality reported it as the
+                # session kWh never updating while charging. The 2.0.1 handler
+                # already defaults this correctly.
+                measurand = sv.get('measurand') or 'Energy.Active.Import.Register'
                 # OCPP 1.6: chargers may send power in 'W' or 'kW', energy in
                 # 'Wh' or 'kWh'. Respect the unit field so we always store in
                 # canonical SI prefix expected by the UI (power=kW, energy=kWh).
