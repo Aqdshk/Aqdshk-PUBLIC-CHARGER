@@ -70,6 +70,56 @@ def _now_myt():
     return (datetime.now(timezone.utc) + _MYT_OFFSET).replace(tzinfo=None)
 
 
+def parse_sampled_values(sampled_value) -> tuple:
+    """Read one MeterValues sample set into (voltage, current, power, kWh, soc).
+
+    Pulled out of the handler so it can be tested against the payloads real
+    chargers actually send, which is how the bug below went unnoticed: the
+    handler needs a database session and a live websocket to exercise, so
+    nobody ever ran a reading through it.
+
+    OCPP 1.6 makes measurand optional and defines the default as
+    Energy.Active.Import.Register, with Wh as the default unit. Voltality's
+    test charger sends exactly that bare form, {"value": "431"} and nothing
+    else. We required the field to be present, so every such reading was
+    discarded: session 449 sent 22 over 21 minutes and stored energy on none of
+    them, and the kWh only appeared at StopTransaction. The 2.0.1 handler had
+    always applied the default.
+    """
+    voltage = current = power = total_kwh = soc = None
+
+    for sv in sampled_value or []:
+        try:
+            value = float(sv.get('value', 0) or 0)
+        except (ValueError, TypeError):
+            value = 0.0
+        measurand = sv.get('measurand') or 'Energy.Active.Import.Register'
+        # Chargers send power in W or kW and energy in Wh or kWh. Respect the
+        # unit so what we store is always kW and kWh.
+        unit = (sv.get('unit') or '').strip()
+
+        if measurand == 'Voltage':
+            voltage = value
+        elif measurand == 'Current.Import':
+            current = value
+        elif measurand == 'Power.Active.Import':
+            # If the unit is absent, infer from magnitude: anything over 1000
+            # is almost certainly watts.
+            if unit.lower() == 'w' or (not unit and value > 1000):
+                power = value / 1000.0
+            else:
+                power = value
+        elif measurand == 'Energy.Active.Import.Register':
+            total_kwh = value if unit.lower() == 'kwh' else value / 1000.0
+        elif measurand == 'SoC':
+            # Clamped: a charger with no vehicle sometimes reports a
+            # placeholder outside 0-100.
+            if 0 <= value <= 100:
+                soc = value
+
+    return voltage, current, power, total_kwh, soc
+
+
 def _charger_ts_to_myt(value, fallback=None):
     """Normalise a charger's timestamp to Malaysia wall time.
 
@@ -1199,55 +1249,8 @@ class ChargePoint(cp):
             # python-ocpp converts camelCase → snake_case, so sampledValue → sampled_value
             sampled_value = mv.get('sampled_value', mv.get('sampledValue', []))
             
-            voltage = None
-            current = None
-            power = None
-            total_kwh = None
-            soc = None
-            
-            for sv in sampled_value:
-                try:
-                    value = float(sv.get('value', 0) or 0)
-                except (ValueError, TypeError):
-                    value = 0.0
-                # OCPP 1.6 makes measurand optional and defines the default as
-                # Energy.Active.Import.Register. VOLTALITYTEST1 sends exactly
-                # that bare form — {"value": "431"} with no measurand and no
-                # unit — and we dropped every one of those readings, so a
-                # session's kWh sat at zero the whole way through and only
-                # appeared at StopTransaction. Voltality reported it as the
-                # session kWh never updating while charging. The 2.0.1 handler
-                # already defaults this correctly.
-                measurand = sv.get('measurand') or 'Energy.Active.Import.Register'
-                # OCPP 1.6: chargers may send power in 'W' or 'kW', energy in
-                # 'Wh' or 'kWh'. Respect the unit field so we always store in
-                # canonical SI prefix expected by the UI (power=kW, energy=kWh).
-                unit = (sv.get('unit') or '').strip()
+            voltage, current, power, total_kwh, soc = parse_sampled_values(sampled_value)
 
-                if measurand == 'Voltage':
-                    voltage = value
-                elif measurand == 'Current.Import':
-                    current = value
-                elif measurand == 'Power.Active.Import':
-                    # Canonicalise to kW. If unit absent, infer from magnitude
-                    # (anything >1000 is almost certainly watts).
-                    if unit.lower() == 'w' or (not unit and value > 1000):
-                        power = value / 1000.0
-                    else:
-                        power = value  # already kW
-                elif measurand == 'Energy.Active.Import.Register':
-                    # Canonicalise to kWh.
-                    if unit.lower() == 'kwh':
-                        total_kwh = value
-                    else:
-                        total_kwh = value / 1000.0  # Wh → kWh
-                elif measurand == 'SoC':
-                    # The battery percentage the charger shows on its own
-                    # screen. Clamped because a charger with no vehicle
-                    # sometimes reports a placeholder outside 0-100.
-                    if 0 <= value <= 100:
-                        soc = value
-            
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
                 connector_id=connector_id,
