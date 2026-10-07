@@ -336,9 +336,6 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         power_type=_ptype,
                         max_voltage=_volt,
                         max_amperage=_amp,
-                        # Deprecated 2.1.1 spellings, sent alongside.
-                        voltage=_volt,
-                        amperage=_amp,
                         max_electric_power=_maxw,
                         # Without this an eMSP has no way to know what the
                         # connector costs — Voltality reported every connector
@@ -596,6 +593,27 @@ def _ocpi_now() -> str:
     return _to_ocpi_datetime(datetime.utcnow())
 
 
+def _country_alpha3() -> str:
+    """ISO 3166-1 alpha-3, which is what Location.country takes.
+
+    Not the same field as country_code, which is alpha-2 and identifies the CPO
+    that owns the location. We were putting the alpha-2 value in both, so every
+    location went out as country "MY" where the spec wants "MYS".
+    """
+    return os.getenv("OCPI_COUNTRY_ALPHA3", "MYS")
+
+
+def _coord(value) -> str:
+    """A GeoLocation coordinate: a decimal-degree string, not a number.
+
+    OCPI types latitude and longitude as string(10)/string(11) matching a
+    decimal-degree pattern, and calls five decimal places the minimum for
+    roughly one metre of precision. We were emitting raw floats, so a partner
+    validating against the regex rejected every location.
+    """
+    return f"{float(value):.6f}"
+
+
 def _location_fields(charger) -> tuple:
     """Address and coordinates for a charger, from its own row.
 
@@ -625,7 +643,7 @@ def _location_fields(charger) -> tuple:
         address,
         os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
         os.getenv("OCPI_LOCATION_POSTAL", "50000"),
-        {"latitude": float(lat), "longitude": float(lon)},
+        {"latitude": _coord(lat), "longitude": _coord(lon)},
     )
 
 
@@ -649,7 +667,7 @@ def _build_location_dict(charger) -> dict:
         address=_addr,
         city=_city,
         postal_code=_postal,
-        country=country,
+        country=_country_alpha3(),
         coordinates=_coords,
         evses=_build_evses(charger, loc_id, country, party_id, now),
         time_zone="Asia/Kuala_Lumpur",
@@ -731,7 +749,7 @@ async def get_location(
         address=_addr,
         city=_city,
         postal_code=_postal,
-        country=country,
+        country=_country_alpha3(),
         coordinates=_coords,
         evses=evses,
         time_zone="Asia/Kuala_Lumpur",
@@ -841,13 +859,6 @@ def _build_session_dict(sess) -> Optional[dict]:
         "id": str(sess.transaction_id),
         "start_date_time": _to_ocpi_datetime(sess.start_time),
         "end_date_time": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
-        # Deprecated 2.1.1 spellings, sent alongside the correct ones so a
-        # partner already reading them keeps working. This is a live
-        # integration; renaming a field out from under it would have broken
-        # Voltality's parser with no warning. Remove once they confirm they
-        # have migrated.
-        "start_datetime": _to_ocpi_datetime(sess.start_time),
-        "end_datetime": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
         "kwh": float(sess.energy_consumed or 0),
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
@@ -902,7 +913,6 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     tariff_id = _tariff_id(charger)
     periods = [{
         "start_date_time": _to_ocpi_datetime(start_time),
-        "start_datetime": _to_ocpi_datetime(start_time),  # deprecated 2.1.1 name
         "dimensions": [{"type": "ENERGY", "volume": energy}],
         "tariff_id": tariff_id,
     }]
@@ -910,7 +920,6 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         _idle_from = _to_ocpi_datetime(sess.idle_started_at or stop_time)
         periods.append({
             "start_date_time": _idle_from,
-            "start_datetime": _idle_from,  # deprecated 2.1.1 name
             "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
             "tariff_id": tariff_id,
         })
@@ -927,7 +936,7 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "address": _addr,
         "city": _city,
         "postal_code": _postal,
-        "country": country,
+        "country": _country_alpha3(),
         "coordinates": _coords,
         "evse_uid": f"{loc_id}-EVSE{gun}",
         "evse_id": f"{country}*{party_id}*E*{charger.charge_point_id}"
@@ -950,16 +959,6 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "end_date_time": _to_ocpi_datetime(stop_time),
         "auth_method": "AUTH_REQUEST",
         "cdr_location": cdr_location,
-        # Deprecated 2.1.1 fields, retained for the same reason as on the
-        # Session: Voltality's billing reads them today. Removed once they
-        # confirm the migration.
-        "start_datetime": _to_ocpi_datetime(start_time),
-        "end_datetime": _to_ocpi_datetime(stop_time),
-        "auth_id": sess.user_id or "UNKNOWN",
-        "location_id": loc_id,
-        "evse_uid": f"{loc_id}-EVSE{gun}",
-        "connector_id": str(gun),
-        "tariff_id": tariff_id,
         "currency": "MYR",
         # OCPI models this as a Price, not a bare number, so the partner can
         # see what is tax and what is not without a side channel.

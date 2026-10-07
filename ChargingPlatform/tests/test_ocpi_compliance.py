@@ -12,6 +12,7 @@ none of them can quietly regress:
   - idle was measured to stop_time, so a session stopped from the app or by a
     roaming partner billed nothing however long the car blocked the bay
 """
+import re
 import unittest
 from datetime import datetime, timedelta
 
@@ -380,11 +381,11 @@ class SpecFieldTests(OcpiTestBase):
     # Removed between 2.1.1 and 2.2.1. Publishing them is not fatal, but it
     # tells a partner we are speaking the older version.
     LOCATION_GONE = {"type", "evse_uid", "facility_id"}
-    # The CDR's 2.1.1 fields are deliberately still sent: Voltality's billing
-    # reads them today, and this is a live integration, so the correct names
-    # were added beside them rather than swapped in. They come out once
-    # Voltality confirm they have migrated.
-    CDR_DEPRECATED = {"auth_id", "location_id", "evse_uid", "connector_id", "tariff_id"}
+    # Dropped on 2026-10-07 once Voltality confirmed they read 2.2.1 fields.
+    # They were emitted alongside the correct names for one day so the rename
+    # could not break a running partner.
+    CDR_GONE = {"auth_id", "location_id", "evse_uid", "connector_id", "tariff_id",
+                "start_datetime", "end_datetime"}
 
     def _one_location(self):
         r = self.client.get("/ocpi/2.2.1/locations", headers=AUTH)
@@ -400,10 +401,8 @@ class SpecFieldTests(OcpiTestBase):
     def test_connector_uses_max_voltage_and_max_amperage(self):
         conn = self._one_location()["evses"][0]["connectors"][0]
         self.assertEqual(self.CONNECTOR_REQUIRED - set(conn), set())
-        # The 2.1.1 spellings ride along until Voltality have migrated, and
-        # must carry the same values.
-        self.assertEqual(conn["voltage"], conn["max_voltage"])
-        self.assertEqual(conn["amperage"], conn["max_amperage"])
+        self.assertNotIn("voltage", conn)
+        self.assertNotIn("amperage", conn)
 
     def test_evse_has_every_required_field(self):
         evse = self._one_location()["evses"][0]
@@ -453,13 +452,11 @@ class SpecFieldPayloadTests(unittest.TestCase):
         d = _build_session_dict(self.sess)
         self.assertEqual(SpecFieldTests.SESSION_REQUIRED - set(d), set())
 
-    def test_session_still_carries_the_old_names_during_migration(self):
-        # Renaming a field out from under a running partner breaks it with no
-        # warning. Both spellings go out until they say they have migrated.
+    def test_session_no_longer_carries_the_2_1_1_names(self):
         from ocpi.router import _build_session_dict
         d = _build_session_dict(self.sess)
-        self.assertEqual(d["start_datetime"], d["start_date_time"])
-        self.assertEqual(d["end_datetime"], d["end_date_time"])
+        self.assertNotIn("start_datetime", d)
+        self.assertNotIn("end_datetime", d)
 
     def test_cdr_has_every_required_field(self):
         from ocpi.router import _build_cdr_dict
@@ -467,16 +464,10 @@ class SpecFieldPayloadTests(unittest.TestCase):
         self.assertIsNotNone(d)
         self.assertEqual(SpecFieldTests.CDR_REQUIRED - set(d), set())
 
-    def test_cdr_still_carries_the_old_fields_during_migration(self):
+    def test_cdr_no_longer_carries_the_2_1_1_fields(self):
         from ocpi.router import _build_cdr_dict
         d = _build_cdr_dict(self.sess)
-        self.assertEqual(SpecFieldTests.CDR_DEPRECATED - set(d), set())
-        # And the duplicates must agree, or a partner reading the old name
-        # bills against a different figure from one reading the new one.
-        self.assertEqual(d["start_datetime"], d["start_date_time"])
-        self.assertEqual(d["location_id"], d["cdr_location"]["id"])
-        self.assertEqual(d["evse_uid"], d["cdr_location"]["evse_uid"])
-        self.assertEqual(d["connector_id"], d["cdr_location"]["connector_id"])
+        self.assertEqual(SpecFieldTests.CDR_GONE & set(d), set())
 
     def test_cdr_location_is_complete(self):
         from ocpi.router import _build_cdr_dict
@@ -487,7 +478,7 @@ class SpecFieldPayloadTests(unittest.TestCase):
         from ocpi.router import _build_cdr_dict
         for period in _build_cdr_dict(self.sess)["charging_periods"]:
             self.assertIn("start_date_time", period)
-            self.assertEqual(period["start_datetime"], period["start_date_time"])
+            self.assertNotIn("start_datetime", period)
 
     def test_idle_shows_up_as_a_parking_dimension(self):
         from ocpi.router import _build_cdr_dict
@@ -536,8 +527,8 @@ class LocationDataTests(unittest.TestCase):
         from ocpi.router import _build_location_dict
         loc = _build_location_dict(self.sited)
         self.assertEqual(loc["address"], "Seksyen 15, Shah Alam, Selangor")
-        self.assertAlmostEqual(loc["coordinates"]["latitude"], 3.06566)
-        self.assertAlmostEqual(loc["coordinates"]["longitude"], 101.533168)
+        self.assertEqual(loc["coordinates"]["latitude"], "3.065660")
+        self.assertEqual(loc["coordinates"]["longitude"], "101.533168")
 
     def test_a_charger_without_an_address_falls_back(self):
         from ocpi.router import _build_location_dict
@@ -624,3 +615,37 @@ class PublicationTests(unittest.TestCase):
         # Voltality's test charger is powered down between test runs; dropping
         # it on silence would pull it off the map mid-integration.
         self.assertIn("PUBOFFLINE", self._published())
+
+
+class GeoAndCountryTests(OcpiTestBase):
+    """Reported by Voltality on 2026-10-07, all three correct.
+
+    country and country_code are different fields taking different standards,
+    and we were putting the alpha-2 value in both. Coordinates are typed as
+    decimal-degree strings, not numbers, so a partner validating against the
+    spec regex rejected every location we published.
+    """
+
+    _COORD = re.compile(r"^-?[0-9]{1,3}\.[0-9]{5,7}$")
+
+    def _one_location(self):
+        r = self.client.get("/ocpi/2.2.1/locations", headers=AUTH)
+        return [l for l in r.json()["data"] if l["id"] == LOC][0]
+
+    def test_country_is_alpha3_and_country_code_is_alpha2(self):
+        loc = self._one_location()
+        self.assertEqual(loc["country"], "MYS")
+        self.assertEqual(loc["country_code"], "MY")
+
+    def test_coordinates_are_strings_matching_the_spec_pattern(self):
+        coords = self._one_location()["coordinates"]
+        for axis in ("latitude", "longitude"):
+            with self.subTest(axis=axis):
+                self.assertIsInstance(coords[axis], str)
+                self.assertRegex(coords[axis], self._COORD)
+
+    def test_latitude_and_longitude_fit_the_spec_lengths(self):
+        coords = self._one_location()["coordinates"]
+        self.assertLessEqual(len(coords["latitude"]), 10)
+        self.assertLessEqual(len(coords["longitude"]), 11)
+
