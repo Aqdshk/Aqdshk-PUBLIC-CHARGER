@@ -541,3 +541,65 @@ class LocationDataTests(unittest.TestCase):
         cdr = _build_cdr_dict(sess)
         self.assertEqual(cdr["cdr_location"]["address"], loc["address"])
         self.assertEqual(cdr["cdr_location"]["coordinates"], loc["coordinates"])
+
+
+class PublicationTests(unittest.TestCase):
+    """What may reach a roaming partner, and what may never.
+
+    On 2026-10-07 three Proton home chargers were being advertised to Voltality
+    as public charge points, and 471 Perodua units were one heartbeat away from
+    the same thing, because publication was opt-out by staleness: any charger
+    that had checked in recently and carried no explicit flag went onto the
+    public map by itself.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.ids = ["PUBOURS", "PUBPROTON", "PUBUNFLAGGED", "PUBOFFLINE"]
+        self.db.query(Charger).filter(
+            Charger.charge_point_id.in_(self.ids)
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        self.db.add_all([
+            Charger(charge_point_id="PUBOURS", tenant="czero-tng", is_public=True,
+                    last_heartbeat=datetime.utcnow()),
+            # Someone else's fleet, flagged public by mistake.
+            Charger(charge_point_id="PUBPROTON", tenant="proton", is_public=True,
+                    last_heartbeat=datetime.utcnow()),
+            # Ours, checking in, nobody has published it.
+            Charger(charge_point_id="PUBUNFLAGGED", tenant="czero-tng", is_public=None,
+                    last_heartbeat=datetime.utcnow()),
+            # Ours, published, powered down for a fortnight.
+            Charger(charge_point_id="PUBOFFLINE", tenant="czero-tng", is_public=True,
+                    last_heartbeat=datetime.utcnow() - timedelta(days=14)),
+        ])
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(Charger).filter(
+            Charger.charge_point_id.in_(self.ids)
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        self.db.close()
+
+    def _published(self):
+        from ocpi.router import _publishable
+        return {c.charge_point_id for c in _publishable(self.db.query(Charger)).all()}
+
+    def test_our_published_charger_is_listed(self):
+        self.assertIn("PUBOURS", self._published())
+
+    def test_another_companys_fleet_is_never_listed(self):
+        # The flag alone must not be enough. This is the Proton case.
+        self.assertNotIn("PUBPROTON", self._published())
+
+    def test_an_unflagged_charger_does_not_publish_itself(self):
+        # The Perodua case: checking in is not consent to be advertised.
+        self.assertNotIn("PUBUNFLAGGED", self._published())
+
+    def test_a_published_charger_survives_being_offline(self):
+        # Voltality's test charger is powered down between test runs; dropping
+        # it on silence would pull it off the map mid-integration.
+        self.assertIn("PUBOFFLINE", self._published())

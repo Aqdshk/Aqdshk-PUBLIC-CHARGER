@@ -41,6 +41,18 @@ router = APIRouter(prefix="/ocpi", tags=["OCPI 2.2.1"])
 # have genuinely gone away disappear. Override with OCPI_PUBLISH_MAX_AGE_DAYS.
 _PUBLISH_MAX_AGE_DAYS = int(os.getenv("OCPI_PUBLISH_MAX_AGE_DAYS", "7"))
 
+# Which tenants may ever reach a roaming partner. `tenant` says which of our
+# apps drives a charger: perodua, hicom and proton are other companies' fleets
+# and their home units, driven through their own PWAs, and none of them is ours
+# to advertise. On 2026-10-07 three Proton home chargers were being published
+# to Voltality as public charge points, and 471 Perodua units were one
+# heartbeat away from joining them.
+_PUBLISHABLE_TENANTS = {
+    t.strip()
+    for t in os.getenv("OCPI_PUBLISHABLE_TENANTS", "czero-tng,mini").split(",")
+    if t.strip()
+}
+
 
 # OCPP connector state → OCPI 2.2.1 EVSE status.
 #
@@ -343,23 +355,30 @@ def _publishable(query, cutoff: Optional[datetime] = None):
 
     A roaming partner republishes whatever we hand them straight to drivers,
     so anything listed here has to be a charge point someone could actually
-    drive to. The chargers table does not clear itself — it holds every unit
-    that ever connected, including hundreds that reported once months ago —
-    so publication is opt-out by staleness, with explicit operator overrides:
+    drive to, and one that is ours to advertise.
 
-        is_public = True   → always published, even while offline
-        is_public = False  → never published
-        is_public = NULL   → published only if seen within the age window
+    Publication is opt-in on two independent conditions, and both must hold:
+
+        is_public = True        → somebody deliberately published it
+        tenant in the allow-list → it is one of ours to publish
+
+    It used to be opt-out by staleness: any charger that had sent a heartbeat
+    inside the window and carried no explicit flag was advertised. That is
+    backwards for data a partner shows to drivers. Every charger we installed
+    joined the public map by itself, which is how three Proton home chargers
+    came to be advertised to Voltality, and how 471 Perodua units sat one
+    heartbeat away from the same thing.
+
+    A flagged charger stays published while it is offline, which is what the
+    flag has always meant. Dropping it on silence would have pulled Voltality's
+    test charger off the map mid-integration every time it was powered down
+    overnight. Taking a charge point out of service is an explicit act: clear
+    the flag.
     """
-    if cutoff is None:
-        cutoff = datetime.utcnow() - timedelta(days=_PUBLISH_MAX_AGE_DAYS)
+    del cutoff  # retained for callers; publication no longer expires on silence
     return query.filter(
-        (Charger.is_public.is_(True))
-        | (
-            Charger.is_public.is_(None)
-            & Charger.last_heartbeat.isnot(None)
-            & (Charger.last_heartbeat >= cutoff)
-        )
+        Charger.is_public.is_(True),
+        Charger.tenant.in_(_PUBLISHABLE_TENANTS),
     )
 
 
