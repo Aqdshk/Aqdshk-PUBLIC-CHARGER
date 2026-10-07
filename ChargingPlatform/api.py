@@ -2985,16 +2985,30 @@ async def partner_stop_charging(
         raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
     _enforce_tenant_guard(partner_row, charger)
 
-    # Find the active session linked to this txn
+    # Find the session this payment started: the first real one on the charger
+    # after the payment, the same rule /sessions/{ref} uses, so stop acts on
+    # the session the partner has been polling.
+    #
+    # This used to take the latest row on the charger, placeholder included.
+    # RemoteStart leaves a placeholder (negative transaction_id) stamped with
+    # our clock, and it is marked completed once the charger's StartTransaction
+    # arrives. The real session carries the charger's own timestamp, which can
+    # be a few seconds earlier, and then the placeholder sorted first: the
+    # endpoint answered "already stopped" and never sent RemoteStop, while the
+    # car went on charging (2026-10-06, 73 minutes past the guest's stop).
     if txn.paid_at:
-        window_start = txn.paid_at - timedelta(minutes=2)
+        # paid_at is naive UTC; start_time is naive Malaysian wall time.
+        paid_utc = txn.paid_at if txn.paid_at.tzinfo else txn.paid_at.replace(tzinfo=UTC)
+        paid_local = paid_utc.astimezone(MYT).replace(tzinfo=None)
         session = (
             db.query(ChargingSession)
             .filter(
                 ChargingSession.charger_id == charger.id,
-                ChargingSession.start_time >= window_start,
+                ChargingSession.transaction_id > 0,
+                ChargingSession.start_time >= paid_local - timedelta(minutes=2),
+                ChargingSession.start_time <= paid_local + timedelta(hours=12),
             )
-            .order_by(ChargingSession.start_time.desc())
+            .order_by(ChargingSession.start_time.asc())
             .first()
         )
     else:
