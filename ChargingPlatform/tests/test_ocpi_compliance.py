@@ -380,7 +380,11 @@ class SpecFieldTests(OcpiTestBase):
     # Removed between 2.1.1 and 2.2.1. Publishing them is not fatal, but it
     # tells a partner we are speaking the older version.
     LOCATION_GONE = {"type", "evse_uid", "facility_id"}
-    CDR_GONE = {"auth_id", "location_id", "evse_uid", "connector_id", "tariff_id"}
+    # The CDR's 2.1.1 fields are deliberately still sent: Voltality's billing
+    # reads them today, and this is a live integration, so the correct names
+    # were added beside them rather than swapped in. They come out once
+    # Voltality confirm they have migrated.
+    CDR_DEPRECATED = {"auth_id", "location_id", "evse_uid", "connector_id", "tariff_id"}
 
     def _one_location(self):
         r = self.client.get("/ocpi/2.2.1/locations", headers=AUTH)
@@ -396,9 +400,10 @@ class SpecFieldTests(OcpiTestBase):
     def test_connector_uses_max_voltage_and_max_amperage(self):
         conn = self._one_location()["evses"][0]["connectors"][0]
         self.assertEqual(self.CONNECTOR_REQUIRED - set(conn), set())
-        # The 2.1.1 spellings were what we actually sent.
-        self.assertNotIn("voltage", conn)
-        self.assertNotIn("amperage", conn)
+        # The 2.1.1 spellings ride along until Voltality have migrated, and
+        # must carry the same values.
+        self.assertEqual(conn["voltage"], conn["max_voltage"])
+        self.assertEqual(conn["amperage"], conn["max_amperage"])
 
     def test_evse_has_every_required_field(self):
         evse = self._one_location()["evses"][0]
@@ -447,15 +452,31 @@ class SpecFieldPayloadTests(unittest.TestCase):
         from ocpi.router import _build_session_dict
         d = _build_session_dict(self.sess)
         self.assertEqual(SpecFieldTests.SESSION_REQUIRED - set(d), set())
-        self.assertNotIn("start_datetime", d)
-        self.assertNotIn("end_datetime", d)
+
+    def test_session_still_carries_the_old_names_during_migration(self):
+        # Renaming a field out from under a running partner breaks it with no
+        # warning. Both spellings go out until they say they have migrated.
+        from ocpi.router import _build_session_dict
+        d = _build_session_dict(self.sess)
+        self.assertEqual(d["start_datetime"], d["start_date_time"])
+        self.assertEqual(d["end_datetime"], d["end_date_time"])
 
     def test_cdr_has_every_required_field(self):
         from ocpi.router import _build_cdr_dict
         d = _build_cdr_dict(self.sess)
         self.assertIsNotNone(d)
         self.assertEqual(SpecFieldTests.CDR_REQUIRED - set(d), set())
-        self.assertEqual(SpecFieldTests.CDR_GONE & set(d), set())
+
+    def test_cdr_still_carries_the_old_fields_during_migration(self):
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        self.assertEqual(SpecFieldTests.CDR_DEPRECATED - set(d), set())
+        # And the duplicates must agree, or a partner reading the old name
+        # bills against a different figure from one reading the new one.
+        self.assertEqual(d["start_datetime"], d["start_date_time"])
+        self.assertEqual(d["location_id"], d["cdr_location"]["id"])
+        self.assertEqual(d["evse_uid"], d["cdr_location"]["evse_uid"])
+        self.assertEqual(d["connector_id"], d["cdr_location"]["connector_id"])
 
     def test_cdr_location_is_complete(self):
         from ocpi.router import _build_cdr_dict
@@ -466,7 +487,7 @@ class SpecFieldPayloadTests(unittest.TestCase):
         from ocpi.router import _build_cdr_dict
         for period in _build_cdr_dict(self.sess)["charging_periods"]:
             self.assertIn("start_date_time", period)
-            self.assertNotIn("start_datetime", period)
+            self.assertEqual(period["start_datetime"], period["start_date_time"])
 
     def test_idle_shows_up_as_a_parking_dimension(self):
         from ocpi.router import _build_cdr_dict

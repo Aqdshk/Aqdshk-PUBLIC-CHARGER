@@ -46,6 +46,10 @@ class Connector(BaseModel):
     power_type: str = "AC_1_PHASE"
     max_voltage: Optional[int] = None
     max_amperage: Optional[int] = None
+    # Deprecated 2.1.1 spellings. Kept so a live partner reading them does not
+    # break on the rename; dropped once Voltality confirm they have migrated.
+    voltage: Optional[int] = None
+    amperage: Optional[int] = None
     max_electric_power: Optional[int] = None  # Watts
     tariff_ids: Optional[List[str]] = None
     terms_and_conditions: Optional[str] = None

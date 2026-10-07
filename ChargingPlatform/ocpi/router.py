@@ -336,6 +336,9 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         power_type=_ptype,
                         max_voltage=_volt,
                         max_amperage=_amp,
+                        # Deprecated 2.1.1 spellings, sent alongside.
+                        voltage=_volt,
+                        amperage=_amp,
                         max_electric_power=_maxw,
                         # Without this an eMSP has no way to know what the
                         # connector costs — Voltality reported every connector
@@ -838,6 +841,13 @@ def _build_session_dict(sess) -> Optional[dict]:
         "id": str(sess.transaction_id),
         "start_date_time": _to_ocpi_datetime(sess.start_time),
         "end_date_time": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
+        # Deprecated 2.1.1 spellings, sent alongside the correct ones so a
+        # partner already reading them keeps working. This is a live
+        # integration; renaming a field out from under it would have broken
+        # Voltality's parser with no warning. Remove once they confirm they
+        # have migrated.
+        "start_datetime": _to_ocpi_datetime(sess.start_time),
+        "end_datetime": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
         "kwh": float(sess.energy_consumed or 0),
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
@@ -892,12 +902,15 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     tariff_id = _tariff_id(charger)
     periods = [{
         "start_date_time": _to_ocpi_datetime(start_time),
+        "start_datetime": _to_ocpi_datetime(start_time),  # deprecated 2.1.1 name
         "dimensions": [{"type": "ENERGY", "volume": energy}],
         "tariff_id": tariff_id,
     }]
     if idle_minutes:
+        _idle_from = _to_ocpi_datetime(sess.idle_started_at or stop_time)
         periods.append({
-            "start_date_time": _to_ocpi_datetime(sess.idle_started_at or stop_time),
+            "start_date_time": _idle_from,
+            "start_datetime": _idle_from,  # deprecated 2.1.1 name
             "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
             "tariff_id": tariff_id,
         })
@@ -937,6 +950,16 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "end_date_time": _to_ocpi_datetime(stop_time),
         "auth_method": "AUTH_REQUEST",
         "cdr_location": cdr_location,
+        # Deprecated 2.1.1 fields, retained for the same reason as on the
+        # Session: Voltality's billing reads them today. Removed once they
+        # confirm the migration.
+        "start_datetime": _to_ocpi_datetime(start_time),
+        "end_datetime": _to_ocpi_datetime(stop_time),
+        "auth_id": sess.user_id or "UNKNOWN",
+        "location_id": loc_id,
+        "evse_uid": f"{loc_id}-EVSE{gun}",
+        "connector_id": str(gun),
+        "tariff_id": tariff_id,
         "currency": "MYR",
         # OCPI models this as a Price, not a bare number, so the partner can
         # see what is tax and what is not without a side channel.
