@@ -190,6 +190,45 @@ class IdleAccrualTests(unittest.TestCase):
             setattr(s, k, v)
         return s
 
+    def test_a_partial_block_is_billed_as_a_whole_one(self):
+        """Voltality session 449, their numbers exactly.
+
+        540.12 seconds idle, 300 of them free, leaves 240.12 chargeable. OCPI
+        bills in whole step_size blocks and rounds a partial block up, so that
+        is five blocks of 60 seconds, not four. We truncated and billed RM0.80
+        against a tariff that says RM1.00.
+        """
+        charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
+                          idle_fee_per_min=0.20, idle_grace_minutes=5)
+        s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=540.12))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (5, 1.0))
+
+    def test_a_single_second_past_grace_costs_one_block(self):
+        # Truncating made anything under a minute past grace free, so a bay
+        # could be blocked again and again at no cost.
+        charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
+                          idle_fee_per_min=0.20, idle_grace_minutes=5)
+        s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=301))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (1, 0.2))
+
+    def test_an_exact_number_of_blocks_is_not_rounded_up(self):
+        charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
+                          idle_fee_per_min=0.20, idle_grace_minutes=5)
+        s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=600))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (5, 1.0))
+
+    def test_the_tariff_advertises_the_block_size_we_bill(self):
+        # The two were separate literals. If they drift, the partner's
+        # recomputed cost stops matching ours and every CDR is disputable.
+        from ocpi.router import _build_tariff
+        charger = Charger(charge_point_id="STEP", tariff_per_kwh=1.0,
+                          idle_fee_enabled=True, idle_fee_per_min=0.20,
+                          idle_grace_minutes=5)
+        t = _build_tariff(charger, "2026-10-07T00:00:00Z")
+        parking = [c for e in t["elements"] for c in e["price_components"]
+                   if c["type"] == "PARKING_TIME"][0]
+        self.assertEqual(parking["step_size"], idle_billing.PARKING_STEP_SECONDS)
+
     def test_grace_is_free(self):
         s = self._session(unplugged_at=self.stopped_at + timedelta(minutes=10))
         self.assertEqual(idle_billing.compute_idle(s, self.charger), (0, 0.0))
@@ -298,10 +337,14 @@ class UnplugSettlementTests(unittest.TestCase):
 
     def test_settles_the_waiting_session(self):
         self._stopped_session()
-        settled = idle_billing.settle_unplug(self.db, self.charger)
+        # Pin the unplug instant: settling against the wall clock puts the
+        # accrual a few microseconds past the hour, which now rounds up to a
+        # 61st block and makes the assertion a coin toss.
+        unplug = self.stopped_at + timedelta(minutes=75)
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
         self.db.commit()
         self.assertIsNotNone(settled)
-        self.assertIsNotNone(settled.unplugged_at)
+        self.assertEqual(settled.unplugged_at, unplug)
         self.assertEqual(settled.idle_minutes, 60)
 
     def test_nothing_waiting_is_not_an_error(self):
@@ -517,6 +560,15 @@ class LocationDataTests(unittest.TestCase):
 
     def tearDown(self):
         self.db.rollback()
+        ids = [c.id for c in self.db.query(Charger).filter(
+            Charger.charge_point_id.in_(["ADDRTEST", "NOADDRTEST"])).all()]
+        # The suite shares one SQLite file. Leaving this test's session behind
+        # made an unrelated partner-stop test find a stoppable session and fail,
+        # but only when the whole suite ran.
+        if ids:
+            self.db.query(ChargingSession).filter(
+                ChargingSession.charger_id.in_(ids)
+            ).delete(synchronize_session=False)
         self.db.query(Charger).filter(
             Charger.charge_point_id.in_(["ADDRTEST", "NOADDRTEST"])
         ).delete(synchronize_session=False)

@@ -145,8 +145,11 @@ def _build_tariff(charger, now: str) -> dict:
         grace_seconds = int(charger.idle_grace_minutes or 0) * 60
         element = {
             "price_components": [
+                # Same constant the CDR bills with. Advertising one block size
+                # while billing another is a dispute waiting to happen.
                 {"type": "PARKING_TIME", "price": per_hour,
-                 "vat": _vat_percent(), "step_size": 60}
+                 "vat": _vat_percent(),
+                 "step_size": idle_billing.PARKING_STEP_SECONDS}
             ]
         }
         if grace_seconds:

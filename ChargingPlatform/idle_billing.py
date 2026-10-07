@@ -12,12 +12,22 @@ requested, so measuring to stop_time charged nothing for a car that stayed in
 the bay afterwards, which is the one case the fee exists to discourage.
 """
 
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Tuple
 
 _MYT_OFFSET = timedelta(hours=8)
+
+# The billing block for parking time, in seconds, and the value we publish as
+# the PARKING_TIME component's step_size. OCPI bills in whole blocks and rounds
+# a partial block up: "if 6 minutes were used, 10 minutes will be billed" for a
+# step_size of 300. Both numbers have to come from here, because a tariff that
+# advertises one block size while the CDR bills another is a dispute waiting to
+# happen.
+PARKING_STEP_SECONDS = 60
+
 
 # How long a CDR waits for a cable that may never come out. A charger that
 # goes offline mid-session, or a driver who leaves the plug in overnight,
@@ -53,7 +63,19 @@ def idle_end(sess, now: Optional[datetime] = None) -> Optional[datetime]:
 
 
 def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, float]:
-    """Chargeable idle minutes and the fee for them, after the grace period."""
+    """Billable idle minutes and the fee for them, after the grace period.
+
+    The time past grace is billed in whole blocks of PARKING_STEP_SECONDS, with
+    a partial block rounded up, which is what step_size means in OCPI. We used
+    to truncate instead: Voltality's session 449 idled 540.12 seconds, 240.12 of
+    them past grace, and we billed four blocks where the tariff we publish says
+    five. Truncating also meant anything under a minute past grace was free, so
+    a charger could be blocked repeatedly at no cost.
+
+    The returned minutes are the billed quantity, not the measured one, so the
+    CDR's parking dimension multiplied by the tariff gives exactly the cost we
+    charged.
+    """
     if not charger or not charger.idle_fee_enabled:
         return 0, 0.0
 
@@ -62,9 +84,14 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
     if not start or not end or end <= start:
         return 0, 0.0
 
-    elapsed = (end - start).total_seconds() / 60.0
-    past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
-    minutes = int(past_grace)
+    elapsed_s = (end - start).total_seconds()
+    grace_s = float(charger.idle_grace_minutes or 0) * 60.0
+    chargeable_s = max(0.0, elapsed_s - grace_s)
+    if chargeable_s <= 0:
+        return 0, 0.0
+
+    blocks = math.ceil(chargeable_s / PARKING_STEP_SECONDS)
+    minutes = int(blocks * PARKING_STEP_SECONDS / 60)
     fee = round(minutes * float(charger.idle_fee_per_min or 0), 2)
     return minutes, fee
 
