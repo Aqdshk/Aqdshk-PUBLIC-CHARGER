@@ -2331,6 +2331,12 @@ async def orphan_session_watchdog(interval_seconds: int = 120):
                 s.status = "interrupted"
                 s.stop_time = _now_myt()  # session clock is MYT wall time, not UTC
                 s.energy_consumed = final_energy
+                # Nothing is going to report this cable coming out: the charger
+                # has stopped talking to us, which is why the watchdog is
+                # closing the session at all. Leaving unplugged_at NULL would
+                # hold the CDR for the full fallback window on a record that is
+                # already final.
+                s.unplugged_at = s.stop_time
 
                 if charger:
                     charger.availability = "available"
@@ -2370,6 +2376,9 @@ async def orphan_session_watchdog(interval_seconds: int = 120):
                 s.status = "interrupted"
                 s.stop_reason = "NeverStarted"
                 s.stop_time = _now_myt()
+                # No energy was ever delivered, so there is no idling phase to
+                # wait out and the record is complete as it stands.
+                s.unplugged_at = s.stop_time
                 closed += 1
                 logger.warning(
                     f"Watchdog closed never-started session {s.id} "

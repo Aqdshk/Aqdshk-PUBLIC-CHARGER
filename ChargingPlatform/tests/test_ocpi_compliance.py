@@ -299,6 +299,21 @@ class UnplugSettlementTests(unittest.TestCase):
         self.assertIsNotNone(settled.unplugged_at)
         self.assertEqual(settled.idle_minutes, 3)
 
+    def test_a_watchdog_closed_session_does_not_wait_for_a_cable(self):
+        """Found in production, not in review.
+
+        Session 441 on 2026-10-06 sat with unplugged_at NULL because the
+        watchdog closed it, not the charger. There is no cable to wait for in
+        that case — the charger has stopped reporting, or nothing was ever
+        delivered — so holding its CDR for the full fallback window delays a
+        record that is already final. The watchdog now stamps the unplug, and
+        this asserts the consequence: such a session is immediately issuable.
+        """
+        s = self._stopped_session(status="interrupted", stop_reason="NeverStarted")
+        s.unplugged_at = s.stop_time
+        self.db.commit()
+        self.assertFalse(idle_billing.awaiting_unplug(s, self.charger))
+
     def test_interrupted_sessions_are_settled_too(self):
         # 2.0.1 closes an aborted transaction as "interrupted", and its CDR
         # has to be issuable as well.
