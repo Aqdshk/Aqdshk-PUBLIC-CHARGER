@@ -181,8 +181,14 @@ _CONNECTOR_STANDARDS = {
 
 
 def _terms_url() -> Optional[str]:
-    """Where our terms and conditions live, or None if not configured."""
-    return os.getenv("OCPI_TERMS_URL", "https://charger.czeros.tech/terms").strip() or None
+    """Where our terms and conditions live, or None until one is published.
+
+    Opt-in on purpose. The page exists but still has blanks for the company
+    details and the liability cap, and advertising a half-written legal
+    document to a roaming partner is worse than advertising none. Set
+    OCPI_TERMS_URL once it is signed off.
+    """
+    return os.getenv("OCPI_TERMS_URL", "").strip() or None
 
 
 def _connector_spec(charger):
