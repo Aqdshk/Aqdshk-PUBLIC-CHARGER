@@ -810,3 +810,77 @@ class InvalidSessionTests(unittest.TestCase):
         s = self._sess(idle_minutes=5, idle_started_at=self.stopped)
         self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
         self.assertIsNotNone(_build_cdr_dict(s))
+
+
+class ClockTests(unittest.TestCase):
+    """Timestamps must be the UTC instant, not Malaysia wall time wearing a Z.
+
+    Sessions and meter values are stored as Malaysia wall time, naive, because
+    that is the basis the OCPP handlers and every report use. We published them
+    with a Z suffix, which asserts UTC, so every timestamp a roaming partner
+    received was eight hours ahead of the truth. Durations and costs were never
+    wrong, since both ends shared the same wrong basis, but a partner
+    reconciling against its own records or printing a receipt saw the gap.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "CLOCKTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="CLOCKTEST", tariff_per_kwh=1.0,
+                               is_public=True, idle_fee_enabled=False)
+        self.db.add(self.charger)
+        self.db.commit()
+        # 19:30 in Malaysia is 11:30 UTC the same day.
+        self.started = datetime(2026, 10, 8, 19, 30, 0)
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=9101,
+                                    status="completed", user_id="U")
+        self.sess.start_time = self.started
+        self.sess.stop_time = self.started + timedelta(minutes=30)
+        self.sess.unplugged_at = self.sess.stop_time
+        self.sess.energy_consumed = 5.0
+        self.sess.evse_id = 1
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def test_a_session_is_published_in_utc(self):
+        from ocpi.router import _build_session_dict
+        d = _build_session_dict(self.sess)
+        self.assertEqual(d["start_date_time"], "2026-10-08T11:30:00Z")
+        self.assertEqual(d["end_date_time"], "2026-10-08T12:00:00Z")
+
+    def test_a_cdr_is_published_in_utc(self):
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        self.assertEqual(d["start_date_time"], "2026-10-08T11:30:00Z")
+        self.assertEqual(d["end_date_time"], "2026-10-08T12:00:00Z")
+        self.assertEqual(d["charging_periods"][0]["start_date_time"],
+                         "2026-10-08T11:30:00Z")
+
+    def test_the_duration_is_unchanged(self):
+        # The shift must move both ends together. This is why the bug survived:
+        # every figure a partner billed on was already right.
+        from ocpi.router import _build_cdr_dict
+        self.assertAlmostEqual(_build_cdr_dict(self.sess)["total_time"], 0.5)
+
+    def test_a_partners_utc_filter_selects_the_right_rows(self):
+        # The mirror of the same bug: date_from arrived as UTC and was compared
+        # against Malaysia wall time, so the window was eight hours out.
+        from ocpi.router import _session_filter_time
+        self.assertEqual(_session_filter_time("2026-10-08T11:30:00Z"),
+                         datetime(2026, 10, 8, 19, 30, 0))
+
+    def test_a_filter_round_trips_with_what_we_publish(self):
+        from ocpi.router import _session_time, _session_filter_time
+        published = _session_time(self.started)
+        self.assertEqual(_session_filter_time(published), self.started)

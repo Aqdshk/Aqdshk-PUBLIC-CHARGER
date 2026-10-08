@@ -7,7 +7,7 @@ import logging
 import os
 import secrets
 from urllib.parse import quote, urlsplit
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
@@ -525,12 +525,53 @@ def _scope_to_caller(q, caller):
 
 
 def _to_ocpi_datetime(dt) -> str:
-    """Convert datetime to OCPI ISO format."""
+    """Format a UTC datetime the way OCPI wants it.
+
+    Only for values that are already UTC. Session and meter columns are not:
+    see _session_time.
+    """
     if dt is None:
         return ""
     if hasattr(dt, "strftime"):
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     return str(dt)
+
+
+def _session_time(dt) -> str:
+    """Publish a session-clock timestamp as the UTC instant it actually was.
+
+    Sessions and meter values are stored as Malaysia wall time, naive, because
+    that is the basis the OCPP handlers and every report use. We published them
+    with a Z suffix, which asserts UTC, so every timestamp a roaming partner
+    received was eight hours ahead of the truth: a charge at 19:30 local was
+    published as 19:30Z, which is 03:30 the next morning in Malaysia.
+
+    Durations and costs were never affected, because both ends of a session
+    shared the same wrong basis. Absolute times were, and a partner
+    reconciling against its own records or showing a receipt to a driver sees
+    the difference.
+    """
+    if dt is None:
+        return ""
+    if not hasattr(dt, "strftime"):
+        return str(dt)
+    return (dt - _MYT_OFFSET).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _session_filter_time(value: str):
+    """Read a partner's UTC filter bound into the session clock.
+
+    The mirror of _session_time. date_from and date_to arrive as UTC and were
+    compared straight against Malaysia wall time, so a partner asking for
+    today's sessions got a window eight hours out of step with the rows.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed + _MYT_OFFSET
+
+
+_MYT_OFFSET = timedelta(hours=8)
 
 
 # ============ Versions ============
@@ -908,8 +949,8 @@ def _build_session_dict(sess) -> Optional[dict]:
         "country_code": country,
         "party_id": party_id,
         "id": str(sess.transaction_id),
-        "start_date_time": _to_ocpi_datetime(sess.start_time),
-        "end_date_time": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
+        "start_date_time": _session_time(sess.start_time),
+        "end_date_time": _session_time(sess.stop_time) if sess.stop_time else None,
         "kwh": float(sess.energy_consumed or 0),
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
@@ -928,7 +969,7 @@ def _build_session_dict(sess) -> Optional[dict]:
         ),
         "total_cost": _price(_session_cost(sess)),
         "authorization_reference": sess.authorization_reference,
-        "last_updated": _to_ocpi_datetime(sess.stop_time or sess.start_time),
+        "last_updated": _session_time(sess.stop_time or sess.start_time),
     }
 
 
@@ -973,12 +1014,12 @@ def _build_cdr_dict(sess) -> Optional[dict]:
 
     tariff_id = _tariff_id(charger)
     periods = [{
-        "start_date_time": _to_ocpi_datetime(start_time),
+        "start_date_time": _session_time(start_time),
         "dimensions": [{"type": "ENERGY", "volume": energy}],
         "tariff_id": tariff_id,
     }]
     if idle_minutes:
-        _idle_from = _to_ocpi_datetime(sess.idle_started_at or stop_time)
+        _idle_from = _session_time(sess.idle_started_at or stop_time)
         periods.append({
             "start_date_time": _idle_from,
             "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
@@ -1016,8 +1057,8 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         # Optional in OCPI 2.2.1, but Voltality reconcile CDRs against sessions.
         # Same value as the Session id: both are the transaction id.
         "session_id": str(sess.transaction_id),
-        "start_date_time": _to_ocpi_datetime(start_time),
-        "end_date_time": _to_ocpi_datetime(stop_time),
+        "start_date_time": _session_time(start_time),
+        "end_date_time": _session_time(stop_time),
         "auth_method": "AUTH_REQUEST",
         "cdr_location": cdr_location,
         "currency": "MYR",
@@ -1036,7 +1077,7 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         },
         "authorization_reference": sess.authorization_reference,
         "charging_periods": periods,
-        "last_updated": _to_ocpi_datetime(stop_time),
+        "last_updated": _session_time(stop_time),
     }
 
 
@@ -1060,13 +1101,13 @@ async def get_sessions(
     )
     if date_from:
         try:
-            df = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+            df = _session_filter_time(date_from)
             q = q.filter(ChargingSession.start_time >= df)
         except Exception:
             pass
     if date_to:
         try:
-            dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+            dt = _session_filter_time(date_to)
             q = q.filter(ChargingSession.start_time < dt)
         except Exception:
             pass
@@ -1107,13 +1148,13 @@ async def get_cdrs(
     )
     if date_from:
         try:
-            df = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
+            df = _session_filter_time(date_from)
             q = q.filter(ChargingSession.stop_time >= df)
         except Exception:
             pass
     if date_to:
         try:
-            dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
+            dt = _session_filter_time(date_to)
             q = q.filter(ChargingSession.stop_time < dt)
         except Exception:
             pass
