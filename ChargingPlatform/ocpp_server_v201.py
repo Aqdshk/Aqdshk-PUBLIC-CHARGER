@@ -313,7 +313,12 @@ class ChargePoint201(cp201):
             try:
                 charger = self._charger()
                 if charger:
-                    _settled = idle_billing.settle_unplug(self.db, charger)
+                    # The charger's own unplug instant, not ours. Same reason
+                    # as on the 1.6 path: idle rounds up to a whole block, so
+                    # report lag can add a block the driver did not earn.
+                    _settled = idle_billing.settle_unplug(
+                        self.db, charger, now=_parse_ts(timestamp)
+                    )
                     if _settled is not None:
                         self.db.commit()
                         logger.info(

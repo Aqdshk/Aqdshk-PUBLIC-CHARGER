@@ -180,6 +180,11 @@ _CONNECTOR_STANDARDS = {
 }
 
 
+def _terms_url() -> Optional[str]:
+    """Where our terms and conditions live, or None if not configured."""
+    return os.getenv("OCPI_TERMS_URL", "https://charger.czeros.tech/terms").strip() or None
+
+
 def _connector_spec(charger):
     """Describe a gun from what the charger record actually says.
 
@@ -344,6 +349,11 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         # connector costs — Voltality reported every connector
                         # arriving with no tariff attached.
                         tariff_ids=[_tariff_id(charger)],
+                        # OCPI carries the operator's terms on the connector,
+                        # so a partner can link them from their own app without
+                        # us agreeing a URL out of band. Voltality asked for it
+                        # on 2026-10-07.
+                        terms_and_conditions=_terms_url(),
                         last_updated=now,
                     )
                 ],

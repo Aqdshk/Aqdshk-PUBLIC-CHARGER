@@ -717,7 +717,15 @@ class ChargePoint(cp):
             if status == 'Available':
                 _settled = None
                 try:
-                    _settled = idle_billing.settle_unplug(self.db, charger)
+                    # Bill to the instant the charger says the cable came out,
+                    # not to the instant its message reached us. The two differ
+                    # by however long the report took, and because idle rounds
+                    # up to a whole block, a few seconds of lag can add a block
+                    # the driver did not earn.
+                    _unplugged_at = _charger_ts_to_myt(kwargs.get('timestamp'))
+                    _settled = idle_billing.settle_unplug(
+                        self.db, charger, now=_unplugged_at
+                    )
                     if _settled is not None:
                         self.db.commit()
                         logger.info(

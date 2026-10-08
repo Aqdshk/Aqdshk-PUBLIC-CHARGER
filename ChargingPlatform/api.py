@@ -2527,6 +2527,22 @@ async def quick_pay_page(charger: str = "", connector: str = "1"):
         raise HTTPException(status_code=500, detail=f"Error loading pay page: {str(e)}")
 
 
+@app.get("/terms")
+async def terms_page():
+    """Public terms and conditions.
+
+    Needed by roaming partners, who link it from their own apps so a driver
+    arriving through them can read whose network they are using and on what
+    basis. Voltality asked for the URL on 2026-10-07. The quick-pay page has
+    also told customers "By paying you agree to PlagSini's terms" since it was
+    written, with nothing to point at.
+    """
+    file_path = _BASE_DIR / "templates" / "terms.html"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Terms page not found")
+    return FileResponse(file_path, media_type="text/html")
+
+
 @app.get("/api/charger/{charger_id}/info")
 async def public_charger_info(charger_id: str, db: Session = Depends(get_db)):
     """Public charger metadata used by the /pay landing page.

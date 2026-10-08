@@ -127,12 +127,19 @@ def settle_unplug(db, charger, now: Optional[datetime] = None):
     if sess is None:
         return None
 
-    sess.unplugged_at = now or now_myt()
+    # The caller passes the charger's own reported instant, which is more
+    # accurate than ours but is also a clock we do not control. Clamp it: never
+    # later than now, and never before the stop it is closing out.
+    reported = now or now_myt()
+    reported = min(reported, now_myt())
+    if sess.stop_time and reported < sess.stop_time:
+        reported = sess.stop_time
+    sess.unplugged_at = reported
     # Money already moved on the kiosk flow. Re-billing here would settle
     # against a figure the customer was never shown and cannot be refunded a
     # second time, so those sessions only record when the cable came out.
     if sess.refund_status in (None, "", "not_required"):
-        finalize_idle(sess, charger, now)
+        finalize_idle(sess, charger, reported)
     return sess
 
 

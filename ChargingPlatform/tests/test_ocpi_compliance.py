@@ -347,6 +347,38 @@ class UnplugSettlementTests(unittest.TestCase):
         self.assertEqual(settled.unplugged_at, unplug)
         self.assertEqual(settled.idle_minutes, 60)
 
+    def test_the_chargers_own_unplug_instant_is_used(self):
+        """Voltality test IDL5.
+
+        The charger reports when the cable came out; that report reaches us a
+        moment later. Billing to our clock instead of theirs adds that lag to
+        the idle time, and since idle rounds up to a whole block, a few seconds
+        can cost the driver a block they did not earn.
+        """
+        self._stopped_session()
+        reported = self.stopped_at + timedelta(seconds=240)
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=reported)
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, reported)
+
+    def test_a_charger_clock_in_the_future_cannot_bill_forward(self):
+        # The reported instant comes from a clock we do not control.
+        self._stopped_session()
+        settled = idle_billing.settle_unplug(
+            self.db, self.charger, now=idle_billing.now_myt() + timedelta(days=1))
+        self.db.commit()
+        self.assertLessEqual(settled.unplugged_at, idle_billing.now_myt())
+
+    def test_a_reported_unplug_before_the_stop_is_clamped(self):
+        # A charger whose clock runs slow would otherwise close the session
+        # before it ended.
+        self._stopped_session()
+        settled = idle_billing.settle_unplug(
+            self.db, self.charger, now=self.stopped_at - timedelta(hours=2))
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, self.stopped_at)
+        self.assertEqual(settled.idle_minutes, 0)
+
     def test_nothing_waiting_is_not_an_error(self):
         # Chargers report Available constantly, with no session behind it.
         self.assertIsNone(idle_billing.settle_unplug(self.db, self.charger))
