@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, object_session
 
 import idle_billing
 
@@ -934,6 +935,41 @@ def _is_invalid_session(sess) -> bool:
     return int(sess.idle_minutes or 0) == 0
 
 
+def _session_last_updated(sess):
+    """When this session object last actually changed.
+
+    A partner polls on last_updated to decide what to re-read, so it has to
+    move whenever anything in the object moves. It was the stop time, falling
+    back to the start time, which never changed while a session was running.
+    That was invisible for as long as kwh never changed either; once meter
+    readings started being recorded, Voltality saw the energy climbing against
+    a frozen timestamp.
+
+    Three cases, in the order they occur:
+
+      running             -> the newest meter reading, which is what moves kwh
+      stopped, still in   -> now, because idle is still accruing into total_cost
+      finished            -> the unplug, which is the last thing that happened
+    """
+    if sess.status in ("active", "pending"):
+        latest = None
+        if sess.transaction_id:
+            db = object_session(sess)
+            if db is not None:
+                latest = (
+                    db.query(func.max(MeterValue.timestamp))
+                    .filter(MeterValue.transaction_id == sess.transaction_id)
+                    .scalar()
+                )
+        return latest or sess.start_time
+
+    charger = getattr(sess, "charger", None)
+    if idle_billing.awaiting_unplug(sess, charger):
+        return idle_billing.now_myt()
+
+    return sess.unplugged_at or sess.stop_time or sess.start_time
+
+
 def _build_session_dict(sess) -> Optional[dict]:
     """One OCPI Session. Shared by the pull endpoint and by push."""
     charger = sess.charger
@@ -969,7 +1005,7 @@ def _build_session_dict(sess) -> Optional[dict]:
         ),
         "total_cost": _price(_session_cost(sess)),
         "authorization_reference": sess.authorization_reference,
-        "last_updated": _session_time(sess.stop_time or sess.start_time),
+        "last_updated": _session_time(_session_last_updated(sess)),
     }
 
 

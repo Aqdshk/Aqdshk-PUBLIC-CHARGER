@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import api  # noqa: E402
 import idle_billing  # noqa: E402
 from database import (  # noqa: E402
-    Base, Charger, ChargingSession, SessionLocal, engine,
+    Base, Charger, ChargingSession, MeterValue, SessionLocal, engine,
 )
 
 AUTH = {"Authorization": "Token test-token"}
@@ -884,3 +884,91 @@ class ClockTests(unittest.TestCase):
         from ocpi.router import _session_time, _session_filter_time
         published = _session_time(self.started)
         self.assertEqual(_session_filter_time(published), self.started)
+
+
+class SessionLastUpdatedTests(unittest.TestCase):
+    """last_updated has to move whenever the session object moves.
+
+    Reported by Voltality on 2026-10-08: kwh was climbing while last_updated
+    stayed put. A partner polls on last_updated to decide what to re-read, so a
+    frozen one means they never pick the change up.
+
+    It had always been the stop time falling back to the start time, so it
+    never moved during a session. That was invisible while kwh never moved
+    either; fixing the meter parsing earlier the same day made it visible.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "LUTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="LUTEST", tariff_per_kwh=1.0,
+                               is_public=True, idle_fee_enabled=True,
+                               idle_fee_per_min=0.20, idle_grace_minutes=5)
+        self.db.add(self.charger)
+        self.db.commit()
+        self.started = idle_billing.now_myt() - timedelta(minutes=20)
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=7777,
+                                    status="active", user_id="U")
+        self.sess.start_time = self.started
+        self.sess.energy_consumed = 1.0
+        self.sess.evse_id = 1
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(MeterValue).filter(MeterValue.transaction_id == 7777).delete(
+            synchronize_session=False)
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _reading(self, at, kwh):
+        self.db.add(MeterValue(charger_id=self.charger.id, transaction_id=7777,
+                               timestamp=at, total_kwh=kwh, connector_id=1))
+        self.db.commit()
+
+    def _last_updated(self):
+        from ocpi.router import _build_session_dict
+        return _build_session_dict(self.sess)["last_updated"]
+
+    def test_a_running_session_tracks_its_newest_reading(self):
+        from ocpi.router import _session_time
+        self._reading(self.started + timedelta(minutes=5), 1.0)
+        newest = self.started + timedelta(minutes=12)
+        self._reading(newest, 2.0)
+        self.assertEqual(self._last_updated(), _session_time(newest))
+
+    def test_it_moves_when_a_new_reading_arrives(self):
+        self._reading(self.started + timedelta(minutes=5), 1.0)
+        before = self._last_updated()
+        self._reading(self.started + timedelta(minutes=6), 1.5)
+        self.assertNotEqual(self._last_updated(), before)
+
+    def test_a_running_session_with_no_readings_falls_back_to_the_start(self):
+        from ocpi.router import _session_time
+        self.assertEqual(self._last_updated(), _session_time(self.started))
+
+    def test_a_session_still_accruing_idle_keeps_moving(self):
+        # Stopped but still plugged in: total_cost is still growing, so the
+        # object is still changing.
+        from ocpi.router import _session_time
+        self.sess.status = "completed"
+        self.sess.stop_time = idle_billing.now_myt() - timedelta(minutes=2)
+        self.sess.idle_started_at = self.sess.stop_time
+        self.sess.unplugged_at = None
+        self.db.commit()
+        self.assertGreater(self._last_updated(), _session_time(self.sess.stop_time))
+
+    def test_a_finished_session_reports_the_unplug(self):
+        from ocpi.router import _session_time
+        self.sess.status = "completed"
+        self.sess.stop_time = self.started + timedelta(minutes=10)
+        self.sess.unplugged_at = self.started + timedelta(minutes=15)
+        self.db.commit()
+        self.assertEqual(self._last_updated(), _session_time(self.sess.unplugged_at))
