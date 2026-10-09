@@ -18,12 +18,12 @@ Usage:
 import hashlib
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text,
-    UniqueConstraint, create_engine,
+    UniqueConstraint, create_engine, event, inspect as sa_inspect,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
@@ -33,6 +33,11 @@ Base = declarative_base()
 def _utcnow():
     """Timezone-safe replacement for deprecated datetime.utcnow()"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _now_myt():
+    """Server clock as Malaysia wall time, naive — the session/meter convention."""
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None)
 
 
 # ─── User & Wallet ────────────────────────────────────────────────────────
@@ -311,6 +316,10 @@ class Charger(Base):
     # Per-connector OCPP status as a JSON string, e.g. {"1": "available", "2": "faulted"}.
     # `availability` above stays as the derived "best usable" status for backward compat.
     connector_status = Column(Text, nullable=True)
+    # When anything a roaming partner can see about this charger last changed:
+    # its connector status, its address, its tariff. Locations and Tariffs are
+    # filtered on it for the same reason sessions are.
+    last_updated = Column(DateTime, nullable=True, index=True)
     last_heartbeat = Column(DateTime)
     created_at = Column(DateTime, default=_utcnow)
     
@@ -549,6 +558,13 @@ class ChargingSession(Base):
     refund_status    = Column(String(32), nullable=True)
     refund_txn_ref   = Column(String(64), nullable=True)
     refund_at        = Column(DateTime, nullable=True)
+    # When anything about this session last changed, in Malaysia wall time like
+    # every other clock on this row. A roaming partner filters on it to decide
+    # what to re-read, so it has to be a real stored value and not something
+    # computed at render time: OCPI's date_from and date_to select on
+    # last_updated, and you cannot put an expression in a WHERE clause that
+    # depends on a subquery per row without the query falling apart.
+    last_updated     = Column(DateTime, nullable=True, index=True)
 
     charger = relationship("Charger", back_populates="sessions")
     payment = relationship("Payment", back_populates="session")
@@ -1158,6 +1174,47 @@ def init_db():
     """Create all tables if they don't exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_charging_session_connector_id_column()
+
+
+# ─── last_updated bookkeeping ─────────────────────────────────────────────
+# OCPI filters Sessions, CDRs, Locations and Tariffs on last_updated, so the
+# column has to be right every time, not only where somebody remembered to set
+# it. A session is written from a dozen places across two OCPP stacks and the
+# API, and a charger from more, so this is a mapper event rather than a dozen
+# assignments: one that cannot be forgotten by the next person to add a write.
+
+@event.listens_for(ChargingSession, "before_insert")
+@event.listens_for(ChargingSession, "before_update")
+def _stamp_session_last_updated(mapper, connection, target):
+    target.last_updated = _now_myt()
+
+
+# What a roaming partner can actually see about a charger. Heartbeats are
+# deliberately absent: they land every thirty seconds and would make every
+# location look freshly changed, so a partner polling on last_updated would
+# re-read the whole list continuously and learn nothing.
+_PARTNER_VISIBLE_CHARGER_FIELDS = frozenset({
+    "charge_point_id", "connector_status", "availability", "status",
+    "number_of_connectors", "connector_type", "max_power_kw",
+    "location", "latitude", "longitude",
+    "tariff_per_kwh", "idle_fee_enabled", "idle_fee_per_min",
+    "idle_grace_minutes", "is_public", "tenant",
+})
+
+
+@event.listens_for(Charger, "before_insert")
+def _stamp_charger_created(mapper, connection, target):
+    target.last_updated = _now_myt()
+
+
+@event.listens_for(Charger, "before_update")
+def _stamp_charger_last_updated(mapper, connection, target):
+    state = sa_inspect(target)
+    for field in _PARTNER_VISIBLE_CHARGER_FIELDS:
+        attr = state.attrs.get(field)
+        if attr is not None and attr.history.has_changes():
+            target.last_updated = _now_myt()
+            return
 
 
 def get_db():

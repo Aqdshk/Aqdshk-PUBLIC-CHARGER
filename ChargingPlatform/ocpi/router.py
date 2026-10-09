@@ -722,6 +722,39 @@ def _location_fields(charger) -> tuple:
     )
 
 
+def _charger_changed_at(charger) -> str:
+    """When this charger last changed, as OCPI should see it.
+
+    The same value date_from selects on. These used to be stamped with the
+    current time at render, so every Location and Tariff claimed to have
+    changed the instant it was read, and a partner filtering on last_updated
+    could not tell what had actually moved.
+    """
+    stamped = getattr(charger, "last_updated", None) or getattr(charger, "last_heartbeat", None)
+    return _session_time(stamped) if stamped else _ocpi_now()
+
+
+def _filter_by_changed(q, date_from: Optional[str], date_to: Optional[str]):
+    """Apply OCPI's date_from / date_to to a Charger query.
+
+    Locations and Tariffs are both built from chargers, and OCPI filters both
+    on last_updated the same way it filters sessions. Neither accepted the
+    parameters at all, so a partner asking for what had changed received the
+    whole list every time.
+    """
+    if date_from:
+        try:
+            q = q.filter(Charger.last_updated >= _session_filter_time(date_from))
+        except Exception:
+            pass
+    if date_to:
+        try:
+            q = q.filter(Charger.last_updated < _session_filter_time(date_to))
+        except Exception:
+            pass
+    return q
+
+
 def _build_location_dict(charger) -> dict:
     """One OCPI Location for a charger.
 
@@ -731,7 +764,7 @@ def _build_location_dict(charger) -> dict:
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _ocpi_now()
+    now = _charger_changed_at(charger)
     _addr, _city, _postal, _coords = _location_fields(charger)
     return Location(
         country_code=country,
@@ -754,12 +787,16 @@ def _build_location_dict(charger) -> dict:
 async def get_locations(
     request: Request,
     response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Get list of charging locations (from chargers)."""
-    q = _publishable(db.query(Charger)).order_by(Charger.id)
+    q = _filter_by_changed(
+        _publishable(db.query(Charger)), date_from, date_to
+    ).order_by(Charger.id)
     total = q.count()
     page = _page_size(limit)
     chargers = q.offset(offset).limit(page).all()
@@ -812,7 +849,7 @@ async def get_location(
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _to_ocpi_datetime(datetime.utcnow())
+    now = _charger_changed_at(charger)
     evses = _build_evses(charger, loc_id, country, party_id, now)
     _addr, _city, _postal, _coords = _location_fields(charger)
     loc = Location(
@@ -875,7 +912,7 @@ async def get_evse(location_id: str, evse_uid: str, db: Session = Depends(get_db
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _to_ocpi_datetime(datetime.utcnow())
+    now = _charger_changed_at(charger)
     for evse in _build_evses(charger, loc_id, country, party_id, now):
         data = evse.model_dump() if hasattr(evse, "model_dump") else evse
         if data.get("uid") == evse_uid:
@@ -900,7 +937,7 @@ async def get_connector(location_id: str, evse_uid: str, connector_id: str,
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _to_ocpi_datetime(datetime.utcnow())
+    now = _charger_changed_at(charger)
     for evse in _build_evses(charger, loc_id, country, party_id, now):
         data = evse.model_dump() if hasattr(evse, "model_dump") else evse
         if data.get("uid") != evse_uid:
@@ -941,33 +978,20 @@ def _session_last_updated(sess):
     A partner polls on last_updated to decide what to re-read, so it has to
     move whenever anything in the object moves. It was the stop time, falling
     back to the start time, which never changed while a session was running.
-    That was invisible for as long as kwh never changed either; once meter
-    readings started being recorded, Voltality saw the energy climbing against
-    a frozen timestamp.
 
-    Three cases, in the order they occur:
-
-      running             -> the newest meter reading, which is what moves kwh
-      stopped, still in   -> now, because idle is still accruing into total_cost
-      finished            -> the unplug, which is the last thing that happened
+    The column is stamped by a mapper event in database.py, so every write
+    moves it, wherever that write happens to live.
     """
-    if sess.status in ("active", "pending"):
-        latest = None
-        if sess.transaction_id:
-            db = object_session(sess)
-            if db is not None:
-                latest = (
-                    db.query(func.max(MeterValue.timestamp))
-                    .filter(MeterValue.transaction_id == sess.transaction_id)
-                    .scalar()
-                )
-        return latest or sess.start_time
-
-    charger = getattr(sess, "charger", None)
-    if idle_billing.awaiting_unplug(sess, charger):
-        return idle_billing.now_myt()
-
-    return sess.unplugged_at or sess.stop_time or sess.start_time
+    # The stored column, so that what we publish and what date_from selects on
+    # are the same value. It used to be derived at render time, which cannot go
+    # in a WHERE clause, and a partner filtering on a number we never stored
+    # would miss rows we had just told it had changed.
+    return (
+        sess.last_updated
+        or sess.unplugged_at
+        or sess.stop_time
+        or sess.start_time
+    )
 
 
 def _build_session_dict(sess) -> Optional[dict]:
@@ -1138,13 +1162,17 @@ async def get_sessions(
     if date_from:
         try:
             df = _session_filter_time(date_from)
-            q = q.filter(ChargingSession.start_time >= df)
+            # OCPI selects on last_updated, not on when the session began.
+            # Filtering on the start time meant a partner could never pull a
+            # session's updates once it had started, which is what Voltality
+            # reported on 2026-10-09.
+            q = q.filter(ChargingSession.last_updated >= df)
         except Exception:
             pass
     if date_to:
         try:
             dt = _session_filter_time(date_to)
-            q = q.filter(ChargingSession.start_time < dt)
+            q = q.filter(ChargingSession.last_updated < dt)
         except Exception:
             pass
     total = q.count()
@@ -1185,13 +1213,13 @@ async def get_cdrs(
     if date_from:
         try:
             df = _session_filter_time(date_from)
-            q = q.filter(ChargingSession.stop_time >= df)
+            q = q.filter(ChargingSession.last_updated >= df)
         except Exception:
             pass
     if date_to:
         try:
             dt = _session_filter_time(date_to)
-            q = q.filter(ChargingSession.stop_time < dt)
+            q = q.filter(ChargingSession.last_updated < dt)
         except Exception:
             pass
     q = _exclude_invalid_cdrs(_exclude_held_cdrs(q))
@@ -1233,6 +1261,8 @@ async def get_tokens(
 async def get_tariffs(
     request: Request,
     response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -1244,13 +1274,14 @@ async def get_tariffs(
     component. That was neither the rate the kiosk charges nor did it carry the
     idle fee, and no connector referenced it.
     """
-    q = _publishable(db.query(Charger)).order_by(Charger.id)
+    q = _filter_by_changed(
+        _publishable(db.query(Charger)), date_from, date_to
+    ).order_by(Charger.id)
     total = q.count()
     page = _page_size(limit)
     chargers = q.offset(offset).limit(page).all()
     _set_pagination(response, request, total, offset, page)
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    result = [_build_tariff(c, now) for c in chargers]
+    result = [_build_tariff(c, _charger_changed_at(c)) for c in chargers]
     return {
         "status_code": 1000,
         "status_message": "Success",

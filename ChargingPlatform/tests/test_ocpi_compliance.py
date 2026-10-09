@@ -937,38 +937,124 @@ class SessionLastUpdatedTests(unittest.TestCase):
         from ocpi.router import _build_session_dict
         return _build_session_dict(self.sess)["last_updated"]
 
-    def test_a_running_session_tracks_its_newest_reading(self):
-        from ocpi.router import _session_time
-        self._reading(self.started + timedelta(minutes=5), 1.0)
-        newest = self.started + timedelta(minutes=12)
-        self._reading(newest, 2.0)
-        self.assertEqual(self._last_updated(), _session_time(newest))
-
-    def test_it_moves_when_a_new_reading_arrives(self):
-        self._reading(self.started + timedelta(minutes=5), 1.0)
-        before = self._last_updated()
-        self._reading(self.started + timedelta(minutes=6), 1.5)
-        self.assertNotEqual(self._last_updated(), before)
-
-    def test_a_running_session_with_no_readings_falls_back_to_the_start(self):
-        from ocpi.router import _session_time
-        self.assertEqual(self._last_updated(), _session_time(self.started))
-
-    def test_a_session_still_accruing_idle_keeps_moving(self):
-        # Stopped but still plugged in: total_cost is still growing, so the
-        # object is still changing.
-        from ocpi.router import _session_time
-        self.sess.status = "completed"
-        self.sess.stop_time = idle_billing.now_myt() - timedelta(minutes=2)
-        self.sess.idle_started_at = self.sess.stop_time
-        self.sess.unplugged_at = None
+    def test_a_write_to_the_session_stamps_it(self):
+        # The production path: a meter reading updates energy_consumed, and the
+        # mapper event in database.py stamps the row on that write.
+        before = self.sess.last_updated
+        self.sess.energy_consumed = 1.4
         self.db.commit()
-        self.assertGreater(self._last_updated(), _session_time(self.sess.stop_time))
+        self.assertGreater(self.sess.last_updated, before)
 
-    def test_a_finished_session_reports_the_unplug(self):
+    def test_what_we_publish_is_what_we_filter_on(self):
+        # These were two different values before: the published one was derived
+        # at render time while the filter ran against the start time, so a
+        # partner could be told a session had changed and then not find it.
         from ocpi.router import _session_time
+        self.sess.energy_consumed = 2.0
+        self.db.commit()
+        self.assertEqual(self._last_updated(), _session_time(self.sess.last_updated))
+
+    def test_it_never_goes_backwards(self):
+        # Resolution is one second, which is well inside the ten second meter
+        # cadence, so two writes in the same second share a stamp. What must
+        # always hold is that it only ever moves forward.
+        self.sess.energy_consumed = 1.1
+        self.db.commit()
+        first = self.sess.last_updated
+        self.sess.energy_consumed = 1.2
+        self.db.commit()
+        self.assertGreaterEqual(self.sess.last_updated, first)
+
+    def test_a_session_is_stamped_when_it_is_created(self):
+        self.assertIsNotNone(self.sess.last_updated)
+
+    def test_a_finished_session_is_stamped_at_the_unplug(self):
         self.sess.status = "completed"
         self.sess.stop_time = self.started + timedelta(minutes=10)
+        self.db.commit()
+        at_stop = self.sess.last_updated
         self.sess.unplugged_at = self.started + timedelta(minutes=15)
         self.db.commit()
-        self.assertEqual(self._last_updated(), _session_time(self.sess.unplugged_at))
+        self.assertGreater(self.sess.last_updated, at_stop)
+
+
+class DateFilterTests(unittest.TestCase):
+    """date_from and date_to select on last_updated, not on the start time.
+
+    Reported by Voltality on 2026-10-09: once a session had started they could
+    not pull its updates, because we filtered on start_date_time. OCPI says
+    "only return Sessions that have last_updated after or equal to this
+    Date/Time", which is a different question entirely: one asks when the
+    session began, the other when it last moved.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "FILTTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="FILTTEST", tariff_per_kwh=1.0,
+                               is_public=True, tenant="czero-tng")
+        self.db.add(self.charger)
+        self.db.commit()
+        # Started hours ago, updated moments ago: the exact shape that was
+        # being missed.
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=8801,
+                                    status="active", user_id="U")
+        self.sess.start_time = idle_billing.now_myt() - timedelta(hours=6)
+        self.sess.energy_consumed = 3.0
+        self.sess.authorization_reference = "A-FILT"
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _ids(self, **params):
+        client = TestClient(api.app)
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        r = client.get(f"/ocpi/2.2.1/sessions?{qs}", headers=AUTH)
+        return {s["id"] for s in r.json()["data"]}
+
+    def _utc(self, dt):
+        from ocpi.router import _session_time
+        return _session_time(dt)
+
+    def test_a_session_started_long_ago_but_updated_now_is_returned(self):
+        # Filtering on the start time would have excluded this one, which is
+        # precisely the report.
+        since = self._utc(idle_billing.now_myt() - timedelta(minutes=5))
+        self.assertIn("8801", self._ids(date_from=since))
+
+    def test_a_session_not_touched_since_the_window_is_excluded(self):
+        since = self._utc(idle_billing.now_myt() + timedelta(minutes=5))
+        self.assertNotIn("8801", self._ids(date_from=since))
+
+    def test_date_to_is_exclusive_of_the_bound(self):
+        upto = self._utc(self.sess.last_updated)
+        self.assertNotIn("8801", self._ids(date_to=upto))
+
+    def test_a_fresh_write_brings_it_back_into_the_window(self):
+        since = self._utc(idle_billing.now_myt() + timedelta(seconds=1))
+        self.assertNotIn("8801", self._ids(date_from=since))
+        self.sess.energy_consumed = 9.0
+        self.db.commit()
+        since2 = self._utc(self.sess.last_updated)
+        self.assertIn("8801", self._ids(date_from=since2))
+
+    def test_locations_and_tariffs_accept_the_same_filters(self):
+        client = TestClient(api.app)
+        future = self._utc(idle_billing.now_myt() + timedelta(days=1))
+        for path in ("/ocpi/2.2.1/locations", "/ocpi/2.2.1/tariffs"):
+            with self.subTest(path=path):
+                r = client.get(f"{path}?date_from={future}", headers=AUTH)
+                self.assertEqual(r.status_code, 200)
+                # Nothing has changed in the future, so nothing comes back.
+                self.assertEqual(r.json()["data"], [])
+                self.assertEqual(r.headers["X-Total-Count"], "0")
