@@ -1058,3 +1058,65 @@ class DateFilterTests(unittest.TestCase):
                 # Nothing has changed in the future, so nothing comes back.
                 self.assertEqual(r.json()["data"], [])
                 self.assertEqual(r.headers["X-Total-Count"], "0")
+
+
+class ChargerClockTests(unittest.TestCase):
+    """The charger stamp is UTC, and the session stamp is Malaysia time.
+
+    They disagree on purpose: every other clock on the chargers table is UTC,
+    and every other clock on the sessions table is Malaysia wall time. Mixing
+    them in one column is what put DC3001 eight hours into the past on
+    2026-10-09, after a backfill wrote UTC and the mapper event wrote local.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "TZTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="TZTEST", is_public=True,
+                               tenant="czero-tng", connector_status="{}")
+        self.db.add(self.charger)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def test_the_charger_stamp_is_utc(self):
+        from database import _utcnow
+        drift = abs((self.charger.last_updated - _utcnow()).total_seconds())
+        self.assertLess(drift, 120, "charger last_updated is not on the UTC clock")
+
+    def test_the_session_stamp_is_malaysia_time(self):
+        sess = ChargingSession(charger_id=self.charger.id, transaction_id=9901,
+                               status="active")
+        sess.start_time = idle_billing.now_myt()
+        self.db.add(sess)
+        self.db.commit()
+        drift = abs((sess.last_updated - idle_billing.now_myt()).total_seconds())
+        self.assertLess(drift, 120, "session last_updated is not on the session clock")
+        self.db.query(ChargingSession).filter(ChargingSession.id == sess.id).delete()
+        self.db.commit()
+
+    def test_a_location_reports_the_charger_stamp_without_shifting_it(self):
+        from ocpi.router import _build_location_dict, _to_ocpi_datetime
+        loc = _build_location_dict(self.charger)
+        self.assertEqual(loc["last_updated"],
+                         _to_ocpi_datetime(self.charger.last_updated))
+
+    def test_a_heartbeat_does_not_count_as_a_change(self):
+        # Heartbeats land every thirty seconds. If they stamped the row, every
+        # location would look freshly changed and polling would be useless.
+        before = self.charger.last_updated
+        self.charger.last_heartbeat = datetime(2030, 1, 1)
+        self.db.commit()
+        self.assertEqual(self.charger.last_updated, before)
+
+    def test_a_visible_change_does_count(self):
+        before = self.charger.last_updated
+        self.charger.connector_status = '{"1": "charging"}'
+        self.db.commit()
+        self.assertGreaterEqual(self.charger.last_updated, before)

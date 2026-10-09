@@ -1202,9 +1202,14 @@ _PARTNER_VISIBLE_CHARGER_FIELDS = frozenset({
 })
 
 
+# UTC, not Malaysia time. Every other clock on the chargers table is UTC —
+# last_heartbeat, created_at — and a column that holds one zone for rows the
+# migration filled and another for rows written since is the same defect this
+# file has already produced twice. Sessions are the opposite convention and
+# their stamp follows theirs.
 @event.listens_for(Charger, "before_insert")
 def _stamp_charger_created(mapper, connection, target):
-    target.last_updated = _now_myt()
+    target.last_updated = _utcnow()
 
 
 @event.listens_for(Charger, "before_update")
@@ -1213,7 +1218,7 @@ def _stamp_charger_last_updated(mapper, connection, target):
     for field in _PARTNER_VISIBLE_CHARGER_FIELDS:
         attr = state.attrs.get(field)
         if attr is not None and attr.history.has_changes():
-            target.last_updated = _now_myt()
+            target.last_updated = _utcnow()
             return
 
 

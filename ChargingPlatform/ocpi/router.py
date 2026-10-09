@@ -722,6 +722,18 @@ def _location_fields(charger) -> tuple:
     )
 
 
+def _utc_filter_time(value: str):
+    """A partner's filter bound as naive UTC.
+
+    For columns that are already UTC. _session_filter_time is its counterpart
+    for the session clock, which is Malaysia wall time.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
 def _charger_changed_at(charger) -> str:
     """When this charger last changed, as OCPI should see it.
 
@@ -730,8 +742,11 @@ def _charger_changed_at(charger) -> str:
     changed the instant it was read, and a partner filtering on last_updated
     could not tell what had actually moved.
     """
+    # Already UTC: the chargers table keeps UTC throughout, unlike sessions.
+    # Converting it as though it were Malaysia time is what put DC3001 eight
+    # hours in the past on 2026-10-09.
     stamped = getattr(charger, "last_updated", None) or getattr(charger, "last_heartbeat", None)
-    return _session_time(stamped) if stamped else _ocpi_now()
+    return _to_ocpi_datetime(stamped) if stamped else _ocpi_now()
 
 
 def _filter_by_changed(q, date_from: Optional[str], date_to: Optional[str]):
@@ -744,12 +759,12 @@ def _filter_by_changed(q, date_from: Optional[str], date_to: Optional[str]):
     """
     if date_from:
         try:
-            q = q.filter(Charger.last_updated >= _session_filter_time(date_from))
+            q = q.filter(Charger.last_updated >= _utc_filter_time(date_from))
         except Exception:
             pass
     if date_to:
         try:
-            q = q.filter(Charger.last_updated < _session_filter_time(date_to))
+            q = q.filter(Charger.last_updated < _utc_filter_time(date_to))
         except Exception:
             pass
     return q
