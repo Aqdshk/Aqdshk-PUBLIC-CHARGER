@@ -806,8 +806,11 @@ class InvalidSessionTests(unittest.TestCase):
 
     def test_zero_energy_but_billable_idle_is_still_completed(self):
         # Money is attached, so it is not an invalid session even with no kWh.
+        # The cost is recomputed from the clock, so the fixture has to leave a
+        # real gap between the stop and the unplug rather than assert a figure.
         from ocpi.router import _build_session_dict, _build_cdr_dict
-        s = self._sess(idle_minutes=5, idle_started_at=self.stopped)
+        s = self._sess(idle_started_at=self.stopped,
+                       unplugged_at=self.stopped + timedelta(minutes=12))
         self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
         self.assertIsNotNone(_build_cdr_dict(s))
 
@@ -1189,3 +1192,94 @@ class PublishedLastUpdatedMatchesFilterTests(unittest.TestCase):
         from ocpi.router import _build_location_dict, _charger_changed_at
         loc = _build_location_dict(self.charger)
         self.assertEqual(loc["last_updated"], _charger_changed_at(self.charger))
+
+
+class SessionLifecycleTests(unittest.TestCase):
+    """Voltality test S6, and their proposal of 2026-10-09.
+
+    A stop that is merely accepted does not end a session. The charger goes to
+    Finishing, the grace period runs, and idle accrues, all afterwards. We were
+    publishing COMPLETED the moment the stop landed, and INVALID whenever no
+    energy had flowed, which is decided before any idle exists.
+
+    The damage is revenue: a driver starts a session, stops it at once and
+    leaves the car plugged in. No energy, so we called it INVALID, and an
+    INVALID session cannot be billed, so the idle that followed was
+    unrecoverable.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "LIFETEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="LIFETEST", tariff_per_kwh=1.40,
+                               is_public=True, tenant="czero-tng",
+                               idle_fee_enabled=True, idle_fee_per_min=0.20,
+                               idle_grace_minutes=5)
+        self.db.add(self.charger)
+        self.db.commit()
+        self.stopped = idle_billing.now_myt() - timedelta(minutes=2)
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _sess(self, **kw):
+        s = ChargingSession(charger_id=self.charger.id, transaction_id=9100,
+                            status="completed", user_id="U")
+        s.start_time = self.stopped - timedelta(minutes=1)
+        s.stop_time = self.stopped
+        s.idle_started_at = self.stopped
+        s.unplugged_at = None
+        s.energy_consumed = 0.0
+        s.evse_id = 1
+        for k, v in kw.items():
+            setattr(s, k, v)
+        self.db.add(s)
+        self.db.commit()
+        return s
+
+    def test_a_stopped_session_stays_active_until_the_cable_is_out(self):
+        from ocpi.router import _build_session_dict
+        self.assertEqual(_build_session_dict(self._sess())["status"], "ACTIVE")
+
+    def test_it_becomes_completed_once_unplugged_with_something_to_bill(self):
+        from ocpi.router import _build_session_dict
+        s = self._sess(unplugged_at=self.stopped + timedelta(minutes=12))
+        d = _build_session_dict(s)
+        self.assertEqual(d["status"], "COMPLETED")
+        self.assertGreater(d["total_cost"]["excl_vat"], 0)
+
+    def test_it_becomes_invalid_once_unplugged_with_nothing_to_bill(self):
+        from ocpi.router import _build_session_dict
+        s = self._sess(unplugged_at=self.stopped + timedelta(seconds=20))
+        d = _build_session_dict(s)
+        self.assertEqual(d["status"], "INVALID")
+        self.assertEqual(d["total_cost"]["excl_vat"], 0)
+
+    def test_the_s6_scenario_does_not_lose_the_idle(self):
+        """Start, stop at once, leave it plugged in past the grace period."""
+        from ocpi.router import _build_session_dict, _build_cdr_dict
+        s = self._sess()
+        # Still plugged in and inside grace: nothing owed yet, but not invalid.
+        self.assertEqual(_build_session_dict(s)["status"], "ACTIVE")
+        # Unplugged well past grace: the idle is billable and the session is
+        # not invalid, which is what made it unbillable before.
+        s.unplugged_at = self.stopped + timedelta(minutes=11)
+        self.db.commit()
+        d = _build_session_dict(s)
+        self.assertEqual(d["status"], "COMPLETED")
+        self.assertEqual(d["total_cost"]["excl_vat"], 1.2)   # 6 blocks x RM0.20
+        cdr = _build_cdr_dict(s)
+        self.assertEqual(cdr["total_parking_cost"]["excl_vat"], 1.2)
+
+    def test_no_cdr_while_the_session_is_still_running(self):
+        from ocpi.router import _build_cdr_dict
+        self.assertIsNone(_build_cdr_dict(self._sess()))
+

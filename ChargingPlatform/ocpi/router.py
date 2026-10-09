@@ -969,22 +969,39 @@ async def get_connector(location_id: str, evse_uid: str, connector_id: str,
     return _ocpi_not_found("Unknown EVSE")
 
 # ============ Sessions ============
-def _is_invalid_session(sess) -> bool:
-    """A session that delivered nothing and has nothing to bill.
+def _session_still_running(sess) -> bool:
+    """True while the session has not actually finished.
 
-    OCPI has a SessionStatus of INVALID for exactly this: a session that was
-    opened but failed, usually a charger problem, and which must not be billed.
-    We mapped everything that was not active to COMPLETED, so a charge that
-    never started was published as a successfully completed one with 0 kWh, and
-    a CDR went out for it.
+    A session is over when the cable comes out, not when the stop is accepted.
+    The charger sits in Finishing, the grace period runs, and idle accrues, all
+    after the stop. This mirrors the rule the CDR already follows.
     """
     if sess.status in ("active", "pending"):
+        return True
+    charger = getattr(sess, "charger", None)
+    return idle_billing.awaiting_unplug(sess, charger)
+
+
+def _is_invalid_session(sess) -> bool:
+    """A finished session with nothing at all to bill.
+
+    OCPI has a SessionStatus of INVALID for a session that was opened but
+    failed, and which must not be billed. Two things were wrong with how we
+    decided it.
+
+    It was decided at stop time, on energy alone. A driver who starts a
+    session, stops it immediately and leaves the car plugged in draws no energy
+    but does accrue idle, and we published that session as INVALID before the
+    idle existed. Voltality cannot bill an INVALID session, so the idle revenue
+    was lost. That is their test S6.
+
+    And it asked the wrong question. The test is not whether energy flowed but
+    whether anything is owed, so it now runs on the total cost: a session is
+    invalid only once it is over and every component of the cost is zero.
+    """
+    if _session_still_running(sess):
         return False
-    if float(sess.energy_consumed or 0) > 0:
-        return False
-    # Idle cannot accrue on a charge that never ran, but if somehow it has,
-    # there is money attached and the session is not invalid.
-    return int(sess.idle_minutes or 0) == 0
+    return _session_cost(sess) <= 0
 
 
 def _session_last_updated(sess):
@@ -1037,8 +1054,11 @@ def _build_session_dict(sess) -> Optional[dict]:
         "evse_uid": f"{loc_id}-EVSE{gun}",
         "connector_id": str(gun),
         "currency": "MYR",
+        # ACTIVE until the cable is out, then COMPLETED, or INVALID when
+        # nothing is owed. A stop that is merely accepted does not end the
+        # session: the grace period and any idle still lie ahead of it.
         "status": (
-            "ACTIVE" if sess.status in ("active", "pending")
+            "ACTIVE" if _session_still_running(sess)
             else "INVALID" if _is_invalid_session(sess)
             else "COMPLETED"
         ),
