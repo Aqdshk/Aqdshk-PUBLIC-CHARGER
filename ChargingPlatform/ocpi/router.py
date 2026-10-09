@@ -1263,11 +1263,20 @@ async def get_cdrs(
 @router.get("/2.2.1/tokens", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_tokens(
     response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get tokens (optional - for token whitelist). Returns empty list."""
+    """Tokens we hold. Empty: we do not keep a whitelist.
+
+    The date filters are accepted rather than rejected so every list endpoint
+    answers the same shape of request, which is what Voltality asked for when
+    they said the filtering should be consistent across all of them. There is
+    nothing to filter yet, but a partner probing the interface should not find
+    one endpoint that refuses a parameter the rest accept.
+    """
     _set_pagination(response, None, 0, offset, _page_size(limit))
     return {
         "status_code": 1000,
