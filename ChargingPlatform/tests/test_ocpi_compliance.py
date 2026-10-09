@@ -1120,3 +1120,72 @@ class ChargerClockTests(unittest.TestCase):
         self.charger.connector_status = '{"1": "charging"}'
         self.db.commit()
         self.assertGreaterEqual(self.charger.last_updated, before)
+
+
+class PublishedLastUpdatedMatchesFilterTests(unittest.TestCase):
+    """What we publish as last_updated must be what date_from selects on.
+
+    If the published value is older than the column behind the filter, a
+    partner that stores it and polls from it is handed the same record on
+    every poll and never finishes syncing. The CDR published the unplug
+    instant, which is the last write today and so matched by luck; a refund
+    settling afterwards would have broken it.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "LUTEST").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="LUTEST", tariff_per_kwh=1.0,
+                               is_public=True, tenant="czero-tng")
+        self.db.add(self.charger)
+        self.db.commit()
+        stop = idle_billing.now_myt() - timedelta(hours=4)
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=8888,
+                                    status="completed", user_id="U",
+                                    authorization_reference="A")
+        self.sess.start_time = stop - timedelta(minutes=20)
+        self.sess.stop_time = stop
+        self.sess.unplugged_at = stop + timedelta(minutes=10)
+        self.sess.energy_consumed = 5.0
+        self.sess.evse_id = 1
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def test_cdr_publishes_the_column_the_filter_uses(self):
+        from ocpi.router import _build_cdr_dict, _session_time, _session_last_updated
+        cdr = _build_cdr_dict(self.sess)
+        self.assertIsNotNone(cdr)
+        self.assertEqual(cdr["last_updated"],
+                         _session_time(_session_last_updated(self.sess)))
+
+    def test_a_later_write_does_not_strand_the_cdr(self):
+        # The row is touched again after the unplug, as a refund settling
+        # would touch it. Polling from the published value must not return it.
+        from ocpi.router import _build_cdr_dict, _session_filter_time
+        self.sess.refund_status = "sent"
+        self.db.commit()
+        cdr = _build_cdr_dict(self.sess)
+        bound = _session_filter_time(cdr["last_updated"])
+        self.assertGreaterEqual(bound, self.sess.last_updated.replace(microsecond=0))
+
+    def test_session_publishes_the_column_the_filter_uses(self):
+        from ocpi.router import _build_session_dict, _session_time, _session_last_updated
+        d = _build_session_dict(self.sess)
+        self.assertEqual(d["last_updated"],
+                         _session_time(_session_last_updated(self.sess)))
+
+    def test_location_publishes_the_column_the_filter_uses(self):
+        from ocpi.router import _build_location_dict, _charger_changed_at
+        loc = _build_location_dict(self.charger)
+        self.assertEqual(loc["last_updated"], _charger_changed_at(self.charger))

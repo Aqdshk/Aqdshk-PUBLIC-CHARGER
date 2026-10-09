@@ -1152,7 +1152,13 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         },
         "authorization_reference": sess.authorization_reference,
         "charging_periods": periods,
-        "last_updated": _session_time(stop_time),
+        # The same column the CDR list filters on. It was the unplug instant,
+        # which happens to be the last write today and so matched by accident.
+        # Any later write to the row — a refund settling, a late meter value —
+        # would push the filter column past the value we published, and a
+        # partner polling from the figure we gave it would be handed the same
+        # CDR on every poll, for ever.
+        "last_updated": _session_time(_session_last_updated(sess)),
     }
 
 
