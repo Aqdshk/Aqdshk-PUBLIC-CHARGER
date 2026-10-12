@@ -220,6 +220,30 @@
                     <option value="wifi">WiFi</option>
                     <option value="ethernet">Ethernet (LAN cable)</option>
                 </select>
+
+                <!-- Pricing lived only in the Payment Terminals dialog, which
+                     lists chargers assigned to a terminal. A charger belonging
+                     to no terminal, such as VOLTALITYTEST1, could not be
+                     configured anywhere in the UI and had to be changed
+                     straight in the database. -->
+                <div class="ec-sep">💰 Pricing</div>
+
+                <label>Energy rate (RM per kWh)</label>
+                <input type="number" step="0.05" min="0" max="10" id="ecTariff" placeholder="1.40">
+
+                <label class="ec-switch-row">
+                    <input type="checkbox" id="ecIdleEnabled">
+                    <span>Charge an idle fee after charging finishes</span>
+                </label>
+
+                <div id="ecIdleFields">
+                    <label>Idle rate (RM per minute)</label>
+                    <input type="number" step="0.05" min="0" max="10" id="ecIdlePerMin" placeholder="0.20">
+                    <label>Grace period (minutes, free before the idle fee starts)</label>
+                    <input type="number" step="1" min="0" max="240" id="ecIdleGrace" placeholder="5">
+                    <div class="ec-hint" id="ecIdleHint"></div>
+                </div>
+
                 <div class="modal-actions">
                     <button class="btn btn-secondary btn-small" onclick="closeEditCharger()">Cancel</button>
                     <button class="btn btn-success btn-small" onclick="saveEditCharger()">💾 Save</button>
@@ -243,6 +267,20 @@
             </div>
         </div>
         <style>
+        .ec-sep {
+            margin: 18px 0 2px; padding-top: 14px;
+            border-top: 1px solid var(--border, #2A2A4A);
+            font-size: 12px; font-weight: 700; letter-spacing: .04em;
+            color: var(--text-secondary, #8A8AB0); text-transform: uppercase;
+        }
+        .ec-switch-row {
+            display: flex; align-items: center; gap: 9px;
+            margin-top: 12px; cursor: pointer; font-weight: 500;
+        }
+        .ec-switch-row input { width: auto; margin: 0; }
+        .ec-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary, #8A8AB0); }
+        #ecIdleFields.off { opacity: .45; pointer-events: none; }
+
             .conn-kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin-bottom:14px; }
             .conn-kv div span { display:block; }
             .conn-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:6px 0 16px; }
@@ -859,8 +897,44 @@
             const cnSel = document.getElementById('ecConnectivity');
             cnSel.value = cc.source === 'set by operator' && ['cellular', 'wifi', 'ethernet'].includes(cc.type) ? cc.type : 'auto';
             cnSel.dataset.initial = cnSel.value;
+
+            // Pricing. Show what the charger actually holds rather than a
+            // placeholder: a blank box next to a real figure invites someone
+            // to save the placeholder over it.
+            const tariff = document.getElementById('ecTariff');
+            const idleOn = document.getElementById('ecIdleEnabled');
+            const perMin = document.getElementById('ecIdlePerMin');
+            const grace  = document.getElementById('ecIdleGrace');
+            tariff.value = c.tariff_per_kwh ?? '';
+            idleOn.checked = !!c.idle_fee_enabled;
+            perMin.value = c.idle_fee_per_min ?? '';
+            grace.value  = c.idle_grace_minutes ?? '';
+            [tariff, perMin, grace].forEach(el => { el.dataset.initial = el.value; });
+            idleOn.dataset.initial = idleOn.checked ? '1' : '0';
+            idleOn.onchange = _ecIdleToggle;
+            perMin.oninput = _ecIdleToggle;
+            grace.oninput = _ecIdleToggle;
+            _ecIdleToggle();
+
             document.getElementById('editChargerModal').classList.add('open');
         }
+        // Dim the idle inputs when the fee is off, and spell out what the
+        // partner will see. The absence of a PARKING_TIME component in the
+        // published tariff is how a roaming partner knows not to bill for
+        // parking at all, which is worth stating where the switch is.
+        function _ecIdleToggle() {
+            const on = document.getElementById('ecIdleEnabled').checked;
+            const box = document.getElementById('ecIdleFields');
+            box.classList.toggle('off', !on);
+            const perMin = parseFloat(document.getElementById('ecIdlePerMin').value || 0);
+            const grace = parseInt(document.getElementById('ecIdleGrace').value || 0, 10);
+            document.getElementById('ecIdleHint').textContent = on
+                ? `Roaming partners see this as a PARKING_TIME price of RM${(perMin * 60).toFixed(2)} per hour, `
+                  + `with the first ${grace} minute${grace === 1 ? '' : 's'} free.`
+                : 'No idle fee. Roaming partners receive a tariff with no PARKING_TIME component, '
+                  + 'so they will not bill for parking on this charger.';
+        }
+
         function closeEditCharger() {
             document.getElementById('editChargerModal').classList.remove('open');
             _editingCpId = null;
@@ -915,6 +989,34 @@
                 });
                 const r = await res.json();
                 if (r.success) {
+                    // Pricing has its own endpoint, so it is a second call and
+                    // only made when something actually changed.
+                    const pricing = {};
+                    const tariff = document.getElementById('ecTariff');
+                    const idleOn = document.getElementById('ecIdleEnabled');
+                    const perMin = document.getElementById('ecIdlePerMin');
+                    const grace  = document.getElementById('ecIdleGrace');
+                    if (tariff.value !== tariff.dataset.initial && tariff.value !== '')
+                        pricing.tariff_per_kwh = parseFloat(tariff.value);
+                    if ((idleOn.checked ? '1' : '0') !== idleOn.dataset.initial)
+                        pricing.enabled = idleOn.checked;
+                    if (perMin.value !== perMin.dataset.initial && perMin.value !== '')
+                        pricing.per_min = parseFloat(perMin.value);
+                    if (grace.value !== grace.dataset.initial && grace.value !== '')
+                        pricing.grace_minutes = parseInt(grace.value, 10);
+
+                    if (Object.keys(pricing).length) {
+                        const pr = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/pricing`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
+                            body: JSON.stringify(pricing),
+                        });
+                        const pj = await pr.json().catch(() => ({}));
+                        if (!pr.ok || pj.success === false) {
+                            msg.innerHTML = `<span style="color:#ef4444;">❌ Saved the details, but pricing failed: ${pj.detail || pr.status}</span>`;
+                            return;
+                        }
+                    }
                     msg.innerHTML = '<span style="color:var(--accent,#22c55e);">✅ Saved.</span>';
                     setTimeout(() => { closeEditCharger(); loadChargerStatus(); }, 700);
                 } else {
