@@ -119,8 +119,135 @@
         </div>
     </div>
 
+    <!-- Session timeline. Reading a session used to mean SSHing to the server
+         and grepping container logs, so only one person could do it and only
+         while the logs were still around. -->
+    <div class="modal-backdrop" id="tlModal" onclick="if(event.target===this)closeTimeline()">
+        <div class="tl-box">
+            <div class="tl-head">
+                <h3 style="margin:0;">🧾 Session <span id="tlTxn">—</span></h3>
+                <button class="btn btn-secondary btn-small" onclick="closeTimeline()">✕</button>
+            </div>
+            <div id="tlBody" style="margin-top:14px;">Loading…</div>
+        </div>
+    </div>
+    <style>
+        .ss-row { cursor: pointer; }
+        .ss-row:hover { background: rgba(127,127,160,.10); }
+        .modal-backdrop {
+            display:none; position:fixed; inset:0; background:rgba(0,0,0,.65);
+            z-index:900; align-items:flex-start; justify-content:center;
+            padding:40px 16px; overflow:auto;
+        }
+        .modal-backdrop.open { display:flex; }
+        .tl-box {
+            background:var(--bg-card,#15152B); border:1px solid var(--border,#2A2A4A);
+            border-radius:12px; padding:20px; width:min(980px,96vw);
+        }
+        .tl-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .tl-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0 4px; }
+        .tl-card {
+            background:var(--bg-base,#0A0A1A); border:1px solid var(--border,#2A2A4A);
+            border-radius:8px; padding:9px 11px;
+        }
+        .tl-card .k { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted,#8A8AB0); }
+        .tl-card .v { font-size:14px; font-weight:600; margin-top:3px; }
+        .tl-sum { margin-top:12px; font-size:13px; line-height:1.75; }
+        .tl-ev { margin-top:16px; border-top:1px solid var(--border,#2A2A4A); padding-top:12px; }
+        .tl-row { display:flex; gap:10px; padding:5px 0; font-size:12px; align-items:flex-start; }
+        .tl-row .t { color:var(--text-muted,#8A8AB0); font-family:ui-monospace,Menlo,Consolas,monospace; white-space:nowrap; }
+        .tl-row .b { flex:1; min-width:0; }
+        .tl-row .lab { font-weight:600; }
+        .tl-row .raw {
+            font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px;
+            color:var(--text-muted,#8A8AB0); word-break:break-all; margin-top:2px;
+        }
+        .k-command .lab { color:#60a5fa; }
+        .k-partner .lab { color:#a78bfa; }
+        .k-charger .lab { color:#34d399; }
+        .k-error   .lab { color:#f87171; }
+        .k-billing .lab { color:#fbbf24; }
+        .k-status  .lab { color:#94a3b8; }
+        .k-meter   .lab { color:#64748b; }
+    </style>
+
     <script>
         const API_BASE = '/api';
+
+        // ---- Session timeline -------------------------------------------
+        // Pulls the session's own facts and the log lines from its window,
+        // so an operator can answer "why did this cost that" without a shell.
+        function closeTimeline() {
+            document.getElementById('tlModal').classList.remove('open');
+        }
+        function _tlTime(iso) {
+            if (!iso) return '—';
+            return String(iso).replace('T', ' ').slice(0, 19);
+        }
+        async function openTimeline(txn) {
+            const modal = document.getElementById('tlModal');
+            document.getElementById('tlTxn').textContent = '#' + txn;
+            document.getElementById('tlBody').innerHTML = 'Loading…';
+            modal.classList.add('open');
+            try {
+                const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`${API_BASE}/admin/sessions/${txn}/timeline`, {
+                    headers: token ? { 'X-Staff-Token': token } : {},
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                _renderTimeline(await res.json());
+            } catch (e) {
+                document.getElementById('tlBody').innerHTML =
+                    `<div style="color:#f87171;font-size:13px;">Could not load: ${e.message}</div>`;
+            }
+        }
+        function _renderTimeline(d) {
+            const m = d.money, t = d.times;
+            const card = (k, v) => `<div class="tl-card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+            // Spell out the arithmetic. During the Voltality tests every
+            // question was "where did this number come from".
+            const sums = [];
+            sums.push(`Energy: ${m.energy_kwh} kWh × RM${m.rate_per_kwh}/kWh = <b>RM${m.energy_cost.toFixed(2)}</b>`);
+            if (m.idle_fee_enabled) {
+                sums.push(`Idle: ${m.idle_minutes} min × RM${m.idle_rate_per_min}/min = <b>RM${m.idle_cost.toFixed(2)}</b>`
+                        + ` <span style="color:var(--text-muted,#8A8AB0)">(first ${m.idle_grace_minutes} min free, billed in whole minutes)</span>`);
+            } else {
+                sums.push(`Idle: not charged on this charger`);
+            }
+            sums.push(`Total: <b>RM${m.total.toFixed(2)}</b>`);
+
+            const evs = (d.events || []).map(e => `
+                <div class="tl-row k-${e.kind}">
+                    <div class="t">${(e.at || '').slice(11)}</div>
+                    <div class="b"><div class="lab">${e.label}</div><div class="raw">${_esc(e.line)}</div></div>
+                </div>`).join('');
+
+            document.getElementById('tlBody').innerHTML = `
+                <div class="tl-grid">
+                    ${card('Charger', d.charge_point_id || '—')}
+                    ${card('Status', d.status || '—')}
+                    ${card('Stop reason', d.stop_reason || '—')}
+                    ${card('Started', _tlTime(t.start))}
+                    ${card('Stopped', _tlTime(t.stop))}
+                    ${card('Unplugged', _tlTime(t.unplugged) )}
+                </div>
+                <div class="tl-sum">${sums.join('<br>')}</div>
+                ${d.partner.authorization_reference
+                    ? `<div class="tl-sum" style="color:var(--text-muted,#8A8AB0);">Partner reference: ${_esc(d.partner.authorization_reference)}</div>`
+                    : ''}
+                <div class="tl-ev">
+                    <div style="font-size:12px;color:var(--text-muted,#8A8AB0);margin-bottom:6px;">
+                        ${evs ? `What happened, from the logs (${d.log_lines_scanned} lines scanned)`
+                              : 'No log lines for this session. Logs are kept for a limited window, so older sessions show facts only.'}
+                    </div>
+                    ${evs}
+                </div>`;
+        }
+        function _esc(x) {
+            return String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+        }
+
 
         function formatKLTime(isoString) {
             if (!isoString) return 'N/A';
@@ -254,7 +381,7 @@
                 const conn = (s.connector_id != null && s.connector_id !== undefined) ? `· #${s.connector_id}` : '';
                 const energy = (s.energy_consumed || 0).toFixed(2);
                 const stopTxt = s.stop_time ? _shortTime(s.stop_time) : '<em style="color:var(--text-muted);font-style:normal;">ongoing</em>';
-                return `<tr>
+                return `<tr class="ss-row" onclick="openTimeline(${s.transaction_id})" title="Show everything that happened in this session">
                     <td class="txn">#${s.transaction_id}</td>
                     <td><div>${s.charge_point_id}</div><div class="cp">${conn || 'connector N/A'}</div></td>
                     <td class="time">${_shortTime(s.start_time)}</td>

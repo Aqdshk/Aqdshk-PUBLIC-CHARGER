@@ -1691,6 +1691,74 @@ async def update_charger_idle_fee(
     }
 
 
+@app.get("/api/admin/sessions/{transaction_id}/timeline")
+async def session_timeline(
+    transaction_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Everything that happened during one session, facts and logs together.
+
+    Built after the Voltality UAT, where answering "why did this session cost
+    that" meant SSHing to the server and grepping container logs by hand.
+    Nobody watching a partner test could see what the charger and the partner
+    actually exchanged.
+    """
+    import session_timeline as _tl
+
+    sess = (
+        db.query(ChargingSession)
+        .filter(ChargingSession.transaction_id == transaction_id)
+        .order_by(ChargingSession.id.desc())
+        .first()
+    )
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+
+    energy = float(sess.energy_consumed or 0)
+    rate = float(charger.tariff_per_kwh) if charger and charger.tariff_per_kwh is not None else 0.0
+    idle_min = int(sess.idle_minutes or 0)
+    idle_rate = float(charger.idle_fee_per_min) if charger and charger.idle_fee_per_min is not None else 0.0
+    energy_cost = round(energy * rate, 2)
+    idle_cost = round(idle_min * idle_rate, 2)
+
+    start_utc, end_utc = _tl._window(sess)
+    lines = await _tl.fetch_log_lines(
+        charger.charge_point_id if charger else "", start_utc, end_utc
+    )
+
+    return {
+        "transaction_id": sess.transaction_id,
+        "charge_point_id": charger.charge_point_id if charger else None,
+        "status": sess.status,
+        "stop_reason": sess.stop_reason,
+        "times": {
+            "start": sess.start_time.isoformat() if sess.start_time else None,
+            "stop": sess.stop_time.isoformat() if sess.stop_time else None,
+            "unplugged": sess.unplugged_at.isoformat() if sess.unplugged_at else None,
+            "idle_started": sess.idle_started_at.isoformat() if sess.idle_started_at else None,
+        },
+        "money": {
+            "energy_kwh": energy,
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": idle_min,
+            "idle_rate_per_min": idle_rate,
+            "idle_grace_minutes": int(charger.idle_grace_minutes or 0) if charger else 0,
+            "idle_fee_enabled": bool(charger.idle_fee_enabled) if charger else False,
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+        },
+        "partner": {
+            "authorization_reference": sess.authorization_reference,
+            "ocpi_partner_id": sess.ocpi_partner_id,
+        },
+        "events": _tl.build_events(lines),
+        "log_lines_scanned": len(lines),
+    }
+
+
 @app.get("/api/admin/system-settings")
 async def list_system_settings(
     admin_ctx: dict = Depends(require_admin_or_staff_admin),
