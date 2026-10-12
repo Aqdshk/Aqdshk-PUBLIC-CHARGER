@@ -1283,3 +1283,73 @@ class SessionLifecycleTests(unittest.TestCase):
         from ocpi.router import _build_cdr_dict
         self.assertIsNone(_build_cdr_dict(self._sess()))
 
+
+
+class CdrCarriesItsTariffTests(unittest.TestCase):
+    """A CDR must show the terms that were actually charged.
+
+    Asked by Voltality on 2026-10-12: the idle cost and grace period have to
+    be visible on the CDR. We referenced the tariff by name only. A CDR is
+    immutable and a tariff is not, so once a charger's idle rate or grace
+    changed, every older CDR would describe terms that were never charged.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "TARCDR").delete()
+        self.db.commit()
+        self.charger = Charger(charge_point_id="TARCDR", tariff_per_kwh=1.40,
+                               is_public=True, tenant="czero-tng",
+                               idle_fee_enabled=True, idle_fee_per_min=0.20,
+                               idle_grace_minutes=5)
+        self.db.add(self.charger)
+        self.db.commit()
+        stop = idle_billing.now_myt() - timedelta(hours=4)
+        self.sess = ChargingSession(charger_id=self.charger.id, transaction_id=9300,
+                                    status="completed", user_id="U")
+        self.sess.start_time = stop - timedelta(minutes=20)
+        self.sess.stop_time = stop
+        self.sess.unplugged_at = stop + timedelta(minutes=20)
+        self.sess.idle_started_at = stop
+        self.sess.energy_consumed = 2.0
+        self.sess.evse_id = 1
+        self.db.add(self.sess)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _cdr(self):
+        from ocpi.router import _build_cdr_dict
+        return _build_cdr_dict(self.sess)
+
+    def test_the_cdr_embeds_the_tariff(self):
+        tariffs = self._cdr()["tariffs"]
+        self.assertEqual(len(tariffs), 1)
+        self.assertEqual(tariffs[0]["id"], self._cdr()["charging_periods"][0]["tariff_id"])
+
+    def test_the_embedded_tariff_shows_the_idle_rate_and_grace(self):
+        parking = [c for e in self._cdr()["tariffs"][0]["elements"]
+                   for c in e["price_components"] if c["type"] == "PARKING_TIME"]
+        self.assertEqual(len(parking), 1)
+        self.assertEqual(parking[0]["price"], 12.0)        # RM0.20/min as RM/hour
+        self.assertEqual(parking[0]["step_size"], 60)
+        grace = [e["restrictions"]["min_duration"] for e in self._cdr()["tariffs"][0]["elements"]
+                 if (e.get("restrictions") or {}).get("min_duration")]
+        self.assertEqual(grace, [300])                     # the 5 minute grace
+
+    def test_a_charger_without_idle_billing_publishes_no_parking_terms(self):
+        # This absence is how a partner knows not to bill parking at all.
+        self.charger.idle_fee_enabled = False
+        self.db.commit()
+        dims = [c["type"] for e in self._cdr()["tariffs"][0]["elements"]
+                for c in e["price_components"]]
+        self.assertNotIn("PARKING_TIME", dims)
+        self.assertEqual(self._cdr()["total_parking_cost"]["excl_vat"], 0)

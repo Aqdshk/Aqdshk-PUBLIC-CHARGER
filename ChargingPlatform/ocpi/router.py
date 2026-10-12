@@ -1171,6 +1171,14 @@ def _build_cdr_dict(sess) -> Optional[dict]:
             "contract_id": sess.user_id or "UNKNOWN",
         },
         "authorization_reference": sess.authorization_reference,
+        # The terms that actually applied, carried with the record rather than
+        # referenced by name. A CDR is immutable and a tariff is not: once we
+        # change a charger's idle rate or grace period, a CDR that only named
+        # its tariff would start describing terms that were never charged, and
+        # a partner could not show a driver why the parking cost was what it
+        # was. Voltality asked for the idle cost and grace to be visible on
+        # the CDR; this is where OCPI puts them.
+        "tariffs": [_build_tariff(charger, _charger_changed_at(charger))],
         "charging_periods": periods,
         # The same column the CDR list filters on. It was the unplug instant,
         # which happens to be the last write today and so matched by accident.
