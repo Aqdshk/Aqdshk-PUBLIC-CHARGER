@@ -3091,6 +3091,9 @@ async def partner_stop_charging(
                 ChargingSession.transaction_id > 0,
                 ChargingSession.start_time >= paid_local - timedelta(minutes=2),
                 ChargingSession.start_time <= paid_local + timedelta(hours=12),
+                # Not one that was over before this payment was made; see
+                # the same filter in _serialize_sync_transaction.
+                or_(ChargingSession.stop_time.is_(None), ChargingSession.stop_time >= paid_local),
             )
             .order_by(ChargingSession.start_time.asc())
             .first()
@@ -3348,6 +3351,13 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                         ChargingSession.charger_id == charger.id,
                         ChargingSession.start_time >= window_start,
                         ChargingSession.start_time <= window_end,
+                        # A session that had already ended when the payment
+                        # was made cannot be the one it paid for. Without
+                        # this, two charges less than two minutes apart
+                        # shared the look-back window above and the second
+                        # was answered with the first: finished, with its
+                        # kWh and stop reason (2026-10-10).
+                        or_(ChargingSession.stop_time.is_(None), ChargingSession.stop_time >= paid_local),
                     )
                     .order_by(ChargingSession.start_time.asc())
                     .first()

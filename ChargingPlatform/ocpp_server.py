@@ -796,8 +796,17 @@ class ChargePoint(cp):
                         charger.availability = new_availability
                     
                     # Clear placeholder sessions (transaction_id = 0 or negative) if charger is not charging
+                    #
+                    # Not on SuspendedEV / SuspendedEVSE. A connector only
+                    # reports those inside a transaction, so they mean the
+                    # start we asked for is under way, not that it failed.
+                    # AION E7 units send SuspendedEV a few seconds before
+                    # their StartTransaction. Clearing the placeholder then
+                    # told the partner app its session was over with 0 kWh
+                    # while the car charged on, and the real session lost the
+                    # paid quota the placeholder was carrying (2026-10-10).
                     try:
-                        placeholder_sessions = self.db.query(ChargingSession).filter(
+                        placeholder_sessions = [] if status in ('SuspendedEV', 'SuspendedEVSE') else self.db.query(ChargingSession).filter(
                             ChargingSession.charger_id == charger.id,
                             ChargingSession.status.in_(['active', 'pending']),
                             ChargingSession.transaction_id <= 0  # Clear both 0 and negative transaction_ids
