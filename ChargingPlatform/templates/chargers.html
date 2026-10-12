@@ -273,11 +273,21 @@
             font-size: 12px; font-weight: 700; letter-spacing: .04em;
             color: var(--text-secondary, #8A8AB0); text-transform: uppercase;
         }
-        .ec-switch-row {
+        /* Scoped under .modal-box on purpose. The dialog sets
+           `.modal-box label { display:block }` and
+           `.modal-box input { width:100% }` further down this stylesheet, and
+           those beat a bare class on both specificity and source order, which
+           stretched the checkbox across the dialog and pushed its caption onto
+           the next line. */
+        .modal-box label.ec-switch-row {
             display: flex; align-items: center; gap: 9px;
-            margin-top: 12px; cursor: pointer; font-weight: 500;
+            margin: 14px 0 4px; cursor: pointer;
+            font-size: 13px; color: var(--text-primary);
         }
-        .ec-switch-row input { width: auto; margin: 0; }
+        .modal-box .ec-switch-row input[type="checkbox"] {
+            width: 16px; height: 16px; flex: none; margin: 0; padding: 0;
+            accent-color: var(--accent, #22c55e); cursor: pointer;
+        }
         .ec-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary, #8A8AB0); }
         #ecIdleFields.off { opacity: .45; pointer-events: none; }
 
