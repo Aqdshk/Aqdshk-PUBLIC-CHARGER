@@ -127,9 +127,17 @@ def _build_tariff(charger, now: str) -> dict:
 
     Note the unit change: OCPI prices PARKING_TIME per hour, while we
     configure it per minute, so the rate is multiplied by 60. step_size 60
-    keeps it billed in whole minutes, and the grace period becomes a
-    min_duration restriction in seconds — free until it elapses, charged
-    after.
+    keeps it billed in whole minutes.
+
+    The grace period is published as an element of its own, priced at zero and
+    bounded by max_duration, with the charged element starting where it ends.
+    It used to be implied by a lone min_duration on the charged element, which
+    meant a partner had to be told out of band what that number stood for.
+    Voltality objected on 2026-10-13: a grace period we change here would need
+    a message to them before their billing matched ours again. Spelling the
+    free window out as a priced element removes that coupling, because the
+    tariff then says what it costs during those seconds rather than leaving it
+    to be inferred.
     """
     energy_rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
     elements = [
@@ -144,18 +152,29 @@ def _build_tariff(charger, now: str) -> dict:
     if getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min:
         per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
         grace_seconds = int(charger.idle_grace_minutes or 0) * 60
-        element = {
-            "price_components": [
-                # Same constant the CDR bills with. Advertising one block size
-                # while billing another is a dispute waiting to happen.
-                {"type": "PARKING_TIME", "price": per_hour,
-                 "vat": _vat_percent(),
-                 "step_size": idle_billing.PARKING_STEP_SECONDS}
-            ]
-        }
+        step = idle_billing.PARKING_STEP_SECONDS
+
         if grace_seconds:
-            element["restrictions"] = {"min_duration": grace_seconds}
-        elements.append(element)
+            # The free window, stated rather than implied.
+            elements.append({
+                "price_components": [
+                    {"type": "PARKING_TIME", "price": 0.0,
+                     "vat": _vat_percent(), "step_size": step}
+                ],
+                "restrictions": {"min_duration": 0, "max_duration": grace_seconds},
+            })
+
+        # What is charged once the free window has passed. Same block size the
+        # CDR bills with: advertising one and billing another is a dispute
+        # waiting to happen.
+        charged = {
+            "price_components": [
+                {"type": "PARKING_TIME", "price": per_hour,
+                 "vat": _vat_percent(), "step_size": step}
+            ],
+            "restrictions": {"min_duration": grace_seconds},
+        }
+        elements.append(charged)
 
     return {
         "id": _tariff_id(charger),

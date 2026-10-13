@@ -1336,14 +1336,19 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         self.assertEqual(tariffs[0]["id"], self._cdr()["charging_periods"][0]["tariff_id"])
 
     def test_the_embedded_tariff_shows_the_idle_rate_and_grace(self):
-        parking = [c for e in self._cdr()["tariffs"][0]["elements"]
-                   for c in e["price_components"] if c["type"] == "PARKING_TIME"]
-        self.assertEqual(len(parking), 1)
-        self.assertEqual(parking[0]["price"], 12.0)        # RM0.20/min as RM/hour
-        self.assertEqual(parking[0]["step_size"], 60)
-        grace = [e["restrictions"]["min_duration"] for e in self._cdr()["tariffs"][0]["elements"]
-                 if (e.get("restrictions") or {}).get("min_duration")]
-        self.assertEqual(grace, [300])                     # the 5 minute grace
+        # Two parking elements since 2026-10-13: the free window and the
+        # charged one. The CDR has to carry both, or the record cannot show
+        # why the first five minutes cost nothing.
+        parking = [(e["price_components"][0], e.get("restrictions") or {})
+                   for e in self._cdr()["tariffs"][0]["elements"]
+                   if e["price_components"][0]["type"] == "PARKING_TIME"]
+        self.assertEqual(len(parking), 2)
+        free, charged = parking
+        self.assertEqual(free[0]["price"], 0.0)
+        self.assertEqual(free[1]["max_duration"], 300)     # the 5 minute grace
+        self.assertEqual(charged[0]["price"], 12.0)        # RM0.20/min as RM/hour
+        self.assertEqual(charged[0]["step_size"], 60)
+        self.assertEqual(charged[1]["min_duration"], 300)
 
     def test_a_charger_without_idle_billing_publishes_no_parking_terms(self):
         # This absence is how a partner knows not to bill parking at all.
@@ -1353,3 +1358,77 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
                 for c in e["price_components"]]
         self.assertNotIn("PARKING_TIME", dims)
         self.assertEqual(self._cdr()["total_parking_cost"]["excl_vat"], 0)
+
+
+class GracePeriodInTariffTests(unittest.TestCase):
+    """The free window is stated in the tariff, not implied.
+
+    Voltality objected on 2026-10-13: the grace period was a lone
+    min_duration on the charged element, so they had to be told out of band
+    what that number meant, and a change here would need a message to them
+    before their billing matched ours again. The free window is now an element
+    of its own priced at zero, so the tariff says what those seconds cost.
+    """
+
+    def _tariff(self, enabled=True, grace=5, per_min=0.20):
+        from ocpi.router import _build_tariff
+        c = Charger(charge_point_id="GRACE", tariff_per_kwh=1.40,
+                    idle_fee_enabled=enabled, idle_fee_per_min=per_min,
+                    idle_grace_minutes=grace)
+        return _build_tariff(c, "2026-10-13T00:00:00Z")
+
+    def _parking(self, t):
+        return [(e["price_components"][0], e.get("restrictions") or {})
+                for e in t["elements"]
+                if e["price_components"][0]["type"] == "PARKING_TIME"]
+
+    def test_the_free_window_is_its_own_element(self):
+        free, charged = self._parking(self._tariff())
+        self.assertEqual(free[0]["price"], 0.0)
+        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 300})
+        self.assertEqual(charged[0]["price"], 12.0)
+        self.assertEqual(charged[1], {"min_duration": 300})
+
+    def test_the_two_windows_meet_without_a_gap(self):
+        # A gap would leave seconds whose price the tariff does not state.
+        free, charged = self._parking(self._tariff())
+        self.assertEqual(free[1]["max_duration"], charged[1]["min_duration"])
+
+    def test_the_grace_reflects_the_charger_not_a_constant(self):
+        free, charged = self._parking(self._tariff(grace=12))
+        self.assertEqual(free[1]["max_duration"], 720)
+        self.assertEqual(charged[1]["min_duration"], 720)
+
+    def test_no_free_element_when_there_is_no_grace(self):
+        parking = self._parking(self._tariff(grace=0))
+        self.assertEqual(len(parking), 1)
+        self.assertEqual(parking[0][0]["price"], 12.0)
+        self.assertEqual(parking[0][1], {"min_duration": 0})
+
+    def test_no_parking_elements_at_all_when_idling_is_off(self):
+        self.assertEqual(self._parking(self._tariff(enabled=False)), [])
+
+    def test_both_windows_bill_in_the_same_block(self):
+        # A partner recomputing our figure needs one block size, not two.
+        for comp, _ in self._parking(self._tariff()):
+            self.assertEqual(comp["step_size"], idle_billing.PARKING_STEP_SECONDS)
+
+    def test_the_tariff_matches_what_we_actually_bill(self):
+        """The published terms and the money we take have to agree.
+
+        Eleven minutes plugged in, five of them free, leaves six chargeable
+        minutes at RM0.20, and the tariff says RM12 per hour from second 300.
+        """
+        charger = Charger(charge_point_id="GRACE", tariff_per_kwh=1.40,
+                          idle_fee_enabled=True, idle_fee_per_min=0.20,
+                          idle_grace_minutes=5)
+        sess = ChargingSession(transaction_id=1, status="completed")
+        stop = idle_billing.now_myt() - timedelta(minutes=30)
+        sess.stop_time = stop
+        sess.idle_started_at = stop
+        sess.unplugged_at = stop + timedelta(minutes=11)
+        minutes, fee = idle_billing.compute_idle(sess, charger)
+        self.assertEqual(minutes, 6)
+        self.assertEqual(fee, 1.20)
+        _, charged = self._parking(self._tariff())
+        self.assertEqual(round(charged[0]["price"] / 60 * minutes, 2), fee)
