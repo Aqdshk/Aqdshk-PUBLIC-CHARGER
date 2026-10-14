@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>PlagSini Vendor Test Portal</title>
+    <link rel="icon" href="/static/logo.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=13">
+    <script src="/static/theme.js?v=2"></script>
+    <style>
+        /* This page is read by engineers at arm's length, often on a second
+           monitor next to a charger, so type is larger than the dashboard's. */
+        body { font-size: 13px; background: var(--bg-base); color: var(--text-primary); }
+        .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; }
+
+        .vp-top { display:flex; align-items:center; gap:12px; padding:10px 20px; background:var(--bg-surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:20; }
+        .vp-top img { height:26px; }
+        .vp-brand { font-weight:700; font-size:14px; }
+        .vp-brand small { display:block; font-weight:500; font-size:11px; color:var(--text-muted); }
+        .vp-spacer { flex:1; }
+        .vp-who { font-size:12px; color:var(--text-secondary); text-align:right; }
+        .vp-who strong { display:block; color:var(--text-primary); }
+        .vp-btn { font:inherit; font-size:12px; font-weight:600; padding:7px 12px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); cursor:pointer; transition:border-color var(--transition), color var(--transition), background var(--transition); }
+        .vp-btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+        .vp-btn:disabled { opacity:.45; cursor:not-allowed; }
+        .vp-btn.primary { background:var(--accent); border-color:var(--accent); color:#00210f; }
+        .vp-btn.primary:hover:not(:disabled) { background:var(--accent-hover); color:#00210f; }
+        .vp-btn.danger { border-color:var(--red); color:var(--red); }
+        .vp-btn.danger:hover:not(:disabled) { background:var(--red); color:#fff; }
+        .vp-btn.small { padding:4px 9px; font-size:11px; }
+
+        .vp-wrap { max-width:1440px; margin:0 auto; padding:16px 20px 40px; }
+        .vp-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+        .vp-tab { font:inherit; font-size:12px; font-weight:600; padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:var(--bg-card); color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; gap:7px; }
+        .vp-tab.active { border-color:var(--accent); color:var(--text-primary); background:var(--accent-dim); }
+        .dot { width:8px; height:8px; border-radius:50%; background:var(--text-muted); flex:none; }
+        .dot.on { background:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
+        .dot.off { background:var(--red); }
+
+        .panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); }
+        .panel-head { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); }
+        .panel-head h2 { font-size:13px; font-weight:700; }
+        .panel-head .sub { font-size:11px; color:var(--text-muted); }
+        .panel-body { padding:14px; }
+
+        .state { display:grid; grid-template-columns:minmax(240px, 320px) 1fr; gap:0; margin-bottom:14px; }
+        .state-main { padding:16px; border-right:1px solid var(--border); }
+        .state-pill { display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:15px; }
+        .state-id { margin-top:8px; font-size:13px; color:var(--text-secondary); word-break:break-all; }
+        .state-hint { margin-top:10px; font-size:12px; color:var(--text-secondary); line-height:1.5; }
+        .facts { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px 18px; padding:16px; }
+        .fact label { display:block; font-size:10px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:3px; }
+        .fact div { font-size:13px; word-break:break-word; }
+        .setup { padding:14px 16px; border-top:1px solid var(--border); grid-column:1 / -1; font-size:12px; color:var(--text-secondary); }
+        .setup code { display:inline-block; padding:3px 7px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); margin:2px 6px 2px 0; }
+        .setup summary { cursor:pointer; font-weight:600; color:var(--text-primary); }
+        .setup dl { display:grid; grid-template-columns:150px 1fr; gap:8px 12px; margin-top:10px; align-items:center; }
+        .setup dt { color:var(--text-muted); }
+
+        .stack { display:grid; grid-template-columns:minmax(0, 1fr); gap:14px; min-width:0; }
+        .cols { display:grid; grid-template-columns:minmax(0, 5fr) minmax(0, 6fr); gap:14px; margin-bottom:14px; align-items:start; }
+
+        .progress { height:6px; background:var(--bg-elevated); border-radius:999px; overflow:hidden; margin:0 14px 4px; }
+        .progress span { display:block; height:100%; background:var(--accent); transition:width .3s ease; }
+        .cl-group { padding:10px 14px 2px; font-size:10px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--text-muted); }
+        .cl-item { display:grid; grid-template-columns:20px 1fr auto; gap:10px; padding:7px 14px; align-items:start; border-top:1px solid transparent; }
+        .cl-item:hover { background:var(--bg-elevated); }
+        .cl-mark { width:18px; height:18px; border-radius:50%; border:1.5px solid var(--border-hover); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; margin-top:1px; }
+        .cl-item.pass .cl-mark { background:var(--accent); border-color:var(--accent); color:#00210f; }
+        .cl-item.fail .cl-mark { background:var(--red); border-color:var(--red); color:#fff; }
+        .cl-title { font-weight:600; }
+        .cl-title em { font-style:normal; font-weight:500; font-size:10px; color:var(--text-muted); margin-left:6px; border:1px solid var(--border); border-radius:999px; padding:0 6px; }
+        .cl-detail { font-size:11.5px; color:var(--text-secondary); margin-top:2px; word-break:break-word; }
+        .cl-item.fail .cl-detail { color:var(--red); }
+        .cl-time { font-size:11px; color:var(--text-muted); white-space:nowrap; }
+
+        .act { padding:12px 14px; border-top:1px solid var(--border); }
+        .act:first-child { border-top:none; }
+        .act h3 { font-size:12px; font-weight:700; margin-bottom:3px; }
+        .act p { font-size:11.5px; color:var(--text-muted); margin-bottom:9px; line-height:1.45; }
+        .act-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .act input, .act select { font:inherit; font-size:12px; padding:7px 9px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); min-width:0; }
+        .act input:focus, .act select:focus { outline:none; border-color:var(--accent); }
+        .act input.grow { flex:1 1 220px; }
+        .result { margin-top:9px; font-size:12px; padding:8px 10px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); display:none; white-space:pre-wrap; word-break:break-word; }
+        .result.ok { display:block; border-color:var(--accent); }
+        .result.bad { display:block; border-color:var(--red); color:var(--red); }
+        .cfg { max-height:220px; overflow:auto; margin-top:9px; border:1px solid var(--border); border-radius:var(--radius-md); display:none; }
+        .cfg table { width:100%; border-collapse:collapse; font-size:11.5px; }
+        .cfg td { padding:5px 9px; border-bottom:1px solid var(--border); vertical-align:top; word-break:break-word; }
+        .cfg tr:last-child td { border-bottom:none; }
+        .cfg td:first-child { color:var(--text-secondary); width:45%; }
+
+        table.sess { width:100%; border-collapse:collapse; font-size:12px; }
+        table.sess th { text-align:left; font-size:10px; letter-spacing:.5px; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:8px 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
+        table.sess td { padding:8px 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
+        table.sess tr:last-child td { border-bottom:none; }
+        .num { text-align:right; font-variant-numeric:tabular-nums; }
+        .empty { padding:22px 14px; text-align:center; color:var(--text-muted); font-size:12px; }
+
+        .log-tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-left:auto; }
+        .log-tools input[type=text] { font:inherit; font-size:12px; padding:5px 9px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); width:170px; }
+        .log-tools label { font-size:11.5px; color:var(--text-secondary); display:flex; align-items:center; gap:5px; cursor:pointer; }
+        .log { max-height:560px; overflow:auto; font-size:12px; }
+        .msg { display:grid; grid-template-columns:96px 22px 62px 190px 1fr; gap:10px; padding:5px 14px; border-bottom:1px solid var(--border); cursor:pointer; align-items:baseline; }
+        .msg:hover { background:var(--bg-elevated); }
+        .msg .t { color:var(--text-muted); }
+        .msg .dir { font-weight:700; }
+        .msg.in .dir { color:var(--blue); }
+        .msg.out .dir { color:var(--orange); }
+        .msg .kind { font-size:10px; font-weight:600; letter-spacing:.4px; color:var(--text-muted); }
+        .msg.err .kind { color:var(--red); }
+        .msg .action { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .msg .body { color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .msg.open { background:var(--bg-elevated); }
+        .msg.open .body { white-space:pre-wrap; word-break:break-word; color:var(--text-primary); }
+        .legend { font-size:11px; color:var(--text-muted); padding:8px 14px; border-top:1px solid var(--border); display:flex; gap:16px; flex-wrap:wrap; }
+        .legend b.in { color:var(--blue); } .legend b.out { color:var(--orange); }
+
+        .login { min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .login-card { width:100%; max-width:380px; padding:26px; }
+        .login-card img { height:34px; margin-bottom:14px; }
+        .login-card h1 { font-size:18px; font-weight:700; margin-bottom:4px; }
+        .login-card p { font-size:12.5px; color:var(--text-secondary); margin-bottom:18px; line-height:1.5; }
+        .login-card label { display:block; font-size:11px; font-weight:600; color:var(--text-secondary); margin:12px 0 5px; }
+        .login-card input { width:100%; font:inherit; font-size:14px; padding:10px 12px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); }
+        .login-card input:focus { outline:none; border-color:var(--accent); }
+        .login-card .vp-btn { width:100%; margin-top:18px; padding:11px; font-size:13px; }
+        .login-err { color:var(--red); font-size:12px; margin-top:10px; min-height:16px; }
+
+        .toast { position:fixed; right:18px; bottom:18px; padding:10px 14px; border-radius:var(--radius-md); background:var(--bg-elevated); border:1px solid var(--border-hover); box-shadow:var(--shadow-md); font-size:12px; opacity:0; transform:translateY(8px); transition:opacity .2s, transform .2s; pointer-events:none; z-index:50; max-width:340px; }
+        .toast.show { opacity:1; transform:none; }
+
+        [hidden] { display:none !important; }
+        @media (max-width: 980px) {
+            .cols, .state { grid-template-columns:1fr; }
+            .state-main { border-right:none; border-bottom:1px solid var(--border); }
+            .msg { grid-template-columns:78px 18px 1fr; }
+            .msg .kind { display:none; }
+            .msg .body { grid-column:1 / -1; }
+            .vp-who { display:none; }
+            .facts { grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); }
+        }
+        @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+    </style>
+</head>
+<body>
+
+<!-- ── Sign in ── -->
+<div class="login" id="loginView" hidden>
+    <form class="panel login-card" id="loginForm" autocomplete="on">
+        <img src="/static/logo.png" alt="PlagSini">
+        <h1>Vendor Test Portal</h1>
+        <p>For charger manufacturers running OCPP integration tests against the PlagSini platform. Sign in with the account PlagSini issued to you.</p>
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" autocomplete="username" required>
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+        <button class="vp-btn primary" type="submit" id="loginBtn">Sign in</button>
+        <div class="login-err" id="loginErr" role="alert"></div>
+    </form>
+</div>
+
+<!-- ── Portal ── -->
+<div id="appView" hidden>
+    <header class="vp-top">
+        <img src="/static/logo.png" alt="">
+        <div class="vp-brand">PlagSini<small>Vendor Test Portal</small></div>
+        <div class="vp-spacer"></div>
+        <div class="vp-who"><strong id="whoCompany"></strong><span id="whoEmail"></span></div>
+        <button class="vp-btn small" type="button" onclick="toggleDashboardTheme()">Light / dark</button>
+        <button class="vp-btn small" type="button" id="logoutBtn">Sign out</button>
+    </header>
+
+    <div class="vp-wrap">
+        <div class="vp-tabs" id="tabs"></div>
+        <div class="empty panel" id="noChargers" hidden>No charge point has been assigned to this account yet. Send PlagSini your pile ID and it will appear here.</div>
+
+        <div id="chargerView" hidden>
+            <!-- Connection -->
+            <section class="panel state">
+                <div class="state-main">
+                    <div class="state-pill"><span class="dot" id="stDot"></span><span id="stText"></span></div>
+                    <div class="state-id mono" id="stId"></div>
+                    <div class="state-hint" id="stHint"></div>
+                </div>
+                <div class="facts" id="facts"></div>
+                <details class="setup" id="setup">
+                    <summary>How to point the charger at this platform</summary>
+                    <dl>
+                        <dt>OCPP URL (plain)</dt><dd><code class="mono" id="urlWs"></code><button class="vp-btn small" type="button" data-copy="urlWs">Copy</button></dd>
+                        <dt>OCPP URL (TLS)</dt><dd><code class="mono" id="urlWss"></code><button class="vp-btn small" type="button" data-copy="urlWss">Copy</button></dd>
+                        <dt>WebSocket subprotocol</dt><dd><code class="mono">ocpp1.6</code> or <code class="mono">ocpp2.0.1</code> (OCPP-J, JSON over WebSocket)</dd>
+                        <dt>Charge point ID</dt><dd>The last part of the URL. It must match the ID shown above exactly.</dd>
+                        <dt>Username / password</dt><dd>Not required for the OCPP connection.</dd>
+                    </dl>
+                </details>
+            </section>
+
+            <div class="cols">
+                <!-- Checklist -->
+                <section class="panel">
+                    <div class="panel-head">
+                        <h2>Test checklist</h2>
+                        <span class="sub" id="clSummary"></span>
+                        <div class="vp-spacer"></div>
+                        <button class="vp-btn small" type="button" id="newRunBtn" title="Clear the ticks and judge only what happens from now on. Nothing is deleted from the log.">Start new run</button>
+                    </div>
+                    <div style="padding-top:12px"><div class="progress"><span id="clBar" style="width:0"></span></div></div>
+                    <div id="checklist"></div>
+                </section>
+
+                <!-- Commands, then what they produced -->
+                <div class="stack">
+                <section class="panel">
+                    <div class="panel-head"><h2>Commands</h2><span class="sub">Sent to this charger only</span></div>
+
+                    <div class="act">
+                        <h3>Charging</h3>
+                        <p>Sends RemoteStartTransaction or RemoteStopTransaction. Plug the cable in first. Stop ends whatever transaction is running on this charger.</p>
+                        <div class="act-row">
+                            <select id="startConnector" aria-label="Connector"></select>
+                            <button class="vp-btn primary" type="button" data-act="start">Start charging</button>
+                            <button class="vp-btn danger" type="button" data-act="stop">Stop charging</button>
+                        </div>
+                        <div class="result" id="resCharging"></div>
+                    </div>
+
+                    <div class="act">
+                        <h3>Firmware update</h3>
+                        <p>Sends UpdateFirmware with this download address and "now" as the retrieve date. The charger must be able to reach the address itself.</p>
+                        <div class="act-row">
+                            <input class="grow mono" id="fwLocation" type="url" placeholder="http://… or ftp://… address of the firmware file" spellcheck="false">
+                            <button class="vp-btn" type="button" data-act="firmware">Send update</button>
+                        </div>
+                        <div class="result" id="resFirmware"></div>
+                    </div>
+
+                    <div class="act">
+                        <h3>Trigger a message</h3>
+                        <p>Asks the charger to send a message now (TriggerMessage).</p>
+                        <div class="act-row">
+                            <select id="triggerMessage" aria-label="Message"></select>
+                            <button class="vp-btn" type="button" data-act="trigger">Trigger</button>
+                        </div>
+                        <div class="result" id="resTrigger"></div>
+                    </div>
+
+                    <div class="act">
+                        <h3>Configuration</h3>
+                        <p>GetConfiguration reads every key, or one if you name it. ChangeConfiguration needs a key and a value.</p>
+                        <div class="act-row">
+                            <input class="mono" id="cfgKey" type="text" placeholder="Key (blank = all)" spellcheck="false" style="flex:1 1 150px">
+                            <input class="mono" id="cfgValue" type="text" placeholder="Value" spellcheck="false" style="flex:1 1 110px">
+                            <button class="vp-btn" type="button" data-act="cfgGet">Read</button>
+                            <button class="vp-btn" type="button" data-act="cfgSet">Write</button>
+                        </div>
+                        <div class="result" id="resConfig"></div>
+                        <div class="cfg" id="cfgTable"></div>
+                    </div>
+
+                    <div class="act">
+                        <h3>Reset and unlock</h3>
+                        <p>A hard reset interrupts a running transaction.</p>
+                        <div class="act-row">
+                            <button class="vp-btn" type="button" data-act="resetSoft">Soft reset</button>
+                            <button class="vp-btn danger" type="button" data-act="resetHard">Hard reset</button>
+                            <button class="vp-btn" type="button" data-act="unlock">Unlock connector</button>
+                        </div>
+                        <div class="result" id="resReset"></div>
+                    </div>
+                </section>
+                    <section class="panel">
+                        <div class="panel-head"><h2>Charging sessions</h2><span class="sub">Last 20. Amount is energy at this charger's tariff.</span></div>
+                        <div style="overflow-x:auto"><div id="sessions"></div></div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Log -->
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>OCPP messages</h2><span class="sub" id="logCount"></span>
+                    <div class="log-tools">
+                        <input type="text" id="logFilter" placeholder="Filter by action or text" aria-label="Filter messages">
+                        <label><input type="checkbox" id="hideHeartbeat"> Hide Heartbeat</label>
+                        <button class="vp-btn small" type="button" id="pauseBtn">Pause</button>
+                        <button class="vp-btn small" type="button" id="downloadBtn">Download</button>
+                    </div>
+                </div>
+                <div class="log mono" id="log"></div>
+                <div class="legend"><span><b class="in">&larr;</b> from the charger</span><span><b class="out">&rarr;</b> to the charger</span><span>Times are in your computer's time zone. Click a row to see the whole message. Kept for 14 days.</span></div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+    'use strict';
+
+    var TOKEN_KEY = 'vendorToken';
+    var MAX_ROWS = 2000;
+    var token = null;
+    try { token = localStorage.getItem(TOKEN_KEY); } catch (e) {}
+
+    var overview = null;      // last /overview answer
+    var selected = null;      // charge point id on screen
+    var messages = [];        // frames for the selected charger, oldest first
+    var lastId = 0;
+    var paused = false;
+    var timers = [];
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    // Everything a charger sends ends up on this page, so nothing from the
+    // server is ever placed into the DOM unescaped.
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function pad(n, w) { n = String(n); while (n.length < (w || 2)) n = '0' + n; return n; }
+    function clock(iso, ms) {
+        if (!iso) return '';
+        var d = new Date(iso);
+        if (isNaN(d)) return '';
+        return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + (ms ? '.' + pad(d.getMilliseconds(), 3) : '');
+    }
+    function dateTime(iso) {
+        if (!iso) return '';
+        var d = new Date(iso);
+        if (isNaN(d)) return '';
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + clock(iso);
+    }
+    function ago(iso) {
+        if (!iso) return 'never';
+        var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+        if (s < 90) return s + ' s ago';
+        if (s < 5400) return Math.round(s / 60) + ' min ago';
+        if (s < 172800) return Math.round(s / 3600) + ' h ago';
+        return Math.round(s / 86400) + ' days ago';
+    }
+    function toast(text) {
+        var t = $('toast');
+        t.textContent = text;
+        t.classList.add('show');
+        clearTimeout(toast._t);
+        toast._t = setTimeout(function () { t.classList.remove('show'); }, 3200);
+    }
+
+    // ── Server ──
+    function call(method, path, body) {
+        var opts = { method: method, headers: { 'X-Vendor-Token': token || '' } };
+        if (body !== undefined) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+        }
+        return fetch(path, opts).then(function (r) {
+            if (r.status === 401 && path !== '/api/vendor/login') { signedOut(); throw new Error('signed out'); }
+            return r.json().catch(function () { return {}; }).then(function (data) {
+                if (!r.ok) {
+                    var detail = data && data.detail;
+                    var e = new Error(typeof detail === 'string' ? detail : 'Request failed (' + r.status + ')');
+                    e.status = r.status;
+                    throw e;
+                }
+                return data;
+            });
+        });
+    }
+    function cp(path) { return '/api/vendor/chargers/' + encodeURIComponent(selected) + path; }
+
+    // ── Sign in / out ──
+    function signedOut() {
+        token = null;
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        timers.forEach(clearInterval); timers = [];
+        $('appView').hidden = true;
+        $('loginView').hidden = false;
+    }
+
+    $('loginForm').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var btn = $('loginBtn');
+        btn.disabled = true; $('loginErr').textContent = '';
+        call('POST', '/api/vendor/login', { email: $('loginEmail').value, password: $('loginPassword').value })
+            .then(function (data) {
+                token = data.token;
+                try { localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+                $('loginPassword').value = '';
+                start();
+            })
+            .catch(function (e) {
+                $('loginErr').textContent = e.status === 429
+                    ? 'Too many attempts. Please wait a few minutes.'
+                    : (e.status === 401 ? 'Wrong email or password, or the account is no longer active.' : e.message);
+            })
+            .then(function () { btn.disabled = false; });
+    });
+
+    $('logoutBtn').addEventListener('click', function () {
+        call('POST', '/api/vendor/logout').catch(function () {}).then(signedOut);
+    });
+
+    // ── Start ──
+    function start() {
+        $('loginView').hidden = true;
+        $('appView').hidden = false;
+        loadOverview(true);
+        timers.forEach(clearInterval);
+        timers = [
+            setInterval(function () { if (!document.hidden) pollLive(); }, 3000),
+            setInterval(function () { if (!document.hidden) loadChecklist(); }, 8000),
+            setInterval(function () { if (!document.hidden) loadSessions(); }, 15000),
+            setInterval(function () { if (!document.hidden) loadOverview(false); }, 30000)
+        ];
+    }
+
+    function loadOverview(first) {
+        return call('GET', '/api/vendor/overview').then(function (data) {
+            overview = data;
+            $('whoCompany').textContent = data.vendor.company;
+            $('whoEmail').textContent = data.vendor.email;
+            var ids = data.chargers.map(function (c) { return c.charge_point_id; });
+            $('noChargers').hidden = ids.length > 0;
+            $('chargerView').hidden = ids.length === 0;
+            if (first) {
+                var sel = $('triggerMessage');
+                sel.innerHTML = data.triggerable.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');
+            }
+            if (ids.length && ids.indexOf(selected) === -1) select(ids[0]);
+            else renderTabs();
+        }).catch(function () {});
+    }
+
+    function renderTabs() {
+        if (!overview) return;
+        var list = overview.chargers;
+        $('tabs').hidden = list.length < 2;
+        $('tabs').innerHTML = list.map(function (c) {
+            return '<button type="button" class="vp-tab' + (c.charge_point_id === selected ? ' active' : '') +
+                '" data-cp="' + esc(c.charge_point_id) + '"><span class="dot ' + (c.connected ? 'on' : (c.registered ? 'off' : '')) +
+                '"></span><span class="mono">' + esc(c.charge_point_id) + '</span></button>';
+        }).join('');
+    }
+    $('tabs').addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-cp]');
+        if (b) select(b.getAttribute('data-cp'));
+    });
+
+    function select(id) {
+        selected = id;
+        messages = []; lastId = 0;
+        $('log').innerHTML = '';
+        $('checklist').innerHTML = '';
+        $('sessions').innerHTML = '';
+        ['resCharging', 'resFirmware', 'resTrigger', 'resConfig', 'resReset'].forEach(function (r) { $(r).className = 'result'; });
+        $('cfgTable').style.display = 'none';
+        renderTabs();
+        var c = overview.connection;
+        $('urlWs').textContent = c.ws_url.replace('{charge_point_id}', id);
+        $('urlWss').textContent = c.wss_url.replace('{charge_point_id}', id);
+        var mine = overview.chargers.filter(function (x) { return x.charge_point_id === id; })[0];
+        if (mine) renderState(mine);
+        pollLive(); loadChecklist(); loadSessions();
+    }
+
+    // ── Connection state ──
+    function connectorText(raw) {
+        if (!raw) return '';
+        try {
+            var m = JSON.parse(raw);
+            return Object.keys(m).sort().map(function (k) {
+                var v = m[k]; return '#' + k + ' ' + (typeof v === 'string' ? v : (v.status || v.availability || JSON.stringify(v)));
+            }).join(', ');
+        } catch (e) { return raw; }
+    }
+
+    function renderState(c) {
+        var dot = $('stDot'), text = $('stText'), hint = $('stHint');
+        $('stId').textContent = c.charge_point_id;
+        dot.className = 'dot';
+        if (!c.registered) {
+            text.textContent = 'Waiting for first connection';
+            hint.textContent = 'This charge point has never connected. Set the OCPP URL below on the charger; it registers itself on its first BootNotification.';
+            $('setup').open = true;
+        } else if (c.connected) {
+            dot.className = 'dot on';
+            text.textContent = 'Connected';
+            var a = c.active_session;
+            hint.textContent = !a ? 'The WebSocket is open. Commands will be delivered immediately.'
+                : (a.transaction_id === null
+                    ? 'A start is under way on connector ' + (a.connector_id || '?') + ', waiting for StartTransaction.'
+                    : 'Transaction ' + a.transaction_id + ' is ' + a.status + ' on connector ' + (a.connector_id || '?') + '.');
+        } else {
+            dot.className = 'dot off';
+            text.textContent = 'Not connected';
+            hint.textContent = 'The WebSocket is closed. Last heartbeat ' + ago(c.last_heartbeat) + '. Commands cannot be sent until the charger reconnects.';
+        }
+        var facts = c.registered ? [
+            ['Vendor', c.vendor], ['Model', c.model], ['Firmware', c.firmware_version],
+            ['OCPP version', c.ocpp_version], ['Status', c.availability],
+            ['Connectors', connectorText(c.connector_status) || c.number_of_connectors],
+            ['Last heartbeat', c.last_heartbeat ? ago(c.last_heartbeat) : 'never'],
+            ['Link', c.connectivity], ['Tariff', 'RM ' + Number(c.tariff_per_kwh || 0).toFixed(2) + ' / kWh']
+        ] : [['Status', 'Not registered yet']];
+        $('facts').innerHTML = facts.map(function (f) {
+            return '<div class="fact"><label>' + esc(f[0]) + '</label><div>' + esc(f[1] || '-') + '</div></div>';
+        }).join('');
+
+        var n = Math.max(1, c.number_of_connectors || 1), sel = $('startConnector');
+        if (sel.options.length !== n) {
+            var html = '';
+            for (var i = 1; i <= n; i++) html += '<option value="' + i + '">Connector ' + i + '</option>';
+            sel.innerHTML = html;
+        }
+        document.querySelectorAll('[data-act]').forEach(function (b) {
+            if (!b._busy) b.disabled = !c.connected;
+        });
+        for (var i2 = 0; i2 < overview.chargers.length; i2++) {
+            if (overview.chargers[i2].charge_point_id === c.charge_point_id) overview.chargers[i2] = c;
+        }
+        renderTabs();
+    }
+
+    // ── Live log ──
+    function pollLive() {
+        if (!selected) return;
+        var id = selected;
+        call('GET', cp('/live?after_id=' + lastId + '&limit=500')).then(function (data) {
+            if (id !== selected) return;
+            renderState(data.charger);
+            if (data.messages.length) {
+                lastId = data.messages[data.messages.length - 1].id;
+                messages = messages.concat(data.messages);
+                if (messages.length > MAX_ROWS) messages = messages.slice(messages.length - MAX_ROWS);
+                if (!paused) renderLog();
+            } else if (!$('log').firstChild) {
+                renderLog();
+            }
+        }).catch(function () {});
+    }
+
+    var KIND = { 2: 'CALL', 3: 'RESULT', 4: 'ERROR' };
+    function bodyOf(m, pretty) {
+        try {
+            var f = JSON.parse(m.payload);
+            var b = m.type === 2 ? f[3] : (m.type === 4 ? f.slice(2) : f[2]);
+            return pretty ? JSON.stringify(b, null, 2) : JSON.stringify(b);
+        } catch (e) { return m.payload || ''; }
+    }
+    var openRows = {};
+
+    function renderLog() {
+        var q = $('logFilter').value.trim().toLowerCase();
+        var hideHb = $('hideHeartbeat').checked;
+        var box = $('log');
+        var stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+        var rows = messages.filter(function (m) {
+            if (hideHb && m.action === 'Heartbeat') return false;
+            if (!q) return true;
+            return (m.action || '').toLowerCase().indexOf(q) !== -1 || (m.payload || '').toLowerCase().indexOf(q) !== -1;
+        });
+        $('logCount').textContent = messages.length
+            ? (rows.length === messages.length ? rows.length + ' messages' : rows.length + ' of ' + messages.length + ' messages') + (paused ? ' (paused)' : '')
+            : '';
+        if (!rows.length) {
+            box.innerHTML = '<div class="empty" style="font-family:Inter,sans-serif">' +
+                (messages.length ? 'No message matches the filter.' : 'No messages recorded yet. They appear here as soon as the charger connects.') + '</div>';
+            return;
+        }
+        box.innerHTML = rows.map(function (m) {
+            var open = !!openRows[m.id];
+            return '<div class="msg ' + (m.direction === 'in' ? 'in' : 'out') + (m.type === 4 ? ' err' : '') + (open ? ' open' : '') +
+                '" data-id="' + m.id + '" title="' + esc(m.at) + '">' +
+                '<span class="t">' + clock(m.at, true) + '</span>' +
+                '<span class="dir">' + (m.direction === 'in' ? '&larr;' : '&rarr;') + '</span>' +
+                '<span class="kind">' + (KIND[m.type] || 'RAW') + '</span>' +
+                '<span class="action">' + esc(m.action || '(unknown)') + '</span>' +
+                '<span class="body">' + esc(bodyOf(m, open)) + '</span></div>';
+        }).join('');
+        if (stick) box.scrollTop = box.scrollHeight;
+    }
+    $('log').addEventListener('click', function (ev) {
+        var row = ev.target.closest('.msg');
+        if (!row || String(window.getSelection())) return;
+        var id = row.getAttribute('data-id');
+        if (openRows[id]) delete openRows[id]; else openRows[id] = true;
+        var top = $('log').scrollTop;
+        renderLog();
+        $('log').scrollTop = top;
+    });
+    $('logFilter').addEventListener('input', renderLog);
+    $('hideHeartbeat').addEventListener('change', renderLog);
+    $('pauseBtn').addEventListener('click', function () {
+        paused = !paused;
+        this.textContent = paused ? 'Resume' : 'Pause';
+        renderLog();
+    });
+    $('downloadBtn').addEventListener('click', function () {
+        if (!messages.length) { toast('Nothing to download yet.'); return; }
+        var lines = messages.map(function (m) {
+            return m.at + '\t' + (m.direction === 'in' ? 'charger->csms' : 'csms->charger') + '\t' + m.payload;
+        }).join('\n');
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([lines + '\n'], { type: 'text/plain' }));
+        a.download = 'ocpp-' + selected + '-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.log';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+
+    // ── Checklist ──
+    function runKey() { return 'vendorRun:' + selected; }
+    function sinceId() { try { return parseInt(localStorage.getItem(runKey()) || '0', 10) || 0; } catch (e) { return 0; } }
+
+    function loadChecklist() {
+        if (!selected) return;
+        var id = selected;
+        call('GET', cp('/checklist?since_id=' + sinceId())).then(function (data) {
+            if (id !== selected) return;
+            var done = data.passed, total = data.total;
+            $('clSummary').textContent = done + ' of ' + total + ' required steps passed' + (data.failed ? ', ' + data.failed + ' failed' : '') + (data.since_id ? ' (this run)' : '');
+            $('clBar').style.width = (total ? Math.round(100 * done / total) : 0) + '%';
+            var html = '', group = null;
+            data.items.forEach(function (i) {
+                if (i.group !== group) { group = i.group; html += '<div class="cl-group">' + esc(group) + '</div>'; }
+                html += '<div class="cl-item ' + esc(i.state) + '"><div class="cl-mark">' + (i.state === 'pass' ? '&#10003;' : (i.state === 'fail' ? '!' : '')) + '</div>' +
+                    '<div><div class="cl-title">' + esc(i.title) + (i.optional ? '<em>optional</em>' : '') + '</div>' +
+                    (i.detail ? '<div class="cl-detail">' + esc(i.detail) + '</div>' : '') + '</div>' +
+                    '<div class="cl-time">' + esc(clock(i.at)) + '</div></div>';
+            });
+            $('checklist').innerHTML = html;
+            $('newRunBtn')._latest = data.latest_id;
+        }).catch(function () {});
+    }
+    $('newRunBtn').addEventListener('click', function () {
+        if (!confirm('Start a new test run? The checklist will only count what happens from now on. The message log is kept.')) return;
+        try { localStorage.setItem(runKey(), String(Math.max(this._latest || 0, lastId))); } catch (e) {}
+        loadChecklist();
+        toast('New run started.');
+    });
+
+    // ── Sessions ──
+    function loadSessions() {
+        if (!selected) return;
+        var id = selected;
+        call('GET', cp('/sessions')).then(function (data) {
+            if (id !== selected) return;
+            if (!data.sessions.length) { $('sessions').innerHTML = '<div class="empty">No charging session on this charger yet.</div>'; return; }
+            $('sessions').innerHTML = '<table class="sess"><thead><tr><th>Transaction</th><th>Connector</th><th>Status</th><th>Started</th><th>Stopped</th>' +
+                '<th class="num">Meter start</th><th class="num">Meter stop</th><th class="num">Energy</th><th class="num">Amount</th><th>Stop reason</th></tr></thead><tbody>' +
+                data.sessions.map(function (s) {
+                    return '<tr><td class="mono">' + (s.transaction_id === null ? '-' : esc(s.transaction_id)) + '</td><td>' + esc(s.connector_id || '-') + '</td><td>' + esc(s.status) + '</td>' +
+                        '<td>' + esc(dateTime(s.start_time)) + '</td><td>' + esc(dateTime(s.stop_time) || '-') + '</td>' +
+                        '<td class="num">' + (s.meter_start_wh === null ? '-' : esc(s.meter_start_wh) + ' Wh') + '</td>' +
+                        '<td class="num">' + (s.meter_stop_wh === null ? '-' : esc(s.meter_stop_wh) + ' Wh') + '</td>' +
+                        '<td class="num">' + Number(s.energy_kwh).toFixed(3) + ' kWh</td>' +
+                        '<td class="num">RM ' + Number(s.amount_rm).toFixed(2) + '</td><td>' + esc(s.stop_reason || '-') + '</td></tr>';
+                }).join('') + '</tbody></table>';
+        }).catch(function () {});
+    }
+
+    // ── Commands ──
+    function show(boxId, ok, text) {
+        var el = $(boxId);
+        el.className = 'result ' + (ok ? 'ok' : 'bad');
+        el.textContent = text;
+    }
+    function send(btn, boxId, path, body, after) {
+        btn._busy = true; btn.disabled = true;
+        var label = btn.textContent; btn.textContent = 'Sending…';
+        call('POST', cp(path), body || {}).then(function (data) {
+            show(boxId, !!data.success, data.message || (data.success ? 'Done.' : 'Failed.'));
+            if (after) after(data);
+        }).catch(function (e) {
+            if (e.message !== 'signed out') show(boxId, false, e.message);
+        }).then(function () {
+            btn._busy = false; btn.disabled = false; btn.textContent = label;
+            pollLive();
+            setTimeout(loadChecklist, 1500);
+            setTimeout(loadSessions, 2500);
+        });
+    }
+
+    var ACTIONS = {
+        start: function (b) { send(b, 'resCharging', '/start', { connector_id: parseInt($('startConnector').value, 10) || 1 }); },
+        stop: function (b) { send(b, 'resCharging', '/stop'); },
+        firmware: function (b) {
+            var url = $('fwLocation').value.trim();
+            if (!/^(https?|ftps?):\/\/\S+$/i.test(url)) { show('resFirmware', false, 'Enter the full address of the firmware file, starting with http://, https:// or ftp://.'); return; }
+            if (!confirm('Send UpdateFirmware to ' + selected + '?\n\n' + url + '\n\nThe charger will download and install it, and will reboot.')) return;
+            send(b, 'resFirmware', '/firmware', { location: url });
+        },
+        trigger: function (b) { send(b, 'resTrigger', '/trigger', { requested_message: $('triggerMessage').value }); },
+        cfgGet: function (b) {
+            var key = $('cfgKey').value.trim();
+            send(b, 'resConfig', '/configuration/get', { keys: key ? [key] : null }, function (data) {
+                var rows = (data.configuration || []).map(function (k) {
+                    return '<tr><td class="mono">' + esc(k.key) + (k.readonly ? ' (read only)' : '') + '</td><td class="mono">' + esc(k.value) + '</td></tr>';
+                }).concat((data.unknown || []).map(function (k) {
+                    return '<tr><td class="mono">' + esc(k) + '</td><td>Unknown key</td></tr>';
+                }));
+                $('cfgTable').innerHTML = '<table>' + rows.join('') + '</table>';
+                $('cfgTable').style.display = rows.length ? 'block' : 'none';
+                if (data.success) show('resConfig', true, rows.length + ' key(s) returned.');
+            });
+        },
+        cfgSet: function (b) {
+            var key = $('cfgKey').value.trim();
+            if (!key) { show('resConfig', false, 'Enter the key to change.'); return; }
+            send(b, 'resConfig', '/configuration/set', { key: key, value: $('cfgValue').value });
+        },
+        resetSoft: function (b) { send(b, 'resReset', '/reset', { type: 'Soft' }); },
+        resetHard: function (b) {
+            if (!confirm('Hard reset ' + selected + '? A running transaction will be interrupted.')) return;
+            send(b, 'resReset', '/reset', { type: 'Hard' });
+        },
+        unlock: function (b) { send(b, 'resReset', '/unlock', { connector_id: parseInt($('startConnector').value, 10) || 1 }); }
+    };
+    document.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-act]');
+        if (b && !b.disabled && ACTIONS[b.getAttribute('data-act')]) ACTIONS[b.getAttribute('data-act')](b);
+        var c = ev.target.closest('[data-copy]');
+        if (c) {
+            var text = $(c.getAttribute('data-copy')).textContent;
+            (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
+                function () { toast('Copied.'); },
+                function () { toast(text); }
+            );
+        }
+    });
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && token && selected) { pollLive(); loadChecklist(); }
+    });
+
+    if (token) start(); else $('loginView').hidden = false;
+})();
+</script>
+</body>
+</html>

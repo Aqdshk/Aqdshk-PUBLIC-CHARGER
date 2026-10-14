@@ -572,7 +572,8 @@ app.add_middleware(
 # by the "AUDIT" prefix so they're trivially greppable.
 _audit_logger = logging.getLogger(__name__)
 _AUDIT_PATH_PREFIXES = ("/api/admin/", "/api/ocpp/", "/api/charging/start",
-                        "/api/charging/stop", "/ocpi/2.2.1/commands/")
+                        "/api/charging/stop", "/ocpi/2.2.1/commands/",
+                        "/api/vendor/")
 
 
 @app.middleware("http")
@@ -2465,6 +2466,16 @@ async def staff_portal_page():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading staff portal: {str(e)}")
+
+
+@app.get("/vendor")
+async def vendor_portal_page():
+    """Vendor test portal. It has its own sign-in (vendor accounts, managed
+    under /admin), so the page itself is public like /login."""
+    file_path = _BASE_DIR / "templates" / "vendor.html"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Vendor portal template not found")
+    return FileResponse(file_path, media_type="text/html")
 
 
 @app.get("/login")
@@ -4555,6 +4566,23 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             success=False,
             message="An unexpected error occurred"
         )
+
+
+# ==================== VENDOR TEST PORTAL ====================
+# Included here rather than with the other routers because it reuses the start
+# and stop handlers above, so a vendor's start goes down the same path as the
+# dashboard's and cannot drift from it.
+from vendor_portal import build_router as _build_vendor_router
+
+app.include_router(_build_vendor_router(
+    require_admin=require_admin_or_staff_admin,
+    enforce_rate_limit=_enforce_rate_limit,
+    start_charging=start_charging,
+    stop_charging=stop_charging,
+    start_request_model=StartChargingRequest,
+    stop_request_model=StopChargingRequest,
+    offline_after_minutes=OFFLINE_THRESHOLD_MINUTES,
+))
 
 
 # ==================== CHARGING SCHEDULES ====================

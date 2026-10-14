@@ -489,6 +489,92 @@ class ChargerConnectionEvent(Base):
     __table_args__ = (Index("ix_conn_events_cp_at", "charge_point_id", "at"),)
 
 
+class VendorAccount(Base):
+    """
+    A charger manufacturer's login to the vendor test portal (/vendor).
+
+    Vendors integrating a new charger asked for "a test account", and the only
+    login the dashboard had was an administrator's, which shows every charger,
+    customer and payment on the platform. This is the narrow alternative: an
+    account that sees and drives only the charge points listed on it.
+
+    `charge_point_ids` is a comma-separated list rather than a join to
+    chargers, because a pile ID has to be assignable before the charger has
+    ever connected, which is exactly when a vendor needs the page.
+    """
+    __tablename__ = "vendor_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(120), nullable=False)
+    contact_name = Column(String(120), nullable=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    charge_point_ids = Column(Text, nullable=False, default="")
+    is_active = Column(Boolean, nullable=False, default=True)
+    # NULL = no end date. Access stops at this instant (UTC) without anyone
+    # having to remember to switch the account off after a test campaign.
+    expires_at = Column(DateTime, nullable=True)
+    notes = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    last_login = Column(DateTime, nullable=True)
+
+    def set_password(self, password: str):
+        salt = secrets.token_hex(16)
+        hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+        self.password_hash = f"{salt}${hash_obj.hex()}"
+
+    def check_password(self, password: str) -> bool:
+        try:
+            salt, stored_hash = self.password_hash.split("$", 1)
+            hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+            return secrets.compare_digest(hash_obj.hex(), stored_hash)
+        except (ValueError, AttributeError):
+            return False
+
+    def charger_ids(self) -> list:
+        return [c.strip() for c in (self.charge_point_ids or "").split(",") if c.strip()]
+
+    def is_usable(self) -> bool:
+        if not self.is_active:
+            return False
+        return self.expires_at is None or self.expires_at > _utcnow()
+
+
+class VendorSession(Base):
+    """Login sessions for the vendor portal, in the database like StaffSession
+    so a deploy does not sign every vendor out."""
+    __tablename__ = "vendor_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendor_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(128), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class OcppMessageLog(Base):
+    """
+    Raw OCPP frames for chargers under vendor test (ocpp_trace.py).
+
+    Only chargers assigned to a vendor account are recorded, so this stays a
+    few rows a minute rather than the whole fleet's traffic. Times are UTC.
+    `action` is filled in on replies as well, from the call they answer, so
+    the log reads without matching message ids by hand. Pruned after 14 days.
+    """
+    __tablename__ = "ocpp_message_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    charge_point_id = Column(String(255), nullable=False)
+    at = Column(DateTime, nullable=False, default=_utcnow)
+    direction = Column(String(3), nullable=False)     # in = from charger, out = to charger
+    message_type = Column(Integer, nullable=True)     # 2 Call, 3 CallResult, 4 CallError
+    unique_id = Column(String(64), nullable=True)
+    action = Column(String(64), nullable=True)
+    payload = Column(Text, nullable=True)             # the frame as sent, truncated
+
+    __table_args__ = (Index("ix_ocpp_msg_cp_id", "charge_point_id", "id"),)
+
+
 class ChargingSession(Base):
     __tablename__ = "charging_sessions"
     

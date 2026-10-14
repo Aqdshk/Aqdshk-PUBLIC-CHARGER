@@ -59,6 +59,7 @@
                 <a href="#" id="navUsers" onclick="showTab('users'); return false;" class="nav-item active"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
                 <a href="#" id="navTickets" onclick="showTab('tickets'); return false;" class="nav-item"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
                 <a href="#" id="navStaff" onclick="showTab('staff'); return false;" class="nav-item"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="#" id="navVendors" onclick="showTab('vendors'); return false;" class="nav-item"><span class="nav-item-icon">🧪</span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -190,6 +191,35 @@
         </div>
                 </div>
 
+    <!-- ============ VENDOR TEST ACCESS ============ -->
+    <div class="main-content" id="vendorContent" style="display: none;">
+        <header class="top-header">
+            <div class="header-left">
+                <div class="hamburger" onclick="toggleSidebar()"><span></span><span></span><span></span></div>
+                <h1 class="page-title">🧪 Vendor Access</h1>
+            </div>
+            <div class="header-right">
+                <a href="/vendor" target="_blank" rel="noopener" class="btn btn-secondary btn-xs">Open vendor portal ↗</a>
+                <a href="/" class="btn btn-secondary btn-xs">← Dashboard</a>
+            </div>
+        </header>
+        <div class="admin-container">
+            <p style="color:var(--text-secondary);font-size:12px;line-height:1.6;margin:4px 0 12px;max-width:780px;">
+                Logins for charger manufacturers running integration tests. A vendor signs in at <strong>/vendor</strong> and sees only the charge points listed on the account: the live OCPP messages, a test checklist, and start, stop, reset and firmware commands for those chargers. They never see other chargers, customers or payments.
+            </p>
+            <div class="user-controls">
+                <div class="search-box"></div>
+                <button class="btn btn-primary btn-small" onclick="openVendorModal()">+ Add Vendor</button>
+            </div>
+            <div class="table-container">
+                <table class="user-table">
+                    <thead><tr><th>Company</th><th>Login</th><th>Charge points</th><th>Status</th><th>Expires</th><th>Last login</th><th></th></tr></thead>
+                    <tbody id="vendorTableBody"><tr><td colspan="7" class="loading-spinner">Loading vendors...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- ============ USER STATISTICS REPORT ============ -->
     <div class="main-content" id="userStatsContent" style="display: none;">
         <header class="top-header">
@@ -296,6 +326,40 @@
             </form>
                     </div>
                 </div>
+
+    <!-- Vendor account modal -->
+    <div class="modal" id="vendorModal">
+        <div class="modal-content">
+            <div class="modal-header"><h3 id="vendorModalTitle">Add Vendor</h3><button class="modal-close" onclick="closeVendorModal()">&times;</button></div>
+            <form id="vendorForm" onsubmit="handleVendorSubmit(event)">
+                <input type="hidden" id="editVendorId">
+                <div class="form-group"><label>Company *</label><input type="text" id="vfCompany" required maxlength="120" placeholder="Charger manufacturer"></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Contact name</label><input type="text" id="vfContact" maxlength="120" placeholder="Engineer's name"></div>
+                    <div class="form-group"><label>Login email *</label><input type="email" id="vfEmail" required placeholder="name@vendor.com"></div>
+                </div>
+                <div class="form-group"><label>Charge point IDs *</label><input type="text" id="vfChargers" required placeholder="PILE001, PILE002" spellcheck="false"><small style="color:var(--text-muted);font-size:10px;display:block;margin-top:3px;">Separate with commas. An ID can be added before the charger has ever connected.</small></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Access ends</label><input type="date" id="vfExpires"><small style="color:var(--text-muted);font-size:10px;display:block;margin-top:3px;">Blank = no end date.</small></div>
+                    <div class="form-group"><label>Notes</label><input type="text" id="vfNotes" maxlength="255" placeholder="e.g. 22kW AC integration"></div>
+                </div>
+                <div class="form-group" id="vfActiveGroup"><div class="checkbox-group"><input type="checkbox" id="vfActive" checked><label for="vfActive">Active</label></div></div>
+                <div class="modal-actions"><button type="button" class="btn btn-secondary btn-small" onclick="closeVendorModal()">Cancel</button><button type="submit" class="btn btn-primary btn-small" id="vfSubmitBtn">Create Account</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Vendor credentials, shown once -->
+    <div class="modal" id="vendorCredModal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Send these to the vendor</h3><button class="modal-close" onclick="closeVendorCred()">&times;</button></div>
+            <div style="padding:12px 14px;">
+                <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px;">The password is shown only now. Only its hash is stored, so it cannot be looked up later. If it is lost, use Reset password.</p>
+                <textarea id="vendorCredText" readonly rows="6" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:10px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm);resize:none;"></textarea>
+            </div>
+            <div class="modal-actions"><button type="button" class="btn btn-secondary btn-small" onclick="closeVendorCred()">Close</button><button type="button" class="btn btn-primary btn-small" onclick="copyVendorCred()">Copy</button></div>
+        </div>
+    </div>
 
     <!-- Ticket Detail Modal -->
     <div class="modal" id="ticketModal">
@@ -640,11 +704,12 @@
         }
 
         // ============ TAB SWITCHING ============
-        const ALL_TABS = ['users','tickets','staff','userStats','walletReport','activityLog'];
+        const ALL_TABS = ['users','tickets','staff','vendors','userStats','walletReport','activityLog'];
         const TAB_MAP = {
             users:        {content:'mainContent',       nav:'navUsers'},
             tickets:      {content:'ticketContent',     nav:'navTickets'},
             staff:        {content:'staffContent',      nav:'navStaff'},
+            vendors:      {content:'vendorContent',     nav:'navVendors'},
             userStats:    {content:'userStatsContent',  nav:'navUserStats'},
             walletReport: {content:'walletReportContent',nav:'navWalletReport'},
             activityLog:  {content:'activityLogContent',nav:'navActivityLog'},
@@ -691,6 +756,7 @@
             // Load data per tab
             if (tab === 'tickets')      { loadTicketStats(); loadTickets(); }
             else if (tab === 'staff')   { loadStaff(); loadDeptStats(); }
+            else if (tab === 'vendors') { loadVendors(); }
             else if (tab === 'userStats')    { loadUserStatsReport(); }
             else if (tab === 'walletReport') { loadWalletReport(); }
             else if (tab === 'activityLog')  { loadActivityLog(); }
@@ -1347,6 +1413,138 @@
 
         // Initialize
         checkAuth();
+
+        // ============ VENDOR TEST ACCESS ============
+        let vendorRows = [];
+        function vEsc(v) {
+            return String(v === null || v === undefined ? '' : v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        function vDate(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return isNaN(d) ? '-' : d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
+        }
+
+        async function loadVendors() {
+            const tbody = document.getElementById('vendorTableBody');
+            try {
+                const res = await fetch('/api/admin/vendors', {headers: authH()});
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                vendorRows = (await res.json()).vendors || [];
+                if (!vendorRows.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="loading-spinner">No vendor accounts yet. Add one to give a charger manufacturer access to their own charger.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = vendorRows.map(v => {
+                    const status = !v.is_active ? '<span class="badge badge-unavailable">Disabled</span>'
+                        : (v.expired ? '<span class="badge badge-danger">Expired</span>' : '<span class="badge badge-success">Active</span>');
+                    const cps = v.charge_point_ids.length
+                        ? v.charge_point_ids.map(c => '<code style="font-size:11px">' + vEsc(c) + '</code>').join(', ')
+                        : '<span style="color:var(--text-muted)">none</span>';
+                    return '<tr><td><strong>' + vEsc(v.company) + '</strong>' + (v.notes ? '<div style="color:var(--text-muted);font-size:10px">' + vEsc(v.notes) + '</div>' : '') + '</td>' +
+                        '<td>' + vEsc(v.email) + (v.contact_name ? '<div style="color:var(--text-muted);font-size:10px">' + vEsc(v.contact_name) + '</div>' : '') + '</td>' +
+                        '<td>' + cps + '</td><td>' + status + '</td><td>' + (v.expires_at ? vDate(v.expires_at) : 'No end date') + '</td>' +
+                        '<td>' + (v.last_login ? vDate(v.last_login) : 'Never') + '</td>' +
+                        '<td><div class="actions">' +
+                        '<button class="btn btn-secondary btn-xs" onclick="editVendor(' + v.id + ')">Edit</button>' +
+                        '<button class="btn btn-secondary btn-xs" onclick="resetVendorPassword(' + v.id + ')">Reset password</button>' +
+                        '<button class="btn btn-danger btn-xs" onclick="deleteVendor(' + v.id + ')">Delete</button></div></td></tr>';
+                }).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="7" class="loading-spinner">Could not load vendor accounts.</td></tr>';
+            }
+        }
+
+        function openVendorModal(v) {
+            const edit = !!v;
+            document.getElementById('vendorModalTitle').textContent = edit ? 'Edit Vendor' : 'Add Vendor';
+            document.getElementById('vfSubmitBtn').textContent = edit ? 'Save Changes' : 'Create Account';
+            document.getElementById('editVendorId').value = edit ? v.id : '';
+            document.getElementById('vfCompany').value = edit ? v.company : '';
+            document.getElementById('vfContact').value = edit ? (v.contact_name || '') : '';
+            document.getElementById('vfEmail').value = edit ? v.email : '';
+            document.getElementById('vfEmail').disabled = edit;
+            document.getElementById('vfChargers').value = edit ? v.charge_point_ids.join(', ') : '';
+            document.getElementById('vfExpires').value = edit && v.expires_at ? vLocalDate(v.expires_at) : '';
+            document.getElementById('vfNotes').value = edit ? (v.notes || '') : '';
+            document.getElementById('vfActive').checked = edit ? v.is_active : true;
+            document.getElementById('vfActiveGroup').style.display = edit ? '' : 'none';
+            document.getElementById('vendorModal').classList.add('active');
+        }
+        // The stored instant as a Malaysia calendar date, which is what the
+        // date field was filled in as.
+        function vLocalDate(iso) {
+            const d = new Date(new Date(iso).getTime() + 8 * 3600 * 1000);
+            return d.toISOString().slice(0, 10);
+        }
+        function closeVendorModal() { document.getElementById('vendorModal').classList.remove('active'); }
+        function editVendor(id) { const v = vendorRows.find(x => x.id === id); if (v) openVendorModal(v); }
+
+        function showVendorCred(v) {
+            document.getElementById('vendorCredText').value =
+                'PlagSini Vendor Test Portal\n' +
+                'URL: ' + window.location.origin + '/vendor\n' +
+                'Email: ' + v.email + '\n' +
+                'Password: ' + v.password + '\n' +
+                'Charge point ID: ' + (v.charge_point_ids.join(', ') || '(not assigned yet)');
+            document.getElementById('vendorCredModal').classList.add('active');
+        }
+        function closeVendorCred() {
+            document.getElementById('vendorCredModal').classList.remove('active');
+            document.getElementById('vendorCredText').value = '';
+        }
+        function copyVendorCred() {
+            const t = document.getElementById('vendorCredText');
+            t.select();
+            if (navigator.clipboard) navigator.clipboard.writeText(t.value); else document.execCommand('copy');
+        }
+
+        async function handleVendorSubmit(ev) {
+            ev.preventDefault();
+            const id = document.getElementById('editVendorId').value;
+            const expires = document.getElementById('vfExpires').value;
+            const body = {
+                company: document.getElementById('vfCompany').value.trim(),
+                contact_name: document.getElementById('vfContact').value.trim(),
+                charge_point_ids: document.getElementById('vfChargers').value,
+                notes: document.getElementById('vfNotes').value.trim(),
+            };
+            // The end date means "until the end of that day" in Malaysia.
+            if (expires) body.expires_at = expires + 'T23:59:59+08:00';
+            if (id) {
+                body.is_active = document.getElementById('vfActive').checked;
+                if (!expires) body.clear_expiry = true;
+            } else {
+                body.email = document.getElementById('vfEmail').value.trim();
+            }
+            try {
+                const res = await fetch(id ? '/api/admin/vendors/' + id : '/api/admin/vendors', {
+                    method: id ? 'PATCH' : 'POST', headers: jsonH(), body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(typeof data.detail === 'string' ? data.detail : 'Could not save the vendor account'); return; }
+                closeVendorModal();
+                loadVendors();
+                if (data.password) showVendorCred(data);
+            } catch (e) { alert('Could not save the vendor account'); }
+        }
+
+        async function resetVendorPassword(id) {
+            const v = vendorRows.find(x => x.id === id);
+            if (!v || !confirm('Reset the password for ' + v.email + '? The current password stops working and they are signed out.')) return;
+            const res = await fetch('/api/admin/vendors/' + id, {method: 'PATCH', headers: jsonH(), body: JSON.stringify({reset_password: true})});
+            const data = await res.json();
+            if (res.ok && data.password) showVendorCred(data); else alert('Could not reset the password');
+        }
+
+        async function deleteVendor(id) {
+            const v = vendorRows.find(x => x.id === id);
+            if (!v || !confirm('Delete the vendor account for ' + v.company + ' (' + v.email + ')? Their access ends immediately. Chargers and sessions are not touched.')) return;
+            const res = await fetch('/api/admin/vendors/' + id, {method: 'DELETE', headers: authH()});
+            if (res.ok) loadVendors(); else alert('Could not delete the vendor account');
+        }
     </script>
 </body>
 </html>

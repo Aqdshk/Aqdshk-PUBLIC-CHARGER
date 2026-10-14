@@ -34,6 +34,7 @@ from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
 from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User, PaymentTransaction
 from connectivity import record_event as record_connectivity_event, remote_ip_of
+import ocpp_trace
 import idle_billing
 
 logger = logging.getLogger(__name__)
@@ -2022,6 +2023,14 @@ async def on_connect(websocket):
             logger.info(f"[on_connect] {charge_point_id}: OCPP 2.0.1 session")
         else:
             charge_point = ChargePoint(charge_point_id, websocket)
+
+        # Record raw frames for chargers a vendor is testing (ocpp_trace.py).
+        # A no-op for every other charger, and never allowed to stop a
+        # connection from being served.
+        try:
+            ocpp_trace.attach(charge_point)
+        except Exception as e:
+            logger.warning(f"[on_connect] could not attach trace for {charge_point_id}: {e}")
 
         # Record what this charger speaks, and how it authenticated, so the
         # dashboard can show both even once the charger drops off and the pool
