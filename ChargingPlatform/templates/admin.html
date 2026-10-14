@@ -338,7 +338,7 @@
                     <div class="form-group"><label>Contact name</label><input type="text" id="vfContact" maxlength="120" placeholder="Engineer's name"></div>
                     <div class="form-group"><label>Login email *</label><input type="email" id="vfEmail" required placeholder="name@vendor.com"></div>
                 </div>
-                <div class="form-group"><label>Charge point IDs *</label><input type="text" id="vfChargers" required placeholder="PILE001, PILE002" spellcheck="false"><small style="color:var(--text-muted);font-size:10px;display:block;margin-top:3px;">Separate with commas. An ID can be added before the charger has ever connected.</small></div>
+                <div class="form-group"><label>Charge point IDs</label><input type="text" id="vfChargers" placeholder="Leave blank to let the vendor choose" spellcheck="false"><small style="color:var(--text-muted);font-size:10px;display:block;margin-top:3px;">Optional. The vendor can add their own IDs after signing in, but only IDs that are not already a charger on the platform. Fill this in to hand them an existing charger. Separate with commas.</small></div>
                 <div class="form-row">
                     <div class="form-group"><label>Access ends</label><input type="date" id="vfExpires"><small style="color:var(--text-muted);font-size:10px;display:block;margin-top:3px;">Blank = no end date.</small></div>
                     <div class="form-group"><label>Notes</label><input type="text" id="vfNotes" maxlength="255" placeholder="e.g. 22kW AC integration"></div>
@@ -1488,7 +1488,7 @@
                 'URL: ' + window.location.origin + '/vendor\n' +
                 'Email: ' + v.email + '\n' +
                 'Password: ' + v.password + '\n' +
-                'Charge point ID: ' + (v.charge_point_ids.join(', ') || '(not assigned yet)');
+                'Charge point ID: ' + (v.charge_point_ids.join(', ') || 'choose your own after signing in (+ Add charger)');
             document.getElementById('vendorCredModal').classList.add('active');
         }
         function closeVendorCred() {

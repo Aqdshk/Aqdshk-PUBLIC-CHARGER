@@ -369,6 +369,80 @@ class VendorPortalTests(unittest.TestCase):
         self.assertEqual(states["fw_boot"]["state"], "pass", states["fw_boot"])
         self.assertIn("1.0.0 -> 2.0.0", states["fw_boot"]["detail"])
 
+    # ── Choosing their own charge point ids ──
+
+    def test_50_vendor_adds_an_unused_id(self):
+        h = self._login()
+        r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": "VT-SELF-001"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertIn("VT-SELF-001", r.json()["charge_point_ids"])
+        ids = [c["charge_point_id"] for c in self.client.get("/api/vendor/overview", headers=h).json()["chargers"]]
+        self.assertIn("VT-SELF-001", ids)
+        # And it is recorded from the first frame, before any admin touches it.
+        ocpp_trace.record("VT-SELF-001", "in", '[2,"t50","BootNotification",{}]')
+        db = SessionLocal()
+        try:
+            self.assertEqual(db.query(OcppMessageLog).filter_by(unique_id="t50").count(), 1)
+        finally:
+            db.close()
+
+    def test_51_an_existing_charger_cannot_be_claimed(self):
+        """The whole point of the scope: typing a live charger's id must not
+        hand it over, in any spelling."""
+        h = self._login()
+        for attempt in (OTHER, OTHER.lower(), "  " + OTHER + " "):
+            r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": attempt})
+            self.assertEqual(r.status_code, 409, f"{attempt!r}: {r.text}")
+        ids = [c["charge_point_id"] for c in self.client.get("/api/vendor/overview", headers=h).json()["chargers"]]
+        self.assertNotIn(OTHER, ids)
+        self.assertEqual(self.client.get(f"/api/vendor/chargers/{OTHER}/live", headers=h).status_code, 404)
+
+    def test_52_another_vendors_id_cannot_be_claimed(self):
+        r = self.client.post("/api/admin/vendors", headers=self.admin, json={
+            "company": "Rival", "email": "rival@acme.example", "charge_point_ids": "RIVAL-001",
+        })
+        self.assertEqual(r.status_code, 201, r.text)
+        h = self._login()
+        for attempt in ("RIVAL-001", "rival-001"):
+            r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": attempt})
+            self.assertEqual(r.status_code, 409, r.text)
+        # The same words as for a live charger: the answer says nothing about who holds it.
+        live = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": OTHER})
+        self.assertEqual(r.json()["detail"], live.json()["detail"])
+
+    def test_53_bad_ids_and_the_limit(self):
+        h = self._login()
+        for bad in ("ab", "has space", "semi;colon", "../etc"):
+            r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": bad})
+            self.assertIn(r.status_code, (400, 422), f"{bad!r}: {r.text}")
+        # Adding one already held is a no-op, not a second copy.
+        r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": MINE})
+        self.assertEqual(r.json()["charge_point_ids"].count(MINE), 1)
+        n = len(r.json()["charge_point_ids"])
+        for i in range(n, 5):
+            r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": f"VT-FILL-{i}"})
+            self.assertEqual(r.status_code, 201, r.text)
+        r = self.client.post("/api/vendor/chargers", headers=h, json={"charge_point_id": "VT-ONE-TOO-MANY"})
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_54_only_an_unused_id_can_be_removed(self):
+        h = self._login()
+        # Never connected: the vendor may take it back.
+        r = self.client.delete("/api/vendor/chargers/VT-NOT-YET-1", headers=h)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("VT-NOT-YET-1", r.json()["charge_point_ids"])
+        # Has connected: it has history, so removal is an administrator's call.
+        self.assertEqual(self.client.delete(f"/api/vendor/chargers/{MINE}", headers=h).status_code, 409)
+        # Not theirs at all.
+        self.assertEqual(self.client.delete(f"/api/vendor/chargers/{OTHER}", headers=h).status_code, 404)
+
+    def test_55_an_account_can_start_with_no_ids(self):
+        r = self.client.post("/api/admin/vendors", headers=self.admin, json={
+            "company": "Empty", "email": "empty@acme.example",
+        })
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["charge_point_ids"], [])
+
     # ── Losing access ── (last: these change the account)
 
     def test_90_disabling_ends_a_signed_in_session(self):

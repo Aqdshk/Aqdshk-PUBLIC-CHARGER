@@ -36,6 +36,14 @@
         .vp-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
         .vp-tab { font:inherit; font-size:12px; font-weight:600; padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:var(--bg-card); color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; gap:7px; }
         .vp-tab.active { border-color:var(--accent); color:var(--text-primary); background:var(--accent-dim); }
+        .add-cp { padding:14px; margin-bottom:14px; }
+        .add-cp label { display:block; font-size:12px; font-weight:700; margin-bottom:8px; }
+        .add-cp p { font-size:11.5px; color:var(--text-muted); margin-top:9px; line-height:1.5; }
+        .add-cp input { font:inherit; font-size:13px; padding:8px 10px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); min-width:0; flex:1 1 240px; }
+        .add-cp input:focus { outline:none; border-color:var(--accent); }
+        .act-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .linkish { font:inherit; font-size:11.5px; background:none; border:none; padding:0; color:var(--text-muted); text-decoration:underline; cursor:pointer; margin-top:10px; }
+        .linkish:hover { color:var(--red); }
         .dot { width:8px; height:8px; border-radius:50%; background:var(--text-muted); flex:none; }
         .dot.on { background:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); }
         .dot.off { background:var(--red); }
@@ -176,8 +184,21 @@
     </header>
 
     <div class="vp-wrap">
-        <div class="vp-tabs" id="tabs"></div>
-        <div class="empty panel" id="noChargers" hidden>No charge point has been assigned to this account yet. Send PlagSini your pile ID and it will appear here.</div>
+        <div class="vp-tabs">
+            <div class="vp-tabs" id="tabs" style="margin:0"></div>
+            <button class="vp-tab" type="button" id="addOpen">+ Add charger</button>
+        </div>
+        <form class="panel add-cp" id="addForm" hidden>
+            <label for="addId">Charge point ID for your charger</label>
+            <div class="act-row">
+                <input class="mono grow" id="addId" type="text" maxlength="64" spellcheck="false" autocomplete="off" placeholder="e.g. GAC22KW001">
+                <button class="vp-btn primary" type="submit" id="addBtn">Add</button>
+                <button class="vp-btn" type="button" id="addCancel">Cancel</button>
+            </div>
+            <p>Choose any ID that is not in use, then set the same ID on the charger (the last part of the OCPP URL). 3 to 64 letters, digits, dots, underscores, colons or hyphens. Upper and lower case must match exactly.</p>
+            <div class="login-err" id="addErr" role="alert"></div>
+        </form>
+        <div class="empty panel" id="noChargers" hidden>No charge point on this account yet. Use <strong>+ Add charger</strong> to choose the ID your charger will connect with.</div>
 
         <div id="chargerView" hidden>
             <!-- Connection -->
@@ -186,6 +207,7 @@
                     <div class="state-pill"><span class="dot" id="stDot"></span><span id="stText"></span></div>
                     <div class="state-id mono" id="stId"></div>
                     <div class="state-hint" id="stHint"></div>
+                    <button class="linkish" type="button" id="removeCp" hidden>Remove this ID</button>
                 </div>
                 <div class="facts" id="facts"></div>
                 <details class="setup" id="setup">
@@ -442,13 +464,43 @@
     function renderTabs() {
         if (!overview) return;
         var list = overview.chargers;
-        $('tabs').hidden = list.length < 2;
+        $('addOpen').hidden = list.length >= (overview.max_chargers || 5);
         $('tabs').innerHTML = list.map(function (c) {
             return '<button type="button" class="vp-tab' + (c.charge_point_id === selected ? ' active' : '') +
                 '" data-cp="' + esc(c.charge_point_id) + '"><span class="dot ' + (c.connected ? 'on' : (c.registered ? 'off' : '')) +
                 '"></span><span class="mono">' + esc(c.charge_point_id) + '</span></button>';
         }).join('');
     }
+    // ── Adding and removing the vendor's own charge point ids ──
+    function closeAdd() { $('addForm').hidden = true; $('addErr').textContent = ''; $('addId').value = ''; }
+    $('addOpen').addEventListener('click', function () {
+        $('addForm').hidden = false;
+        $('addId').focus();
+    });
+    $('addCancel').addEventListener('click', closeAdd);
+    $('addForm').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var id = $('addId').value.trim();
+        if (!id) return;
+        $('addBtn').disabled = true; $('addErr').textContent = '';
+        call('POST', '/api/vendor/chargers', { charge_point_id: id }).then(function () {
+            closeAdd();
+            selected = id;
+            return loadOverview(false).then(function () { select(id); toast('Added ' + id + '. Now set this ID on the charger.'); });
+        }).catch(function (e) {
+            if (e.message !== 'signed out') $('addErr').textContent = e.status === 429 ? 'Too many attempts. Please wait a few minutes.' : e.message;
+        }).then(function () { $('addBtn').disabled = false; });
+    });
+    $('removeCp').addEventListener('click', function () {
+        var id = selected;
+        if (!id || !confirm('Remove ' + id + ' from your account?')) return;
+        call('DELETE', '/api/vendor/chargers/' + encodeURIComponent(id)).then(function () {
+            selected = null;
+            toast('Removed ' + id + '.');
+            return loadOverview(false);
+        }).catch(function (e) { if (e.message !== 'signed out') toast(e.message); });
+    });
+
     $('tabs').addEventListener('click', function (ev) {
         var b = ev.target.closest('[data-cp]');
         if (b) select(b.getAttribute('data-cp'));
@@ -486,6 +538,7 @@
         var dot = $('stDot'), text = $('stText'), hint = $('stHint');
         $('stId').textContent = c.charge_point_id;
         dot.className = 'dot';
+        $('removeCp').hidden = !!c.registered;
         if (!c.registered) {
             text.textContent = 'Waiting for first connection';
             hint.textContent = 'This charge point has never connected. Set the OCPP URL below on the charger; it registers itself on its first BootNotification.';

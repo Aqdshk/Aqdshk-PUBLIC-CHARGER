@@ -26,7 +26,7 @@ from typing import Any, Callable, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 import connectivity as conn_info
@@ -43,6 +43,8 @@ SESSION_TTL_HOURS = 12
 _CP_ID = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
 # What a vendor may ask a charger to send. BootNotification is included on
 # purpose: it is how a tester re-reads the firmware version without a reboot.
+# How many charge points one account may hold once the vendor adds their own.
+MAX_CHARGERS_PER_VENDOR = 5
 TRIGGERABLE = (
     "BootNotification", "Heartbeat", "StatusNotification", "MeterValues",
     "FirmwareStatusNotification", "DiagnosticsStatusNotification",
@@ -103,6 +105,10 @@ class VendorPatch(BaseModel):
     clear_expiry: bool = False
     notes: Optional[str] = Field(None, max_length=255)
     reset_password: bool = False
+
+
+class ClaimIn(BaseModel):
+    charge_point_id: str = Field(..., min_length=3, max_length=64)
 
 
 class StartIn(BaseModel):
@@ -326,6 +332,7 @@ def build_router(
                 "firmware_download_base": f"http://{host}/static/firmware/",
             },
             "triggerable": list(TRIGGERABLE),
+            "max_chargers": MAX_CHARGERS_PER_VENDOR,
             "chargers": [_charger_view(db, c, offline_after_minutes) for c in vendor.charger_ids()],
         }
 
@@ -366,6 +373,76 @@ def build_router(
             .all()
         )
         return {"sessions": [_session_view(s, charger) for s in rows]}
+
+    # ── Vendor: choosing their own charge point ids ──
+
+    def _taken(db: Session, cp_id: str, vendor: VendorAccount) -> bool:
+        """Whether an id already belongs to someone: a charger the platform
+        knows, or another vendor's list. Compared without regard to case, so
+        "dc3001" cannot be used to sit beside "DC3001"."""
+        wanted = cp_id.lower()
+        if db.query(Charger.id).filter(func.lower(Charger.charge_point_id) == wanted).first():
+            return True
+        for other in db.query(VendorAccount).filter(VendorAccount.id != vendor.id).all():
+            if wanted in (c.lower() for c in other.charger_ids()):
+                return True
+        return False
+
+    @router.post("/api/vendor/chargers", status_code=201)
+    async def vendor_add_charger(
+        body: ClaimIn, request: Request,
+        vendor: VendorAccount = Depends(current_vendor), db: Session = Depends(get_db),
+    ):
+        """
+        A vendor names the charge point id they will put on their charger.
+
+        Only an id nobody has: this is the one route where a vendor widens
+        their own reach, so an id that is already a charger on the platform is
+        refused, or typing "DC3001" would hand over a live public charger. The
+        refusal is worded the same whoever holds the id.
+        """
+        enforce_rate_limit(request, "vendor-claim", max_requests=20, window_seconds=300)
+        cp_id = body.charge_point_id.strip()
+        if not _CP_ID.match(cp_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Use 3 to 64 letters, digits, dots, underscores, colons or hyphens, with no spaces.",
+            )
+        mine = vendor.charger_ids()
+        if cp_id.lower() in (c.lower() for c in mine):
+            return {"charge_point_ids": mine}
+        if len(mine) >= MAX_CHARGERS_PER_VENDOR:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This account can hold {MAX_CHARGERS_PER_VENDOR} charge points. Remove one first, or ask PlagSini.",
+            )
+        if _taken(db, cp_id, vendor):
+            raise HTTPException(status_code=409, detail="That ID is not available. Please choose another.")
+        vendor.charge_point_ids = ",".join(mine + [cp_id])
+        db.commit()
+        ocpp_trace.invalidate()
+        logger.warning("AUDIT vendor=%s added charge point %s", vendor.id, cp_id)
+        return {"charge_point_ids": vendor.charger_ids()}
+
+    @router.delete("/api/vendor/chargers/{cp_id}")
+    async def vendor_remove_charger(
+        cp_id: str,
+        vendor: VendorAccount = Depends(current_vendor), db: Session = Depends(get_db),
+    ):
+        """Take back an id that was never used, e.g. a typo. Once the charger
+        has connected it is a real charger with history, and letting go of it
+        could not be undone from here, so that is left to an administrator."""
+        _charger_scope(cp_id, vendor)
+        if db.query(Charger.id).filter(Charger.charge_point_id == cp_id).first():
+            raise HTTPException(
+                status_code=409,
+                detail="This charger has already connected. Ask PlagSini to remove it.",
+            )
+        vendor.charge_point_ids = ",".join(c for c in vendor.charger_ids() if c != cp_id)
+        db.commit()
+        ocpp_trace.invalidate()
+        logger.warning("AUDIT vendor=%s removed charge point %s", vendor.id, cp_id)
+        return {"charge_point_ids": vendor.charger_ids()}
 
     # ── Vendor commands ──
 
