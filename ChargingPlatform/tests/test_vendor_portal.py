@@ -51,6 +51,26 @@ class _FakeChargePoint:
         self.calls.append(("firmware", location))
         return SimpleNamespace()
 
+    async def change_availability(self, connector_id, type):
+        self.calls.append(("change_availability", connector_id, type))
+        return SimpleNamespace(status="Scheduled")
+
+    async def reserve_now(self, connector_id, expiry_date, id_tag, reservation_id):
+        self.calls.append(("reserve_now", connector_id, id_tag, reservation_id, expiry_date))
+        return SimpleNamespace(status="Accepted")
+
+    async def send_local_list(self, list_version, update_type, local_authorization_list=None):
+        self.calls.append(("send_local_list", list_version, update_type, local_authorization_list))
+        return SimpleNamespace(status="Accepted")
+
+    async def set_charging_profile(self, connector_id, cs_charging_profiles):
+        self.calls.append(("set_charging_profile", connector_id, cs_charging_profiles))
+        return SimpleNamespace(status="Rejected")
+
+    async def get_local_list_version(self):
+        self.calls.append(("get_local_list_version",))
+        return SimpleNamespace(list_version=7)
+
     async def get_configuration(self, keys=None):
         self.calls.append(("get_configuration", keys))
         return SimpleNamespace(
@@ -208,6 +228,72 @@ class VendorPortalTests(unittest.TestCase):
             self.assertEqual(r.status_code, 400, r.text)
         finally:
             ocpp_server.active_charge_points.pop(MINE, None)
+
+    def test_23_other_operations_go_through_the_table(self):
+        h = self._login()
+        fake = _FakeChargePoint()
+        ocpp_server.active_charge_points[MINE] = fake
+        url = f"/api/vendor/chargers/{MINE}/operation"
+        try:
+            r = self.client.post(url, headers=h, json={
+                "operation": "ChangeAvailability", "params": {"connector_id": "1", "type": "Inoperative"}})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(r.json()["success"])  # Scheduled counts as success here
+            self.assertEqual(fake.calls[-1], ("change_availability", 1, "Inoperative"))
+
+            r = self.client.post(url, headers=h, json={
+                "operation": "SendLocalList",
+                "params": {"list_version": 3, "update_type": "Full", "id_tags": "TAG1, TAG2"}})
+            self.assertTrue(r.json()["success"], r.text)
+            self.assertEqual(fake.calls[-1][3], [
+                {"id_tag": "TAG1", "id_tag_info": {"status": "Accepted"}},
+                {"id_tag": "TAG2", "id_tag_info": {"status": "Accepted"}},
+            ])
+
+            r = self.client.post(url, headers=h, json={"operation": "GetLocalListVersion"})
+            self.assertEqual(r.json()["response"], {"list_version": 7})
+
+            # The charger refusing is reported as a failure, with its answer.
+            r = self.client.post(url, headers=h, json={
+                "operation": "SetChargingProfile", "params": {"limit": 10, "unit": "A"}})
+            self.assertFalse(r.json()["success"])
+            self.assertEqual(r.json()["response"], {"status": "Rejected"})
+            profile = fake.calls[-1][2]
+            self.assertEqual(profile["charging_schedule"]["charging_schedule_period"], [{"start_period": 0, "limit": 10}])
+
+            # Fields the table does not declare never reach the charger.
+            r = self.client.post(url, headers=h, json={
+                "operation": "ReserveNow",
+                "params": {"id_tag": "T1", "reservation_id": 5, "minutes": 10, "expiry_date": "1999-01-01T00:00:00Z"}})
+            self.assertTrue(r.json()["success"], r.text)
+            self.assertFalse(fake.calls[-1][4].startswith("1999"))
+        finally:
+            ocpp_server.active_charge_points.pop(MINE, None)
+
+    def test_24_operations_are_validated_and_scoped(self):
+        h = self._login()
+        mine, other = _FakeChargePoint(), _FakeChargePoint()
+        ocpp_server.active_charge_points[MINE] = mine
+        ocpp_server.active_charge_points[OTHER] = other
+        try:
+            url = f"/api/vendor/chargers/{MINE}/operation"
+            bad = [
+                {"operation": "FormatHardDisk"},
+                {"operation": "ChangeAvailability", "params": {"type": "Exploded"}},
+                {"operation": "ChangeAvailability", "params": {"connector_id": "one"}},
+                {"operation": "GetDiagnostics", "params": {"location": "file:///etc/passwd"}},
+                {"operation": "DataTransfer", "params": {}},
+            ]
+            for body in bad:
+                self.assertEqual(self.client.post(url, headers=h, json=body).status_code, 400, body)
+            self.assertEqual(mine.calls, [])
+            r = self.client.post(f"/api/vendor/chargers/{OTHER}/operation", headers=h,
+                                 json={"operation": "ClearCache"})
+            self.assertEqual(r.status_code, 404)
+            self.assertEqual(other.calls, [])
+        finally:
+            ocpp_server.active_charge_points.pop(MINE, None)
+            ocpp_server.active_charge_points.pop(OTHER, None)
 
     # ── Trace ──
 

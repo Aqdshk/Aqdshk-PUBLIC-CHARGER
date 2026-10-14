@@ -93,6 +93,10 @@
         .act input, .act select { font:inherit; font-size:12px; padding:7px 9px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-primary); min-width:0; }
         .act input:focus, .act select:focus { outline:none; border-color:var(--accent); }
         .act input.grow { flex:1 1 220px; }
+        .op-fields { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:8px 10px; margin-top:9px; }
+        .op-fields:empty { display:none; }
+        .op-fields label { display:block; font-size:10.5px; font-weight:600; color:var(--text-muted); margin-bottom:3px; }
+        .op-fields input, .op-fields select { width:100%; }
         .result { margin-top:9px; font-size:12px; padding:8px 10px; border-radius:var(--radius-md); border:1px solid var(--border); background:var(--bg-elevated); display:none; white-space:pre-wrap; word-break:break-word; }
         .result.ok { display:block; border-color:var(--accent); }
         .result.bad { display:block; border-color:var(--red); color:var(--red); }
@@ -285,6 +289,17 @@
                     </div>
 
                     <div class="act">
+                        <h3>More OCPP operations</h3>
+                        <p id="opAbout">Availability, local list, reservation, smart charging, diagnostics and vendor messages.</p>
+                        <div class="act-row">
+                            <select id="opName" aria-label="Operation"></select>
+                            <button class="vp-btn" type="button" data-act="operation">Send</button>
+                        </div>
+                        <div class="op-fields" id="opFields"></div>
+                        <div class="result" id="resOperation"></div>
+                    </div>
+
+                    <div class="act">
                         <h3>Reset and unlock</h3>
                         <p>A hard reset interrupts a running transaction.</p>
                         <div class="act-row">
@@ -455,6 +470,8 @@
             if (first) {
                 var sel = $('triggerMessage');
                 sel.innerHTML = data.triggerable.map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('');
+                $('opName').innerHTML = (data.operations || []).map(function (o) { return '<option>' + esc(o.name) + '</option>'; }).join('');
+                renderOpFields();
             }
             if (ids.length && ids.indexOf(selected) === -1) select(ids[0]);
             else renderTabs();
@@ -512,7 +529,7 @@
         $('log').innerHTML = '';
         $('checklist').innerHTML = '';
         $('sessions').innerHTML = '';
-        ['resCharging', 'resFirmware', 'resTrigger', 'resConfig', 'resReset'].forEach(function (r) { $(r).className = 'result'; });
+        ['resCharging', 'resFirmware', 'resTrigger', 'resConfig', 'resReset', 'resOperation'].forEach(function (r) { $(r).className = 'result'; });
         $('cfgTable').style.display = 'none';
         renderTabs();
         var c = overview.connection;
@@ -741,6 +758,29 @@
         });
     }
 
+    // ── The rest of OCPP 1.6, drawn from the table the server sends ──
+    function currentOp() {
+        var name = $('opName').value;
+        return ((overview && overview.operations) || []).filter(function (o) { return o.name === name; })[0];
+    }
+    function renderOpFields() {
+        var op = currentOp();
+        if (!op) return;
+        $('opAbout').textContent = op.about;
+        $('opFields').innerHTML = op.fields.map(function (f) {
+            var id = 'opf_' + f.name;
+            var control = f.kind === 'choice'
+                ? '<select id="' + id + '">' + f.choices.map(function (c) {
+                    return '<option' + (c === f.default ? ' selected' : '') + '>' + esc(c) + '</option>';
+                }).join('') + '</select>'
+                : '<input class="mono" id="' + id + '" type="' + (f.kind === 'int' ? 'number' : 'text') +
+                  '" value="' + esc(f.default) + '" spellcheck="false">';
+            return '<div><label for="' + id + '">' + esc(f.label) + '</label>' + control + '</div>';
+        }).join('');
+        $('resOperation').className = 'result';
+    }
+    $('opName').addEventListener('change', renderOpFields);
+
     var ACTIONS = {
         start: function (b) { send(b, 'resCharging', '/start', { connector_id: parseInt($('startConnector').value, 10) || 1 }); },
         stop: function (b) { send(b, 'resCharging', '/stop'); },
@@ -768,6 +808,16 @@
             var key = $('cfgKey').value.trim();
             if (!key) { show('resConfig', false, 'Enter the key to change.'); return; }
             send(b, 'resConfig', '/configuration/set', { key: key, value: $('cfgValue').value });
+        },
+        operation: function (b) {
+            var op = currentOp();
+            if (!op) return;
+            var params = {};
+            op.fields.forEach(function (f) { params[f.name] = $('opf_' + f.name).value; });
+            send(b, 'resOperation', '/operation', { operation: op.name, params: params }, function (data) {
+                var extra = data.response && Object.keys(data.response).length ? '\n' + JSON.stringify(data.response, null, 2) : '';
+                show('resOperation', !!data.success, (data.message || '') + extra);
+            });
         },
         resetSoft: function (b) { send(b, 'resReset', '/reset', { type: 'Soft' }); },
         resetHard: function (b) {

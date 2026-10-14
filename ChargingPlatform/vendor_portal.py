@@ -18,6 +18,7 @@ api.py, which is also what includes this router.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import secrets
@@ -49,6 +50,184 @@ TRIGGERABLE = (
     "BootNotification", "Heartbeat", "StatusNotification", "MeterValues",
     "FirmwareStatusNotification", "DiagnosticsStatusNotification",
 )
+
+
+# The rest of OCPP 1.6, beyond the commands that have their own buttons. One
+# table drives both the form the page draws and what the server will accept,
+# so a field cannot be offered without being validated, or the reverse.
+#   field: (name, label, kind, default, choices-or-None)   kind: int | text | choice
+_CONNECTOR0 = ("connector_id", "Connector (0 = whole charger)", "int", 0, None)
+_CONNECTOR1 = ("connector_id", "Connector", "int", 1, None)
+OPERATIONS = {
+    "ChangeAvailability": {
+        "about": "Take a connector out of service or put it back.",
+        "fields": [_CONNECTOR0, ("type", "Availability", "choice", "Inoperative", ["Inoperative", "Operative"])],
+        "ok": ("Accepted", "Scheduled"),
+    },
+    "ClearCache": {"about": "Clear the charger's authorization cache.", "fields": []},
+    "GetLocalListVersion": {"about": "Read the version of the local authorization list.", "fields": []},
+    "SendLocalList": {
+        "about": "Replace or update the local authorization list. Each tag is sent as Accepted.",
+        "fields": [
+            ("list_version", "List version", "int", 1, None),
+            ("update_type", "Update type", "choice", "Full", ["Full", "Differential"]),
+            ("id_tags", "ID tags, comma separated", "text", "", None),
+        ],
+    },
+    "ReserveNow": {
+        "about": "Reserve a connector for an ID tag.",
+        "fields": [
+            _CONNECTOR1,
+            ("id_tag", "ID tag", "text", "TESTTAG01", None),
+            ("reservation_id", "Reservation ID", "int", 1, None),
+            ("minutes", "Valid for (minutes)", "int", 15, None),
+        ],
+    },
+    "CancelReservation": {
+        "about": "Cancel a reservation by its ID.",
+        "fields": [("reservation_id", "Reservation ID", "int", 1, None)],
+    },
+    "SetChargingProfile": {
+        "about": "Limit charging with a simple TxDefaultProfile: one period, starting now.",
+        "fields": [
+            _CONNECTOR1,
+            ("limit", "Limit", "int", 16, None),
+            ("unit", "Unit", "choice", "A", ["A", "W"]),
+            ("profile_id", "Profile ID", "int", 1, None),
+            ("stack_level", "Stack level", "int", 0, None),
+        ],
+    },
+    "ClearChargingProfile": {
+        "about": "Remove charging profiles. Leave the profile ID at 0 to clear all of them.",
+        "fields": [("profile_id", "Profile ID (0 = all)", "int", 0, None)],
+        "ok": ("Accepted", "Unknown"),
+    },
+    "GetCompositeSchedule": {
+        "about": "Ask what limit the charger will actually apply.",
+        "fields": [
+            _CONNECTOR1,
+            ("duration", "Duration (seconds)", "int", 3600, None),
+            ("unit", "Unit", "choice", "A", ["A", "W"]),
+        ],
+    },
+    "GetDiagnostics": {
+        "about": "Ask the charger to upload its diagnostics file to an address it can reach.",
+        "fields": [("location", "Upload address (ftp:// or http://)", "text", "", None)],
+    },
+    "DataTransfer": {
+        "about": "Send a vendor-specific message.",
+        "fields": [
+            ("vendor_id", "Vendor ID", "text", "", None),
+            ("message_id", "Message ID", "text", "", None),
+            ("data", "Data", "text", "", None),
+        ],
+    },
+}
+
+
+def _operations_public() -> list:
+    return [
+        {
+            "name": name, "about": spec["about"],
+            "fields": [
+                {"name": f[0], "label": f[1], "kind": f[2], "default": f[3], "choices": f[4]}
+                for f in spec["fields"]
+            ],
+        }
+        for name, spec in OPERATIONS.items()
+    ]
+
+
+def _clean_params(operation: str, raw: dict) -> dict:
+    """Coerce a submitted form to the table's types; anything not in the
+    table is dropped, so only declared fields ever reach a charger."""
+    out = {}
+    for name, label, kind, default, choices in OPERATIONS[operation]["fields"]:
+        value = (raw or {}).get(name, default)
+        if kind == "int":
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{label}: enter a whole number") from None
+            if not 0 <= value <= 1_000_000:
+                raise HTTPException(status_code=400, detail=f"{label}: out of range")
+        elif kind == "choice":
+            if value not in choices:
+                raise HTTPException(status_code=400, detail=f"{label}: choose one of {', '.join(choices)}")
+        else:
+            value = str(value or "").strip()
+            if len(value) > 1000:
+                raise HTTPException(status_code=400, detail=f"{label}: too long")
+        out[name] = value
+    return out
+
+
+async def _run_operation(cp: Any, operation: str, p: dict) -> Any:
+    if operation == "ChangeAvailability":
+        return await cp.change_availability(p["connector_id"], p["type"])
+    if operation == "ClearCache":
+        return await cp.clear_cache()
+    if operation == "GetLocalListVersion":
+        return await cp.get_local_list_version()
+    if operation == "SendLocalList":
+        tags = [t.strip() for t in p["id_tags"].split(",") if t.strip()]
+        if any(len(t) > 20 for t in tags):
+            raise HTTPException(status_code=400, detail="An ID tag is at most 20 characters")
+        return await cp.send_local_list(
+            list_version=p["list_version"], update_type=p["update_type"],
+            local_authorization_list=[{"id_tag": t, "id_tag_info": {"status": "Accepted"}} for t in tags],
+        )
+    if operation == "ReserveNow":
+        if not p["id_tag"] or len(p["id_tag"]) > 20:
+            raise HTTPException(status_code=400, detail="ID tag: 1 to 20 characters")
+        expiry = datetime.now(timezone.utc) + timedelta(minutes=max(1, min(p["minutes"], 1440)))
+        return await cp.reserve_now(
+            connector_id=p["connector_id"], expiry_date=expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            id_tag=p["id_tag"], reservation_id=p["reservation_id"],
+        )
+    if operation == "CancelReservation":
+        return await cp.cancel_reservation(p["reservation_id"])
+    if operation == "SetChargingProfile":
+        return await cp.set_charging_profile(p["connector_id"], {
+            "charging_profile_id": p["profile_id"],
+            "stack_level": p["stack_level"],
+            "charging_profile_purpose": "TxDefaultProfile",
+            "charging_profile_kind": "Absolute",
+            "charging_schedule": {
+                "charging_rate_unit": p["unit"],
+                "start_schedule": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "charging_schedule_period": [{"start_period": 0, "limit": p["limit"]}],
+            },
+        })
+    if operation == "ClearChargingProfile":
+        return await cp.clear_charging_profile(id=p["profile_id"] or None)
+    if operation == "GetCompositeSchedule":
+        return await cp.get_composite_schedule(
+            connector_id=p["connector_id"], duration=p["duration"], charging_rate_unit=p["unit"],
+        )
+    if operation == "GetDiagnostics":
+        if not re.match(r"^(https?|ftps?)://[^\s]+$", p["location"], re.IGNORECASE):
+            raise HTTPException(status_code=400, detail="Upload address must be an http, https or ftp URL")
+        return await cp.get_diagnostics(location=p["location"])
+    if operation == "DataTransfer":
+        if not p["vendor_id"]:
+            raise HTTPException(status_code=400, detail="Vendor ID is required")
+        return await cp.data_transfer(p["vendor_id"], p["message_id"] or None, p["data"] or None)
+    raise HTTPException(status_code=400, detail="Unknown operation")
+
+
+def _response_fields(resp: Any) -> dict:
+    """A charger's answer as plain data, whatever shape the library gave it."""
+    if resp is None:
+        return {}
+    try:
+        if dataclasses.is_dataclass(resp) and not isinstance(resp, type):
+            data = dataclasses.asdict(resp)
+        else:
+            data = dict(vars(resp))
+    except TypeError:
+        return {"value": str(resp)}
+    return {k: v for k, v in data.items() if v is not None and not k.startswith("_")}
 
 
 def _utcnow() -> datetime:
@@ -109,6 +288,11 @@ class VendorPatch(BaseModel):
 
 class ClaimIn(BaseModel):
     charge_point_id: str = Field(..., min_length=3, max_length=64)
+
+
+class OperationIn(BaseModel):
+    operation: str
+    params: dict = Field(default_factory=dict)
 
 
 class StartIn(BaseModel):
@@ -333,6 +517,7 @@ def build_router(
             },
             "triggerable": list(TRIGGERABLE),
             "max_chargers": MAX_CHARGERS_PER_VENDOR,
+            "operations": _operations_public(),
             "chargers": [_charger_view(db, c, offline_after_minutes) for c in vendor.charger_ids()],
         }
 
@@ -553,6 +738,26 @@ def build_router(
                 retries=body.retries, retry_interval=body.retry_interval,
             ),
         )
+
+    @router.post("/api/vendor/chargers/{cp_id}/operation")
+    async def vendor_operation(
+        cp_id: str, body: OperationIn, vendor: VendorAccount = Depends(current_vendor),
+    ):
+        """Any other OCPP 1.6 operation, from the OPERATIONS table."""
+        _charger_scope(cp_id, vendor)
+        spec = OPERATIONS.get(body.operation)
+        if spec is None:
+            raise HTTPException(status_code=400, detail="Unknown operation")
+        params = _clean_params(body.operation, body.params)
+        cp = _live(cp_id)
+        logger.warning("AUDIT vendor=%s %s %s %s", vendor.id, body.operation, cp_id, params)
+        try:
+            resp = await _run_operation(cp, body.operation, params)
+        except OcppOperationUnsupported as e:
+            return {"success": False, "message": str(e) or f"{body.operation} is not available on OCPP 2.0.1."}
+        out = _reply(resp, spec.get("ok", ("Accepted",)))
+        out["response"] = _response_fields(resp)
+        return out
 
     # ── Admin: accounts ──
 
