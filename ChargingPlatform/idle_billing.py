@@ -47,6 +47,21 @@ def hold_cap_minutes() -> int:
         return _DEFAULT_HOLD_CAP_MINUTES
 
 
+def whole_second(value: Optional[datetime]) -> Optional[datetime]:
+    """Drop the fraction of a second.
+
+    Every datetime we bill from is stored in a MySQL DATETIME, which keeps
+    whole seconds only. Billing from a value that still carries microseconds
+    therefore charges one figure and stores another, and the CDR, rebuilt from
+    the stored value, disagrees with the money we took. Session 540 unplugged
+    at 17:12:54.17: we billed 449.17 seconds as three blocks and published two.
+    A charger that sends no timestamp on its StatusNotification leaves us
+    reading our own clock, which always has a fraction, so this is the ordinary
+    path rather than an edge case.
+    """
+    return value.replace(microsecond=0) if value else value
+
+
 def idle_end(sess, now: Optional[datetime] = None) -> Optional[datetime]:
     """The instant idle accrual stops for this session.
 
@@ -77,8 +92,8 @@ def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) ->
     Not gated on idle_fee_enabled: the EV still sat there when we charge
     nothing for it, and a partner reconciles the duration either way.
     """
-    start = getattr(sess, "idle_started_at", None)
-    end = idle_end(sess, now)
+    start = whole_second(getattr(sess, "idle_started_at", None))
+    end = whole_second(idle_end(sess, now))
     if not start or not end or end <= start:
         return 0.0
     return (end - start).total_seconds()
@@ -145,12 +160,10 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
     if not charger or not charger.idle_fee_enabled:
         return 0, 0.0
 
-    start = sess.idle_started_at
-    end = idle_end(sess, now)
-    if not start or not end or end <= start:
+    elapsed_s = measured_idle_seconds(sess, charger, now)
+    if elapsed_s <= 0:
         return 0, 0.0
 
-    elapsed_s = (end - start).total_seconds()
     chargeable_s = max(0.0, elapsed_s - free_seconds(charger))
     if chargeable_s <= 0:
         return 0, 0.0
@@ -199,7 +212,14 @@ def settle_unplug(db, charger, now: Optional[datetime] = None):
     reported = min(reported, now_myt())
     if sess.stop_time and reported < sess.stop_time:
         reported = sess.stop_time
-    sess.unplugged_at = reported
+    # Drop the fraction of a second before anything is billed from it. The
+    # column is a DATETIME and keeps whole seconds only, so a value carrying
+    # microseconds bills one figure and stores another: session 540 unplugged
+    # at 17:12:54.17, billed 449.17 s as three blocks, then came back from the
+    # database as 449 s and rebuilt its CDR as two. A charger that sends no
+    # timestamp on StatusNotification leaves us using our own clock, which
+    # always has a fraction, so this is the common path and not the edge.
+    sess.unplugged_at = reported.replace(microsecond=0)
     # Money already moved on the kiosk flow. Re-billing here would settle
     # against a figure the customer was never shown and cannot be refunded a
     # second time, so those sessions only record when the cable came out.

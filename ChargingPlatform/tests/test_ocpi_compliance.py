@@ -361,8 +361,28 @@ class UnplugSettlementTests(unittest.TestCase):
         settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
         self.db.commit()
         self.assertIsNotNone(settled)
-        self.assertEqual(settled.unplugged_at, unplug)
+        self.assertEqual(settled.unplugged_at, unplug.replace(microsecond=0))
         self.assertEqual(settled.idle_minutes, 60)
+
+    def test_a_fraction_of_a_second_does_not_buy_a_block(self):
+        """Session 540, 2026-10-15.
+
+        The charger sent Available with no timestamp, so we read our own clock
+        and got 17:12:54.17. Billing from that charged three blocks; the column
+        keeps whole seconds, so the CDR rebuilt from it published two, and our
+        own record disagreed with what we told the partner.
+        """
+        self._stopped_session()
+        # Two whole blocks past the free window, plus a fraction of a second.
+        free = idle_billing.free_seconds(self.charger)
+        unplug = self.stopped_at + timedelta(seconds=free + 120, microseconds=170000)
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at.microsecond, 0)
+        self.assertEqual(settled.idle_minutes, 2)
+        from ocpi.router import _build_cdr_dict
+        self.assertEqual(_build_cdr_dict(settled)["total_parking_cost"]["excl_vat"],
+                         float(settled.idle_fee_amount))
 
     def test_the_chargers_own_unplug_instant_is_used(self):
         """Voltality test IDL5.
@@ -376,7 +396,7 @@ class UnplugSettlementTests(unittest.TestCase):
         reported = self.stopped_at + timedelta(seconds=240)
         settled = idle_billing.settle_unplug(self.db, self.charger, now=reported)
         self.db.commit()
-        self.assertEqual(settled.unplugged_at, reported)
+        self.assertEqual(settled.unplugged_at, reported.replace(microsecond=0))
 
     def test_a_charger_clock_in_the_future_cannot_bill_forward(self):
         # The reported instant comes from a clock we do not control.
@@ -393,7 +413,7 @@ class UnplugSettlementTests(unittest.TestCase):
         settled = idle_billing.settle_unplug(
             self.db, self.charger, now=self.stopped_at - timedelta(hours=2))
         self.db.commit()
-        self.assertEqual(settled.unplugged_at, self.stopped_at)
+        self.assertEqual(settled.unplugged_at, self.stopped_at.replace(microsecond=0))
         self.assertEqual(settled.idle_minutes, 0)
 
     def test_nothing_waiting_is_not_an_error(self):
