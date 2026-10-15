@@ -151,7 +151,11 @@ def _build_tariff(charger, now: str) -> dict:
 
     if getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min:
         per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
-        grace_seconds = int(charger.idle_grace_minutes or 0) * 60
+        # The free window is the configured grace plus one block, because a
+        # remainder short of a whole minute is not charged. See free_seconds:
+        # the biller and this tariff have to quote the same boundary or a
+        # partner re-pricing our CDR lands on a different figure.
+        grace_seconds = idle_billing.free_seconds(charger)
         step = idle_billing.PARKING_STEP_SECONDS
 
         if grace_seconds:
@@ -1120,6 +1124,11 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         return None
 
     idle_minutes, idle_cost = idle_billing.compute_idle(sess, charger)
+    # The duration the EV was not charging, which is a different number from
+    # the minutes we billed: the grace period is published as a restriction on
+    # the tariff, so the quantity we report has to be the measured one for a
+    # partner to arrive at our cost. See measured_idle_seconds.
+    parking_h = idle_billing.parking_hours(sess, charger)
     total_cost = round(energy_cost + idle_cost, 2)
 
     # Prefer evse_id: on 2.0.1 every gun reports connector 1, so connector_id
@@ -1132,11 +1141,11 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "dimensions": [{"type": "ENERGY", "volume": energy}],
         "tariff_id": tariff_id,
     }]
-    if idle_minutes:
+    if parking_h:
         _idle_from = _session_time(sess.idle_started_at or stop_time)
         periods.append({
             "start_date_time": _idle_from,
-            "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
+            "dimensions": [{"type": "PARKING_TIME", "volume": parking_h}],
             "tariff_id": tariff_id,
         })
 
@@ -1183,7 +1192,7 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         "total_parking_cost": _price(idle_cost),
         "total_energy": energy,
         "total_time": round(duration_h, 4),
-        "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
+        "total_parking_time": parking_h,
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
             "type": "APP_USER",

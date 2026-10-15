@@ -12,6 +12,7 @@ none of them can quietly regress:
   - idle was measured to stop_time, so a session stopped from the app or by a
     roaming partner billed nothing however long the car blocked the bay
 """
+import math
 import re
 import unittest
 from datetime import datetime, timedelta
@@ -190,32 +191,44 @@ class IdleAccrualTests(unittest.TestCase):
             setattr(s, k, v)
         return s
 
-    def test_a_partial_block_is_billed_as_a_whole_one(self):
+    def test_only_whole_minutes_past_grace_are_charged(self):
         """Voltality session 449, their numbers exactly.
 
-        540.12 seconds idle, 300 of them free, leaves 240.12 chargeable. OCPI
-        bills in whole step_size blocks and rounds a partial block up, so that
-        is five blocks of 60 seconds, not four. We truncated and billed RM0.80
-        against a tariff that says RM1.00.
+        540.12 seconds idle, 300 of them free, leaves 240.12 chargeable. Four
+        whole minutes have passed and the remaining 0.12 is dropped, so four
+        blocks, RM0.80. Aqid chose Voltality's rule on 2026-10-15 so that both
+        sides reach the same figure.
         """
         charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
                           idle_fee_per_min=0.20, idle_grace_minutes=5)
         s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=540.12))
-        self.assertEqual(idle_billing.compute_idle(s, charger), (5, 1.0))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (4, 0.8))
 
-    def test_a_single_second_past_grace_costs_one_block(self):
-        # Truncating made anything under a minute past grace free, so a bay
-        # could be blocked again and again at no cost.
+    def test_a_remainder_short_of_a_minute_is_not_charged(self):
+        # Session 528: 377 seconds idle, 77 past the grace. Voltality bill
+        # one minute for that, not two.
+        charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
+                          idle_fee_per_min=0.20, idle_grace_minutes=5)
+        s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=377))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (1, 0.2))
+
+    def test_a_single_second_past_grace_is_free(self):
         charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
                           idle_fee_per_min=0.20, idle_grace_minutes=5)
         s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=301))
-        self.assertEqual(idle_billing.compute_idle(s, charger), (1, 0.2))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (0, 0.0))
 
-    def test_an_exact_number_of_blocks_is_not_rounded_up(self):
+    def test_a_minute_lands_exactly_on_the_boundary(self):
+        # 600 seconds, 300 free, so the fifth minute completes on the very
+        # second we measure. We charge four. OCPI cannot express rounding
+        # down, so the rule is published as a free window one block longer
+        # than the grace, and that boundary falls on the generous side. The
+        # alternative is a tariff a partner cannot reprice our CDR with, which
+        # is the dispute this whole change exists to end.
         charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
                           idle_fee_per_min=0.20, idle_grace_minutes=5)
         s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=600))
-        self.assertEqual(idle_billing.compute_idle(s, charger), (5, 1.0))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (4, 0.8))
 
     def test_the_tariff_advertises_the_block_size_we_bill(self):
         # The two were separate literals. If they drift, the partner's
@@ -234,24 +247,26 @@ class IdleAccrualTests(unittest.TestCase):
         self.assertEqual(idle_billing.compute_idle(s, self.charger), (0, 0.0))
 
     def test_billed_from_the_unplug_not_the_stop(self):
-        # 75 minutes plugged in after the stop, 15 of them free.
+        # 75 minutes plugged in after the stop, 15 of them free, and the
+        # 60th minute is only charged once it has completed.
         s = self._session(unplugged_at=self.stopped_at + timedelta(minutes=75))
         minutes, fee = idle_billing.compute_idle(s, self.charger)
-        self.assertEqual(minutes, 60)
-        self.assertEqual(fee, 24.0)
+        self.assertEqual(minutes, 59)
+        self.assertEqual(fee, 23.6)
 
     def test_still_plugged_in_accrues_against_now(self):
         s = self._session()
         now = self.stopped_at + timedelta(minutes=45)
         minutes, _ = idle_billing.compute_idle(s, self.charger, now=now)
-        self.assertEqual(minutes, 30)
+        self.assertEqual(minutes, 29)
 
     def test_accrual_is_capped_so_a_lost_charger_cannot_bill_forever(self):
         s = self._session()
         far_future = self.stopped_at + timedelta(days=30)
         minutes, _ = idle_billing.compute_idle(s, self.charger, now=far_future)
         cap = idle_billing.hold_cap_minutes()
-        self.assertEqual(minutes, cap - int(self.charger.idle_grace_minutes))
+        free = idle_billing.free_seconds(self.charger) // 60
+        self.assertEqual(minutes, cap - free)
 
     def test_charger_without_idle_fee_accrues_nothing(self):
         self.charger.idle_fee_enabled = False
@@ -345,7 +360,7 @@ class UnplugSettlementTests(unittest.TestCase):
         self.db.commit()
         self.assertIsNotNone(settled)
         self.assertEqual(settled.unplugged_at, unplug)
-        self.assertEqual(settled.idle_minutes, 60)
+        self.assertEqual(settled.idle_minutes, 59)
 
     def test_the_chargers_own_unplug_instant_is_used(self):
         """Voltality test IDL5.
@@ -561,6 +576,33 @@ class SpecFieldPayloadTests(unittest.TestCase):
         dims = {x["type"] for p in d["charging_periods"] for x in p["dimensions"]}
         self.assertIn("PARKING_TIME", dims)
         self.assertGreater(d["total_parking_cost"]["excl_vat"], 0)
+
+    def test_parking_time_is_the_measured_duration_not_the_billed_one(self):
+        # Voltality rejected CDR 528 on 2026-10-15: we published the billed
+        # minutes here, so re-pricing our own figure with our own tariff gave
+        # the wrong cost. The EV sat for 40 minutes; 15 of those are free under
+        # the grace, and the field states the 40, not the 25 we charged for.
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        self.assertAlmostEqual(d["total_parking_time"], 40 / 60, places=3)
+        parking = [x for p in d["charging_periods"] for x in p["dimensions"]
+                   if x["type"] == "PARKING_TIME"][0]
+        self.assertEqual(parking["volume"], d["total_parking_time"])
+
+    def test_the_tariff_reprices_the_published_parking_time_to_our_cost(self):
+        # The whole point of the field: a partner applies the embedded tariff
+        # to the published duration and must land on the cost we charged.
+        from ocpi.router import _build_cdr_dict
+        d = _build_cdr_dict(self.sess)
+        seconds = d["total_parking_time"] * 3600
+        _free, charged = [(e["price_components"][0], e.get("restrictions") or {})
+                          for e in d["tariffs"][0]["elements"]
+                          if e["price_components"][0]["type"] == "PARKING_TIME"]
+        rate, limits = charged
+        billable = max(0.0, seconds - limits["min_duration"])
+        blocks = math.ceil(billable / rate["step_size"])
+        expected = round(blocks * rate["step_size"] / 3600 * rate["price"], 2)
+        self.assertEqual(expected, d["total_parking_cost"]["excl_vat"])
 
 
 class LocationDataTests(unittest.TestCase):
@@ -1275,9 +1317,9 @@ class SessionLifecycleTests(unittest.TestCase):
         self.db.commit()
         d = _build_session_dict(s)
         self.assertEqual(d["status"], "COMPLETED")
-        self.assertEqual(d["total_cost"]["excl_vat"], 1.2)   # 6 blocks x RM0.20
+        self.assertEqual(d["total_cost"]["excl_vat"], 1.0)   # 5 blocks x RM0.20
         cdr = _build_cdr_dict(s)
-        self.assertEqual(cdr["total_parking_cost"]["excl_vat"], 1.2)
+        self.assertEqual(cdr["total_parking_cost"]["excl_vat"], 1.0)
 
     def test_no_cdr_while_the_session_is_still_running(self):
         from ocpi.router import _build_cdr_dict
@@ -1345,10 +1387,12 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         self.assertEqual(len(parking), 2)
         free, charged = parking
         self.assertEqual(free[0]["price"], 0.0)
-        self.assertEqual(free[1]["max_duration"], 300)     # the 5 minute grace
+        # 360, not 300: the 5 minute grace plus the block whose remainder we
+        # do not charge for. See idle_billing.free_seconds.
+        self.assertEqual(free[1]["max_duration"], 360)
         self.assertEqual(charged[0]["price"], 12.0)        # RM0.20/min as RM/hour
         self.assertEqual(charged[0]["step_size"], 60)
-        self.assertEqual(charged[1]["min_duration"], 300)
+        self.assertEqual(charged[1]["min_duration"], 360)
 
     def test_a_charger_without_idle_billing_publishes_no_parking_terms(self):
         # This absence is how a partner knows not to bill parking at all.
@@ -1385,9 +1429,9 @@ class GracePeriodInTariffTests(unittest.TestCase):
     def test_the_free_window_is_its_own_element(self):
         free, charged = self._parking(self._tariff())
         self.assertEqual(free[0]["price"], 0.0)
-        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 300})
+        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 360})
         self.assertEqual(charged[0]["price"], 12.0)
-        self.assertEqual(charged[1], {"min_duration": 300})
+        self.assertEqual(charged[1], {"min_duration": 360})
 
     def test_the_two_windows_meet_without_a_gap(self):
         # A gap would leave seconds whose price the tariff does not state.
@@ -1396,14 +1440,16 @@ class GracePeriodInTariffTests(unittest.TestCase):
 
     def test_the_grace_reflects_the_charger_not_a_constant(self):
         free, charged = self._parking(self._tariff(grace=12))
-        self.assertEqual(free[1]["max_duration"], 720)
-        self.assertEqual(charged[1]["min_duration"], 720)
+        self.assertEqual(free[1]["max_duration"], 780)   # 12 minutes + one block
+        self.assertEqual(charged[1]["min_duration"], 780)
 
-    def test_no_free_element_when_there_is_no_grace(self):
-        parking = self._parking(self._tariff(grace=0))
-        self.assertEqual(len(parking), 1)
-        self.assertEqual(parking[0][0]["price"], 12.0)
-        self.assertEqual(parking[0][1], {"min_duration": 0})
+    def test_a_free_minute_remains_even_with_no_grace(self):
+        # With no grace configured the first whole minute is still not
+        # charged, because a remainder short of a minute never is.
+        free, charged = self._parking(self._tariff(grace=0))
+        self.assertEqual(free[0]["price"], 0.0)
+        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 60})
+        self.assertEqual(charged[1], {"min_duration": 60})
 
     def test_no_parking_elements_at_all_when_idling_is_off(self):
         self.assertEqual(self._parking(self._tariff(enabled=False)), [])
@@ -1416,8 +1462,9 @@ class GracePeriodInTariffTests(unittest.TestCase):
     def test_the_tariff_matches_what_we_actually_bill(self):
         """The published terms and the money we take have to agree.
 
-        Eleven minutes plugged in, five of them free, leaves six chargeable
-        minutes at RM0.20, and the tariff says RM12 per hour from second 300.
+        Eleven minutes plugged in and the free window is 360 seconds, so five
+        whole minutes are chargeable at RM0.20, and the tariff says RM12 per
+        hour from second 360.
         """
         charger = Charger(charge_point_id="GRACE", tariff_per_kwh=1.40,
                           idle_fee_enabled=True, idle_fee_per_min=0.20,
@@ -1428,7 +1475,7 @@ class GracePeriodInTariffTests(unittest.TestCase):
         sess.idle_started_at = stop
         sess.unplugged_at = stop + timedelta(minutes=11)
         minutes, fee = idle_billing.compute_idle(sess, charger)
-        self.assertEqual(minutes, 6)
-        self.assertEqual(fee, 1.20)
+        self.assertEqual(minutes, 5)
+        self.assertEqual(fee, 1.00)
         _, charged = self._parking(self._tariff())
         self.assertEqual(round(charged[0]["price"] / 60 * minutes, 2), fee)

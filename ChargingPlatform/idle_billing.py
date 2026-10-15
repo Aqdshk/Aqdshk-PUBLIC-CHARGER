@@ -62,19 +62,71 @@ def idle_end(sess, now: Optional[datetime] = None) -> Optional[datetime]:
     return min(now, sess.stop_time + timedelta(minutes=hold_cap_minutes()))
 
 
+def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) -> float:
+    """How long the EV sat without charging, before any grace is applied.
+
+    This is what OCPI's total_parking_time and the PARKING_TIME dimension mean:
+    the duration the EV was not charging, not the duration we billed for. We
+    used to publish the billed minutes in both, which made a CDR contradict
+    itself — session 528 reported 2 minutes of parking against a tariff whose
+    first 5 minutes are free, so applying our own tariff to our own figure gave
+    RM0.00 where we had charged RM0.40. The grace lives in the tariff's
+    restrictions, so the quantity has to be the measured one for the two to
+    multiply out.
+
+    Not gated on idle_fee_enabled: the EV still sat there when we charge
+    nothing for it, and a partner reconciles the duration either way.
+    """
+    start = getattr(sess, "idle_started_at", None)
+    end = idle_end(sess, now)
+    if not start or not end or end <= start:
+        return 0.0
+    return (end - start).total_seconds()
+
+
+def free_seconds(charger) -> int:
+    """Parking seconds that cost nothing, as both the biller and the tariff see it.
+
+    The configured grace, plus one block. Voltality bill whole completed
+    minutes and drop the remainder, and on 2026-10-15 Aqid chose to match
+    them rather than ask them to change. Dropping a remainder is the same
+    arithmetic as charging full blocks after a free window one block longer,
+    so expressing it this way lets the published tariff state the rule exactly
+    instead of us billing by one rule and advertising another. OCPI has no way
+    to say "round down": step_size always rounds up.
+    """
+    grace = int(getattr(charger, "idle_grace_minutes", 0) or 0) * 60
+    return grace + PARKING_STEP_SECONDS
+
+
+def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
+    """measured_idle_seconds as hours, for publication on a CDR.
+
+    Truncated rather than rounded, and to six places. Rounding up here would
+    be worth less than four milliseconds of parking and would still cost a
+    block: a partner multiplies this back by 3600 and takes the ceiling of
+    whatever sits past the grace, so 2400 seconds published as 0.6667 comes
+    back as 2400.12 and bills 26 minutes where we billed 25. Truncation can
+    only ever lose a few milliseconds, which cannot cross a block boundary.
+    """
+    seconds = measured_idle_seconds(sess, charger, now)
+    if seconds <= 0:
+        return 0.0
+    return math.floor(seconds / 3600 * 1_000_000) / 1_000_000
+
+
 def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, float]:
     """Billable idle minutes and the fee for them, after the grace period.
 
-    The time past grace is billed in whole blocks of PARKING_STEP_SECONDS, with
-    a partial block rounded up, which is what step_size means in OCPI. We used
-    to truncate instead: Voltality's session 449 idled 540.12 seconds, 240.12 of
-    them past grace, and we billed four blocks where the tariff we publish says
-    five. Truncating also meant anything under a minute past grace was free, so
-    a charger could be blocked repeatedly at no cost.
+    Only whole completed minutes past the grace are charged; a remainder short
+    of a full minute is dropped. That is Voltality's rule, adopted on
+    2026-10-15 so the two sides agree. It is implemented as whole blocks past
+    free_seconds, which is the same arithmetic and is what the tariff states.
 
-    The returned minutes are the billed quantity, not the measured one, so the
-    CDR's parking dimension multiplied by the tariff gives exactly the cost we
-    charged.
+    The returned minutes are the billed quantity, not the measured one. Do not
+    publish them as a CDR's parking duration: that field is the measured time
+    and the free window is expressed as a tariff restriction over it. Use
+    measured_idle_seconds for anything a partner re-prices.
     """
     if not charger or not charger.idle_fee_enabled:
         return 0, 0.0
@@ -85,8 +137,7 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
         return 0, 0.0
 
     elapsed_s = (end - start).total_seconds()
-    grace_s = float(charger.idle_grace_minutes or 0) * 60.0
-    chargeable_s = max(0.0, elapsed_s - grace_s)
+    chargeable_s = max(0.0, elapsed_s - free_seconds(charger))
     if chargeable_s <= 0:
         return 0, 0.0
 
