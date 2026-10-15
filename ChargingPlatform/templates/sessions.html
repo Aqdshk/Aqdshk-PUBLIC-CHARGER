@@ -212,7 +212,7 @@
             sums.push(`Energy: ${m.energy_kwh} kWh × RM${m.rate_per_kwh}/kWh = <b>RM${m.energy_cost.toFixed(2)}</b>`);
             if (m.idle_fee_enabled) {
                 sums.push(`Idle: ${m.idle_minutes} min × RM${m.idle_rate_per_min}/min = <b>RM${m.idle_cost.toFixed(2)}</b>`
-                        + ` <span style="color:var(--text-muted,#8A8AB0)">(first ${m.idle_grace_minutes} min free, billed in whole minutes)</span>`);
+                        + ` <span style="color:var(--text-muted,#8A8AB0)">(first ${m.idle_grace_minutes} min free, rounded to the nearest minute)</span>`);
             } else {
                 sums.push(`Idle: not charged on this charger`);
             }

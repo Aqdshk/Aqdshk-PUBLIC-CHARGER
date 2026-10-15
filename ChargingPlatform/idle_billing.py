@@ -87,16 +87,29 @@ def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) ->
 def free_seconds(charger) -> int:
     """Parking seconds that cost nothing, as both the biller and the tariff see it.
 
-    The configured grace, plus one block. Voltality bill whole completed
-    minutes and drop the remainder, and on 2026-10-15 Aqid chose to match
-    them rather than ask them to change. Dropping a remainder is the same
-    arithmetic as charging full blocks after a free window one block longer,
-    so expressing it this way lets the published tariff state the rule exactly
-    instead of us billing by one rule and advertising another. OCPI has no way
-    to say "round down": step_size always rounds up.
+    Voltality round the parking time to the *nearest* minute and then take the
+    grace off it, so a remainder of 30 seconds or more is charged and anything
+    under it is not. Aqid chose to match them on 2026-10-15. Three sessions pin
+    the rule down and only this one fits all three:
+
+        528   377 s   6.28 min -> 6    1 chargeable minute    RM0.20
+        535   421 s   7.02 min -> 7    2 chargeable minutes   RM0.40
+        537   690 s   11.5 min -> 12   7 chargeable minutes   RM1.40
+
+    537 is what exposed it. Exactly 11 minutes 30 seconds, the one case where
+    rounding to nearest and dropping the remainder disagree, which is why the
+    first two tests passed and the third did not.
+
+    The grace plus 29 seconds, billed in whole blocks rounded up, is the same
+    arithmetic as rounding to the nearest minute, for durations measured in
+    whole seconds as ours are: with t - grace written as 60k + r, rounding half
+    up gives k plus one when r >= 30, and so does ceil((60k + r - 29) / 60).
+    Saying it this way lets the published tariff state the rule exactly, since
+    OCPI's step_size can only round up and has no way to express rounding to
+    nearest.
     """
     grace = int(getattr(charger, "idle_grace_minutes", 0) or 0) * 60
-    return grace + PARKING_STEP_SECONDS
+    return grace + PARKING_STEP_SECONDS // 2 - 1
 
 
 def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
@@ -118,10 +131,11 @@ def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
 def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, float]:
     """Billable idle minutes and the fee for them, after the grace period.
 
-    Only whole completed minutes past the grace are charged; a remainder short
-    of a full minute is dropped. That is Voltality's rule, adopted on
-    2026-10-15 so the two sides agree. It is implemented as whole blocks past
-    free_seconds, which is the same arithmetic and is what the tariff states.
+    The parking time is rounded to the nearest minute before the grace comes
+    off, so a remainder of 30 seconds or more is charged and anything under it
+    is not. That is Voltality's rule, adopted on 2026-10-15 so the two sides
+    agree. It is implemented as whole blocks past free_seconds, which is the
+    same arithmetic and is what the tariff states.
 
     The returned minutes are the billed quantity, not the measured one. Do not
     publish them as a CDR's parking duration: that field is the measured time

@@ -941,8 +941,8 @@
             const grace = parseInt(document.getElementById('ecIdleGrace').value || 0, 10);
             document.getElementById('ecIdleHint').textContent = on
                 ? `Roaming partners see this as a PARKING_TIME price of RM${(perMin * 60).toFixed(2)} per hour, `
-                  + `with the first ${grace + 1} minutes free: the ${grace} minute grace, plus the `
-                  + `part minute we never charge for.`
+                  + `with the first ${grace} minutes free. Idle time is rounded to the nearest `
+                  + `minute, so a remainder of 30 seconds or more is charged.`
                 : 'No idle fee. Roaming partners receive a tariff with no PARKING_TIME component, '
                   + 'so they will not bill for parking on this charger.';
         }
