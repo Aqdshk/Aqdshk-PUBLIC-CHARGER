@@ -1490,6 +1490,28 @@ class PartnerRepricingTests(unittest.TestCase):
         chargeable = max(0, math.ceil(minutes) - self.GRACE_MIN)
         return round(chargeable * self.RATE, 2)
 
+    def _every_reading(self, cdr):
+        """The same algorithm, written the ways a partner might write it.
+
+        Venu quoted minutes ("approximately 11.5 minutes"), but we should not
+        depend on which unit they work in or how many decimals they keep. The
+        one that used to fail is "seconds, ceil to step": 1980 seconds is 0.55
+        hours and 0.55 * 3600 comes back as 1980.0000000000002, which rounds
+        up to a minute we never charged.
+        """
+        g = self.GRACE_MIN
+        m = cdr["total_parking_time"] * 60
+        secs = cdr["total_parking_time"] * 3600
+        return {
+            "raw minutes, ceil":     max(0, math.ceil(m) - g),
+            "1 dp then ceil":        max(0, math.ceil(round(m, 1)) - g),
+            "2 dp then ceil":        max(0, math.ceil(round(m, 2)) - g),
+            "4 dp then ceil":        max(0, math.ceil(round(m, 4)) - g),
+            "seconds, ceil to step": max(0, math.ceil(secs / 60) - g),
+            "grace off first":       math.ceil(max(0.0, secs - g * 60) / 60),
+            "round secs then ceil":  max(0, math.ceil(round(secs) / 60) - g),
+        }
+
     def test_the_sessions_they_gave_a_verdict_on(self):
         # Parking durations measured in production, and the figure Voltality
         # asked for or accepted.
@@ -1508,9 +1530,10 @@ class PartnerRepricingTests(unittest.TestCase):
         for seconds in range(0, 3601, 1):
             cdr = self._cdr_for(seconds)
             ours = cdr["total_parking_cost"]["excl_vat"]
-            if self._as_voltality_would(cdr) != ours:
-                disagreed.append(seconds)
-        self.assertEqual(disagreed, [], f"{len(disagreed)} durations disagree")
+            for name, chargeable in self._every_reading(cdr).items():
+                if round(chargeable * self.RATE, 2) != ours:
+                    disagreed.append((seconds, name))
+        self.assertEqual(disagreed[:10], [], f"{len(disagreed)} readings disagree")
 
 
 class GracePeriodInTariffTests(unittest.TestCase):

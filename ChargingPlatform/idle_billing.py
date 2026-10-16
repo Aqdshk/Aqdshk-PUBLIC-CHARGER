@@ -177,7 +177,16 @@ def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
     seconds = billed_idle_seconds(sess, charger, now)
     if seconds <= 0:
         return 0.0
-    return math.floor(seconds / 3600 * 1_000_000) / 1_000_000
+    units = math.floor(seconds / 3600 * 1_000_000)
+    # Strictly below the true duration, always. A partner rounds this up to
+    # the whole step, so a published value that is exact carries no margin and
+    # their own floating point can push it over: 1980 seconds is 0.55 hours,
+    # and 0.55 * 3600 comes back as 1980.0000000000002, which rounds up to a
+    # minute we never charged. Giving up a thousandth of a second costs
+    # nothing and leaves no room for that.
+    if units == seconds / 3600 * 1_000_000:
+        units -= 1
+    return units / 1_000_000
 
 
 def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, float]:
