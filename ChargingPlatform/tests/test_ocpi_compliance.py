@@ -204,13 +204,13 @@ class IdleAccrualTests(unittest.TestCase):
         s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=540.12))
         self.assertEqual(idle_billing.compute_idle(s, charger), (4, 0.8))
 
-    def test_a_remainder_under_half_a_minute_is_dropped(self):
-        # Session 528: 377 seconds idle, 77 past the grace. The 17 second
-        # remainder is under half a minute, so one minute, not two.
+    def test_a_part_block_past_the_grace_is_billed_whole(self):
+        # Session 528: 377 seconds parking, which is 6.3 minutes once measured
+        # to a tenth, rounds up to 7, and leaves 2 minutes past the grace.
         charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
                           idle_fee_per_min=0.20, idle_grace_minutes=5)
         s = self._session(unplugged_at=self.stopped_at + timedelta(seconds=377))
-        self.assertEqual(idle_billing.compute_idle(s, charger), (1, 0.2))
+        self.assertEqual(idle_billing.compute_idle(s, charger), (2, 0.4))
 
     def test_a_single_second_past_grace_is_free(self):
         charger = Charger(charge_point_id="STEP", idle_fee_enabled=True,
@@ -1414,12 +1414,10 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         self.assertEqual(len(parking), 2)
         free, charged = parking
         self.assertEqual(free[0]["price"], 0.0)
-        # 329, not 300: the 5 minute grace plus the half block that makes
-        # rounding up equal rounding to nearest. See idle_billing.free_seconds.
-        self.assertEqual(free[1]["max_duration"], 329)
+        self.assertEqual(free[1]["max_duration"], 300)     # the 5 minute grace
         self.assertEqual(charged[0]["price"], 12.0)        # RM0.20/min as RM/hour
         self.assertEqual(charged[0]["step_size"], 60)
-        self.assertEqual(charged[1]["min_duration"], 329)
+        self.assertEqual(charged[1]["min_duration"], 300)
 
     def test_a_charger_without_idle_billing_publishes_no_parking_terms(self):
         # This absence is how a partner knows not to bill parking at all.
@@ -1429,6 +1427,90 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
                 for c in e["price_components"]]
         self.assertNotIn("PARKING_TIME", dims)
         self.assertEqual(self._cdr()["total_parking_cost"]["excl_vat"], 0)
+
+
+class PartnerRepricingTests(unittest.TestCase):
+    """Re-price our own CDR the way Voltality do, and demand the same answer.
+
+    Four rounds of this dispute were spent guessing their rule from the few
+    figures they had sent. Venu then wrote the rule out for session 537:
+
+        "Based on the 60-second step size, the parking duration should be
+         rounded up to 12 minutes. After deducting the 5-minute grace period,
+         the chargeable duration should be 7 minutes."
+
+    That is the partner implemented here, so a disagreement shows up in our own
+    suite instead of in a WhatsApp message. It needs nothing from their side.
+    """
+
+    GRACE_MIN = 5
+    RATE = 0.20
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.db.query(Charger).filter(Charger.charge_point_id == "REPRICE").delete()
+        self.db.commit()
+        self.charger = Charger(
+            charge_point_id="REPRICE", connector_type="Type2", tariff_per_kwh=1.40,
+            idle_fee_enabled=True, idle_fee_per_min=self.RATE,
+            idle_grace_minutes=self.GRACE_MIN, is_public=True,
+        )
+        self.db.add(self.charger)
+        self.db.commit()
+        self.stop = idle_billing.now_myt() - timedelta(hours=2)
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == self.charger.id
+        ).delete(synchronize_session=False)
+        self.db.query(Charger).filter(Charger.id == self.charger.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _cdr_for(self, parking_seconds):
+        from ocpi.router import _build_cdr_dict
+        s = ChargingSession(charger_id=self.charger.id, transaction_id=9000,
+                            status="completed", user_id="U")
+        s.start_time = self.stop - timedelta(minutes=10)
+        s.stop_time = self.stop
+        s.idle_started_at = self.stop
+        s.unplugged_at = self.stop + timedelta(seconds=parking_seconds)
+        s.energy_consumed = 1.0
+        s.evse_id = 1
+        s.connector_id = 1
+        s.authorization_reference = "A"
+        s.charger = self.charger      # in memory only: 3601 commits is a test suite
+        return _build_cdr_dict(s)
+
+    def _as_voltality_would(self, cdr):
+        """Their algorithm, over the figures we actually publish."""
+        minutes = round(cdr["total_parking_time"] * 60, 1)
+        chargeable = max(0, math.ceil(minutes) - self.GRACE_MIN)
+        return round(chargeable * self.RATE, 2)
+
+    def test_the_sessions_they_gave_a_verdict_on(self):
+        # Parking durations measured in production, and the figure Voltality
+        # asked for or accepted.
+        for sid, seconds, expected in ((535, 421, 0.40),
+                                       (537, 690, 1.40),
+                                       (540, 449, 0.60)):
+            with self.subTest(session=sid):
+                cdr = self._cdr_for(seconds)
+                self.assertEqual(cdr["total_parking_cost"]["excl_vat"], expected)
+                self.assertEqual(self._as_voltality_would(cdr), expected)
+
+    def test_every_duration_up_to_an_hour_agrees(self):
+        # The dispute only ever surfaced at durations nobody thought to try,
+        # so try all of them rather than a handful.
+        disagreed = []
+        for seconds in range(0, 3601, 1):
+            cdr = self._cdr_for(seconds)
+            ours = cdr["total_parking_cost"]["excl_vat"]
+            if self._as_voltality_would(cdr) != ours:
+                disagreed.append(seconds)
+        self.assertEqual(disagreed, [], f"{len(disagreed)} durations disagree")
 
 
 class GracePeriodInTariffTests(unittest.TestCase):
@@ -1456,9 +1538,9 @@ class GracePeriodInTariffTests(unittest.TestCase):
     def test_the_free_window_is_its_own_element(self):
         free, charged = self._parking(self._tariff())
         self.assertEqual(free[0]["price"], 0.0)
-        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 329})
+        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 300})
         self.assertEqual(charged[0]["price"], 12.0)
-        self.assertEqual(charged[1], {"min_duration": 329})
+        self.assertEqual(charged[1], {"min_duration": 300})
 
     def test_the_two_windows_meet_without_a_gap(self):
         # A gap would leave seconds whose price the tariff does not state.
@@ -1467,16 +1549,16 @@ class GracePeriodInTariffTests(unittest.TestCase):
 
     def test_the_grace_reflects_the_charger_not_a_constant(self):
         free, charged = self._parking(self._tariff(grace=12))
-        self.assertEqual(free[1]["max_duration"], 749)   # 12 minutes + 29 s
-        self.assertEqual(charged[1]["min_duration"], 749)
+        self.assertEqual(free[1]["max_duration"], 720)
+        self.assertEqual(charged[1]["min_duration"], 720)
 
-    def test_a_free_half_minute_remains_even_with_no_grace(self):
-        # With no grace configured the first half minute is still not charged,
-        # because a remainder under half a minute never is.
-        free, charged = self._parking(self._tariff(grace=0))
-        self.assertEqual(free[0]["price"], 0.0)
-        self.assertEqual(free[1], {"min_duration": 0, "max_duration": 29})
-        self.assertEqual(charged[1], {"min_duration": 29})
+    def test_no_free_element_when_there_is_no_grace(self):
+        # Nothing is free, so the tariff says so by carrying one parking
+        # element that starts at zero.
+        parking = self._parking(self._tariff(grace=0))
+        self.assertEqual(len(parking), 1)
+        self.assertEqual(parking[0][0]["price"], 12.0)
+        self.assertEqual(parking[0][1], {"min_duration": 0})
 
     def test_no_parking_elements_at_all_when_idling_is_off(self):
         self.assertEqual(self._parking(self._tariff(enabled=False)), [])
