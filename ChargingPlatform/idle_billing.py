@@ -156,7 +156,13 @@ def billed_idle_seconds(sess, charger=None, now: Optional[datetime] = None) -> i
     seconds = measured_idle_seconds(sess, charger, now)
     if seconds <= 0:
         return 0
-    return int(round(seconds / PARKING_RESOLUTION_SECONDS) * PARKING_RESOLUTION_SECONDS)
+    # Half up, not Python's round, which rounds a half to the even neighbour.
+    # A duration sitting exactly three seconds into a six second bucket is the
+    # only place the two differ, and it is one duration in six: 447 seconds
+    # snaps to 450 here and would snap to 444 under round(), which is a whole
+    # minute of difference once the grace comes off.
+    buckets = math.floor(seconds / PARKING_RESOLUTION_SECONDS + 0.5)
+    return int(buckets * PARKING_RESOLUTION_SECONDS)
 
 
 def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
