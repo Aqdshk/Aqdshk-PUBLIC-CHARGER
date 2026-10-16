@@ -28,6 +28,18 @@ _MYT_OFFSET = timedelta(hours=8)
 # happen.
 PARKING_STEP_SECONDS = 60
 
+# Parking is measured to a tenth of a minute before anything is billed from
+# it, because that is the precision Voltality read at and we bill what they
+# bill. Their message about session 537 shows it: "0.191666 hours, equivalent
+# to approximately 11.5 minutes", and that 11.5 is the number they then round
+# to whole minutes. Session 540 is where it bites. 449 seconds is 7.483
+# minutes, which becomes 7.5 and then 8, where rounding once would give 7.
+#
+# An exhaustive sweep of 144 candidate rules against sessions 528, 535, 537
+# and 540 left three that fit every figure Voltality produced, and all three
+# carry this step. No rule without it fits any three of the four.
+PARKING_RESOLUTION_SECONDS = 6
+
 
 # How long a CDR waits for a cable that may never come out. A charger that
 # goes offline mid-session, or a driver who leaves the plug in overnight,
@@ -127,6 +139,26 @@ def free_seconds(charger) -> int:
     return grace + PARKING_STEP_SECONDS // 2 - 1
 
 
+def billed_idle_seconds(sess, charger=None, now: Optional[datetime] = None) -> int:
+    """The parking duration we bill from, and the one we publish.
+
+    measured_idle_seconds snapped to the nearest PARKING_RESOLUTION_SECONDS.
+    Billing from the raw measurement while a partner re-prices a duration they
+    have rounded to a tenth of a minute is how session 540 ended up at RM0.40
+    on our side and RM0.60 on theirs. Snapping first makes the two agree, and
+    it has to be the published figure as well: publish 449 seconds and bill
+    three minutes and the CDR contradicts its own tariff, which is the fault
+    Voltality raised against session 528 in the first place.
+
+    The cost of this is that a published duration can sit up to three seconds
+    either side of what the clock saw.
+    """
+    seconds = measured_idle_seconds(sess, charger, now)
+    if seconds <= 0:
+        return 0
+    return int(round(seconds / PARKING_RESOLUTION_SECONDS) * PARKING_RESOLUTION_SECONDS)
+
+
 def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
     """measured_idle_seconds as hours, for publication on a CDR.
 
@@ -137,7 +169,7 @@ def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
     back as 2400.12 and bills 26 minutes where we billed 25. Truncation can
     only ever lose a few milliseconds, which cannot cross a block boundary.
     """
-    seconds = measured_idle_seconds(sess, charger, now)
+    seconds = billed_idle_seconds(sess, charger, now)
     if seconds <= 0:
         return 0.0
     return math.floor(seconds / 3600 * 1_000_000) / 1_000_000
@@ -146,11 +178,11 @@ def parking_hours(sess, charger=None, now: Optional[datetime] = None) -> float:
 def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, float]:
     """Billable idle minutes and the fee for them, after the grace period.
 
-    The parking time is rounded to the nearest minute before the grace comes
-    off, so a remainder of 30 seconds or more is charged and anything under it
-    is not. That is Voltality's rule, adopted on 2026-10-15 so the two sides
-    agree. It is implemented as whole blocks past free_seconds, which is the
-    same arithmetic and is what the tariff states.
+    Voltality's rule, adopted on 2026-10-15 so the two sides agree: the
+    parking time is measured to a tenth of a minute, rounded to the nearest
+    whole minute, and the grace then comes off. Implemented as whole blocks
+    past free_seconds over billed_idle_seconds, which is the same arithmetic
+    and is what the tariff states.
 
     The returned minutes are the billed quantity, not the measured one. Do not
     publish them as a CDR's parking duration: that field is the measured time
@@ -160,7 +192,7 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
     if not charger or not charger.idle_fee_enabled:
         return 0, 0.0
 
-    elapsed_s = measured_idle_seconds(sess, charger, now)
+    elapsed_s = billed_idle_seconds(sess, charger, now)
     if elapsed_s <= 0:
         return 0, 0.0
 

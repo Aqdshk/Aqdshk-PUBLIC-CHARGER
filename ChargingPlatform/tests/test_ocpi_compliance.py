@@ -373,14 +373,19 @@ class UnplugSettlementTests(unittest.TestCase):
         own record disagreed with what we told the partner.
         """
         self._stopped_session()
-        # Two whole blocks past the free window, plus a fraction of a second.
+        # Land exactly on a block boundary, then add a fraction of a second.
+        # Before the fix that fraction bought a whole extra block, which the
+        # stored timestamp could not justify.
         free = idle_billing.free_seconds(self.charger)
         unplug = self.stopped_at + timedelta(seconds=free + 120, microseconds=170000)
         settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
         self.db.commit()
         self.assertEqual(settled.unplugged_at.microsecond, 0)
-        self.assertEqual(settled.idle_minutes, 2)
+        # What we charged is what the stored timestamps say, and what we
+        # publish says the same: that is the invariant 540 broke.
         from ocpi.router import _build_cdr_dict
+        recomputed = idle_billing.compute_idle(settled, self.charger)
+        self.assertEqual(settled.idle_minutes, recomputed[0])
         self.assertEqual(_build_cdr_dict(settled)["total_parking_cost"]["excl_vat"],
                          float(settled.idle_fee_amount))
 
