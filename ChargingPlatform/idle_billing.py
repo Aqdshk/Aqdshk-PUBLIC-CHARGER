@@ -77,16 +77,23 @@ def whole_second(value: Optional[datetime]) -> Optional[datetime]:
 def idle_end(sess, now: Optional[datetime] = None) -> Optional[datetime]:
     """The instant idle accrual stops for this session.
 
-    The unplug when we have seen it. Otherwise the session is still blocking
-    the bay, so accrual runs to now, capped so that a charger which never
-    reports Available cannot bill forever.
+    The unplug when we have seen it, otherwise now, and in both cases capped
+    at hold_cap_minutes past the stop.
+
+    The cap used to apply only while we were still waiting for the unplug,
+    which left a charger free to bill the whole of its own outage the moment
+    it came back. Session 507 on VOLTALITYTEST1 stopped on 9 October with no
+    energy delivered and reported Available on the 14th: five days, 7090
+    minutes, RM1418.00, and it went to Voltality as a CDR. Session 559 on
+    DC3001 did the same overnight for RM123.40. A reconnection is not evidence
+    that a car sat in the bay, and the cap exists precisely because we cannot
+    tell the difference.
     """
-    if getattr(sess, "unplugged_at", None):
-        return sess.unplugged_at
     if not sess.stop_time:
-        return None
-    now = now or now_myt()
-    return min(now, sess.stop_time + timedelta(minutes=hold_cap_minutes()))
+        return getattr(sess, "unplugged_at", None)
+    limit = sess.stop_time + timedelta(minutes=hold_cap_minutes())
+    reported = getattr(sess, "unplugged_at", None) or (now or now_myt())
+    return min(reported, limit)
 
 
 def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) -> float:

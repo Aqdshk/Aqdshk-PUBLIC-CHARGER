@@ -270,6 +270,30 @@ class IdleAccrualTests(unittest.TestCase):
         free = idle_billing.free_seconds(self.charger) // 60
         self.assertEqual(minutes, cap - free)
 
+    def test_a_late_reconnection_cannot_bill_its_own_outage(self):
+        """Session 507 on VOLTALITYTEST1, 2026-10-09 to 2026-10-14.
+
+        Stopped with no energy delivered, then reported Available five days
+        later. We billed the whole gap: 7090 minutes, RM1418.00, and it went
+        to Voltality as a CDR. 559 on DC3001 did the same overnight for
+        RM123.40. The cap was only being applied while we were still waiting
+        for the unplug, so a charger coming back from its own outage escaped
+        it. A reconnection is not evidence that a car sat in the bay.
+        """
+        cap = idle_billing.hold_cap_minutes()
+        s = self._session(unplugged_at=self.stopped_at + timedelta(days=5))
+        minutes, _ = idle_billing.compute_idle(s, self.charger)
+        self.assertEqual(minutes, cap - int(self.charger.idle_grace_minutes))
+
+    def test_the_cap_binds_whether_or_not_the_unplug_was_seen(self):
+        # Same ceiling either way, so a charger cannot bill more by going
+        # quiet and coming back than by never coming back at all.
+        far = self.stopped_at + timedelta(days=5)
+        seen = self._session(unplugged_at=far)
+        unseen = self._session()
+        self.assertEqual(idle_billing.compute_idle(seen, self.charger),
+                         idle_billing.compute_idle(unseen, self.charger, now=far))
+
     def test_charger_without_idle_fee_accrues_nothing(self):
         self.charger.idle_fee_enabled = False
         s = self._session(unplugged_at=self.stopped_at + timedelta(hours=5))
