@@ -1443,14 +1443,21 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         self.assertEqual(charged[0]["step_size"], 60)
         self.assertEqual(charged[1]["min_duration"], 300)
 
-    def test_a_charger_without_idle_billing_publishes_no_parking_terms(self):
-        # This absence is how a partner knows not to bill parking at all.
+    def test_a_charger_without_idle_billing_prices_parking_at_zero(self):
+        # Not absence. We still publish how long the EV sat without charging,
+        # so a tariff with no PARKING_TIME leaves the partner holding a
+        # duration they cannot price, which is the fault Voltality raised
+        # against session 528. Zero says the same thing and can be checked.
         self.charger.idle_fee_enabled = False
         self.db.commit()
-        dims = [c["type"] for e in self._cdr()["tariffs"][0]["elements"]
-                for c in e["price_components"]]
-        self.assertNotIn("PARKING_TIME", dims)
-        self.assertEqual(self._cdr()["total_parking_cost"]["excl_vat"], 0)
+        cdr = self._cdr()
+        parking = [(c, e.get("restrictions") or {})
+                   for e in cdr["tariffs"][0]["elements"]
+                   for c in e["price_components"] if c["type"] == "PARKING_TIME"]
+        self.assertEqual(len(parking), 1)
+        self.assertEqual(parking[0][0]["price"], 0.0)
+        self.assertEqual(parking[0][1], {})          # applies to the whole stay
+        self.assertEqual(cdr["total_parking_cost"]["excl_vat"], 0)
 
 
 class PartnerRepricingTests(unittest.TestCase):
@@ -1547,6 +1554,31 @@ class PartnerRepricingTests(unittest.TestCase):
                 self.assertEqual(cdr["total_parking_cost"]["excl_vat"], expected)
                 self.assertEqual(self._as_voltality_would(cdr), expected)
 
+    def test_parking_is_always_priceable_even_with_the_idle_fee_off(self):
+        """A duration we publish must have a price in the tariff we publish.
+
+        With the idle fee off we were sending the parking time and the
+        PARKING_TIME charging period while the tariff carried no PARKING_TIME
+        component at all, so the partner could not price it. Aqid was about to
+        run exactly this configuration with Voltality.
+        """
+        self.charger.idle_fee_enabled = False
+        self.db.commit()
+        for seconds in (0, 60, 690, 3600):
+            with self.subTest(parking=seconds):
+                cdr = self._cdr_for(seconds)
+                parking = [(c, e.get("restrictions") or {})
+                           for e in cdr["tariffs"][0]["elements"]
+                           for c in e["price_components"]
+                           if c["type"] == "PARKING_TIME"]
+                self.assertTrue(parking, "parking time published with no price")
+                rate, limits = parking[-1]
+                grace = int(limits.get("min_duration", 0) // 60)
+                minutes = cdr["total_parking_time"] * 60
+                priced = round(max(0, math.ceil(minutes) - grace)
+                               * rate["price"] / 60, 2)
+                self.assertEqual(priced, cdr["total_parking_cost"]["excl_vat"])
+
     def test_every_duration_up_to_an_hour_agrees(self):
         # The dispute only ever surfaced at durations nobody thought to try,
         # so try all of them rather than a handful.
@@ -1607,8 +1639,11 @@ class GracePeriodInTariffTests(unittest.TestCase):
         self.assertEqual(parking[0][0]["price"], 12.0)
         self.assertEqual(parking[0][1], {"min_duration": 0})
 
-    def test_no_parking_elements_at_all_when_idling_is_off(self):
-        self.assertEqual(self._parking(self._tariff(enabled=False)), [])
+    def test_parking_is_priced_at_zero_when_idling_is_off(self):
+        parking = self._parking(self._tariff(enabled=False))
+        self.assertEqual(len(parking), 1)
+        self.assertEqual(parking[0][0]["price"], 0.0)
+        self.assertEqual(parking[0][1], {})
 
     def test_both_windows_bill_in_the_same_block(self):
         # A partner recomputing our figure needs one block size, not two.

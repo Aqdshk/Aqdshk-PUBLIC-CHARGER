@@ -149,12 +149,25 @@ def _build_tariff(charger, now: str) -> dict:
         }
     ]
 
-    if getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min:
+    if not (getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min):
+        # Parking is free here, and the tariff has to say so rather than stay
+        # silent. We still report how long the EV sat without charging, so a
+        # tariff carrying no PARKING_TIME at all leaves a partner holding a
+        # duration they cannot put a price against. That is the same fault
+        # Voltality raised on session 528: a CDR must be provable from its own
+        # contents. Absence used to be our way of saying "do not bill
+        # parking"; zero says it and can be checked.
+        elements.append({
+            "price_components": [
+                {"type": "PARKING_TIME", "price": 0.0,
+                 "vat": _vat_percent(),
+                 "step_size": idle_billing.PARKING_STEP_SECONDS}
+            ],
+        })
+    else:
         per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
-        # The free window is the configured grace plus one block, because a
-        # remainder short of a whole minute is not charged. See free_seconds:
-        # the biller and this tariff have to quote the same boundary or a
-        # partner re-pricing our CDR lands on a different figure.
+        # The free window the biller uses, quoted exactly. Advertising one
+        # boundary and billing another is a dispute waiting to happen.
         grace_seconds = idle_billing.free_seconds(charger)
         step = idle_billing.PARKING_STEP_SECONDS
 
