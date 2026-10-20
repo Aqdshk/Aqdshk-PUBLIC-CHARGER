@@ -165,7 +165,7 @@ def _build_tariff(charger, now: str) -> dict:
             ],
         })
     else:
-        per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
+        per_hour = idle_billing.rate_per_hour(charger)
         # The free window the biller uses, quoted exactly. Advertising one
         # boundary and billing another is a dispute waiting to happen.
         grace_seconds = idle_billing.free_seconds(charger)

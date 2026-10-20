@@ -118,6 +118,21 @@ def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) ->
     return (end - start).total_seconds()
 
 
+def rate_per_hour(charger) -> float:
+    """The parking rate as OCPI states it, per hour, used to bill and to publish.
+
+    We configure a rate per minute and OCPI prices PARKING_TIME per hour, so
+    the two differ by a factor of sixty and by whatever rounding the
+    conversion needs. Billing from the per-minute figure while publishing the
+    per-hour one leaves a sub-cent gap whenever the conversion is not exact:
+    at RM1.333 a minute, twenty five minutes is RM33.32 one way and RM33.33
+    the other. The column holds two decimals today, so no live rate can reach
+    it, but a wider column would bring it back silently. Both sides now read
+    this one number.
+    """
+    return round(float(charger.idle_fee_per_min or 0) * 60, 4)
+
+
 def free_seconds(charger) -> int:
     """Parking seconds that cost nothing, as both the biller and the tariff see it.
 
@@ -222,7 +237,7 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
 
     blocks = math.ceil(chargeable_s / PARKING_STEP_SECONDS)
     minutes = int(blocks * PARKING_STEP_SECONDS / 60)
-    fee = round(minutes * float(charger.idle_fee_per_min or 0), 2)
+    fee = round(blocks * PARKING_STEP_SECONDS / 3600 * rate_per_hour(charger), 2)
     return minutes, fee
 
 

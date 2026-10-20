@@ -1605,6 +1605,35 @@ class PartnerRepricingTests(unittest.TestCase):
                 self.assertEqual(cdr["total_parking_cost"]["excl_vat"], expected)
                 self.assertEqual(self._as_voltality_would(cdr), expected)
 
+    def test_the_fee_matches_the_published_rate_at_any_precision(self):
+        """Bill from the rate we publish, not the one we configure.
+
+        We hold a rate per minute and OCPI prices parking per hour. Billing
+        from one while publishing the other left a sub-cent gap whenever the
+        conversion was not exact: at RM1.333 a minute, 25 minutes came to
+        RM33.32 our way and RM33.33 theirs. The column holds two decimals so
+        no live rate could reach it, which is exactly why it would have gone
+        unnoticed until someone widened the column.
+        """
+        from decimal import Decimal
+        for rate in ("0.20", "1.333", "0.077", "2.4567"):
+            self.charger.idle_fee_per_min = Decimal(rate)
+            self.db.commit()
+            for seconds in (377, 421, 690, 1500, 4200):
+                with self.subTest(rate=rate, parking=seconds):
+                    cdr = self._cdr_for(seconds)
+                    parking = [(c, e.get("restrictions") or {})
+                               for e in cdr["tariffs"][0]["elements"]
+                               for c in e["price_components"]
+                               if c["type"] == "PARKING_TIME"][-1]
+                    comp, limits = parking
+                    up = math.ceil(cdr["total_parking_time"] * 3600
+                                   / comp["step_size"]) * comp["step_size"]
+                    chargeable = max(0, up - int(limits.get("min_duration", 0)))
+                    self.assertEqual(
+                        round(chargeable / 3600 * comp["price"], 2),
+                        cdr["total_parking_cost"]["excl_vat"])
+
     def test_parking_is_always_priceable_even_with_the_idle_fee_off(self):
         """A duration we publish must have a price in the tariff we publish.
 
