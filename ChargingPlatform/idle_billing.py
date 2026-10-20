@@ -234,6 +234,52 @@ def finalize_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, f
     return minutes, fee
 
 
+def last_contact_before(db, charger, until: datetime) -> Optional[datetime]:
+    """When we last had the charger on the wire before `until`, if it was gone.
+
+    Returns None when the charger was connected the whole way, and otherwise
+    the instant the link dropped, which is the last moment we could observe
+    anything about the bay.
+
+    Session 543 on VOLTALITYTEST1 is why. It stopped on 15 October having
+    delivered nothing, the charger then fell off the network for three and a
+    half days, and the Available it sent on reconnecting was taken as a car
+    being unplugged: RM35.00 billed for an outage, published to Voltality.
+    While the link is down we know nothing about whether a car is in the bay,
+    so we cannot charge for it.
+
+    `ChargerConnectionEvent.at` is UTC; sessions are Malaysia wall time.
+    """
+    from database import ChargerConnectionEvent
+
+    cutoff = until - _MYT_OFFSET                      # the window is MYT, rows are UTC
+    back = (
+        db.query(ChargerConnectionEvent)
+        .filter(
+            ChargerConnectionEvent.charge_point_id == charger.charge_point_id,
+            ChargerConnectionEvent.event == "connected",
+            ChargerConnectionEvent.at <= cutoff,
+        )
+        .order_by(ChargerConnectionEvent.at.desc())
+        .first()
+    )
+    if back is None:
+        return None
+    dropped = (
+        db.query(ChargerConnectionEvent)
+        .filter(
+            ChargerConnectionEvent.charge_point_id == charger.charge_point_id,
+            ChargerConnectionEvent.event == "disconnected",
+            ChargerConnectionEvent.at <= back.at,
+        )
+        .order_by(ChargerConnectionEvent.at.desc())
+        .first()
+    )
+    if dropped is None:
+        return None
+    return dropped.at + _MYT_OFFSET
+
+
 def settle_unplug(db, charger, now: Optional[datetime] = None):
     """Close out the session this charger just released the cable on.
 
@@ -262,6 +308,16 @@ def settle_unplug(db, charger, now: Optional[datetime] = None):
     # later than now, and never before the stop it is closing out.
     reported = now or now_myt()
     reported = min(reported, now_myt())
+    # An Available that arrives on the far side of an outage says the charger
+    # is back, not that a car has just left. Bill only to the moment the link
+    # went down, because nothing after that was observed. See
+    # last_contact_before.
+    try:
+        lost = last_contact_before(db, charger, reported)
+    except Exception:            # never let billing fail over a diagnostic log
+        lost = None
+    if lost is not None and lost < reported:
+        reported = lost
     if sess.stop_time and reported < sess.stop_time:
         reported = sess.stop_time
     # Drop the fraction of a second before anything is billed from it. The

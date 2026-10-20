@@ -388,6 +388,57 @@ class UnplugSettlementTests(unittest.TestCase):
         self.assertEqual(settled.unplugged_at, unplug.replace(microsecond=0))
         self.assertEqual(settled.idle_minutes, 60)
 
+    def _link(self, event, at):
+        from database import ChargerConnectionEvent
+        self.db.add(ChargerConnectionEvent(
+            charge_point_id=self.charger.charge_point_id,
+            event=event, at=at - timedelta(hours=8)))      # the table is UTC
+        self.db.commit()
+
+    def _clear_links(self):
+        from database import ChargerConnectionEvent
+        self.db.query(ChargerConnectionEvent).filter(
+            ChargerConnectionEvent.charge_point_id == self.charger.charge_point_id
+        ).delete(synchronize_session=False)
+        self.db.commit()
+
+    def test_an_outage_is_not_billed_as_parking(self):
+        """Session 543 on VOLTALITYTEST1, 15 to 19 October.
+
+        Stopped having delivered nothing, the charger then left the network
+        for three and a half days, and the Available it sent on reconnecting
+        settled the session: RM35.00 for an outage, published to Voltality.
+        While the link is down we observe nothing about the bay, so the
+        accrual stops where the contact stopped.
+        """
+        self.addCleanup(self._clear_links)
+        base = idle_billing.now_myt() - timedelta(days=4)
+        drop = base + timedelta(minutes=2)
+        back = base + timedelta(days=3)
+        self._stopped_session(stop_time=base, idle_started_at=base)
+        self._link("connected", base - timedelta(hours=1))
+        self._link("disconnected", drop)
+        self._link("connected", back)
+
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=back)
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, drop.replace(microsecond=0))
+        self.assertEqual(settled.idle_minutes, 0)
+        self.assertEqual(float(settled.idle_fee_amount), 0.0)
+
+    def test_a_charger_that_never_dropped_is_billed_normally(self):
+        # The outage clamp must not touch an ordinary stay.
+        self.addCleanup(self._clear_links)
+        base = idle_billing.now_myt() - timedelta(days=1)
+        unplug = base + timedelta(minutes=75)
+        self._stopped_session(stop_time=base, idle_started_at=base)
+        self._link("connected", base - timedelta(hours=2))
+
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, unplug.replace(microsecond=0))
+        self.assertEqual(settled.idle_minutes, 60)
+
     def test_a_fraction_of_a_second_does_not_buy_a_block(self):
         """Session 540, 2026-10-15.
 
