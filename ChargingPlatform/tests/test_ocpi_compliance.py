@@ -439,6 +439,54 @@ class UnplugSettlementTests(unittest.TestCase):
         self.assertEqual(settled.unplugged_at, unplug.replace(microsecond=0))
         self.assertEqual(settled.idle_minutes, 60)
 
+    def test_a_drop_before_the_session_does_not_erase_its_parking(self):
+        """Session 588 on VOLTALITYTEST1, 4 November, Voltality's own test.
+
+        The charger dropped at 15:01, reconnected at 15:15, and then stayed on
+        the wire while the car was parked for eight minutes. The outage clamp
+        reached past the start of the session for that 15:01 drop, clamped it
+        back up to the stop, and billed nothing: the CDR Voltality pulled had
+        total_parking_cost 0.00 and no PARKING_TIME period at all. An outage
+        that ended before the accrual began says nothing about the accrual.
+        """
+        self.addCleanup(self._clear_links)
+        # VOLTALITYTEST1's own settings, so the figures are the ones Voltality
+        # were looking at: five free minutes, twenty sen a minute after that.
+        self.charger.idle_grace_minutes = 5
+        self.charger.idle_fee_per_min = 0.20
+        self.db.commit()
+        stop = idle_billing.now_myt() - timedelta(minutes=30)
+        unplug = stop + timedelta(minutes=8)
+        self._stopped_session(stop_time=stop, idle_started_at=stop)
+        self._link("connected", stop - timedelta(hours=2))
+        self._link("disconnected", stop - timedelta(minutes=17))   # before it
+        self._link("connected", stop - timedelta(minutes=3))       # back again
+
+        settled = idle_billing.settle_unplug(self.db, self.charger, now=unplug)
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, unplug.replace(microsecond=0))
+        self.assertEqual(settled.idle_minutes, 3)                  # 8 less the grace
+        self.assertEqual(float(settled.idle_fee_amount), 0.60)
+
+    def test_the_first_drop_inside_the_window_is_the_one_that_counts(self):
+        # Two outages during one stay: billing stops at the first, because
+        # after it we were no longer watching the bay.
+        self.addCleanup(self._clear_links)
+        stop = idle_billing.now_myt() - timedelta(hours=2)
+        first = stop + timedelta(minutes=20)
+        self._stopped_session(stop_time=stop, idle_started_at=stop)
+        self._link("connected", stop - timedelta(hours=1))
+        self._link("disconnected", first)
+        self._link("connected", stop + timedelta(minutes=40))
+        self._link("disconnected", stop + timedelta(minutes=50))
+
+        settled = idle_billing.settle_unplug(
+            self.db, self.charger, now=stop + timedelta(minutes=90)
+        )
+        self.db.commit()
+        self.assertEqual(settled.unplugged_at, first.replace(microsecond=0))
+        self.assertEqual(settled.idle_minutes, 5)                  # 20 less the grace
+
     def test_a_fraction_of_a_second_does_not_buy_a_block(self):
         """Session 540, 2026-10-15.
 

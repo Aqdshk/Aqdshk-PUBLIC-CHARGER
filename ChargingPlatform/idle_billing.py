@@ -249,47 +249,47 @@ def finalize_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, f
     return minutes, fee
 
 
-def last_contact_before(db, charger, until: datetime) -> Optional[datetime]:
-    """When we last had the charger on the wire before `until`, if it was gone.
+def last_contact_before(
+    db, charger, until: datetime, since: Optional[datetime] = None
+) -> Optional[datetime]:
+    """When we lost sight of the bay between `since` and `until`, if we did.
 
-    Returns None when the charger was connected the whole way, and otherwise
-    the instant the link dropped, which is the last moment we could observe
-    anything about the bay.
+    Returns None when the charger was on the wire for that whole window, and
+    otherwise the first instant the link dropped inside it, which is the last
+    moment we could observe anything about the bay.
 
-    Session 543 on VOLTALITYTEST1 is why. It stopped on 15 October having
-    delivered nothing, the charger then fell off the network for three and a
-    half days, and the Available it sent on reconnecting was taken as a car
-    being unplugged: RM35.00 billed for an outage, published to Voltality.
+    Session 543 on VOLTALITYTEST1 is why this exists. It stopped on 15 October
+    having delivered nothing, the charger then fell off the network for three
+    and a half days, and the Available it sent on reconnecting was taken as a
+    car being unplugged: RM35.00 billed for an outage, published to Voltality.
     While the link is down we know nothing about whether a car is in the bay,
     so we cannot charge for it.
+
+    The window matters, and leaving it out was a bug of its own. This used to
+    walk back from the latest `connected` to the `disconnected` before it,
+    whenever that was. Session 588 on 4 November was parked for eight minutes
+    with the charger connected throughout, but the charger had dropped once at
+    15:01:16, before the session even began. That stale drop came back, was
+    clamped up to the stop, and the whole eight minutes vanished: Voltality
+    received a CDR with no parking cost and no PARKING_TIME period at all. A
+    disconnection that ended before the accrual started tells us nothing about
+    the accrual, so the search is bounded now.
 
     `ChargerConnectionEvent.at` is UTC; sessions are Malaysia wall time.
     """
     from database import ChargerConnectionEvent
 
-    cutoff = until - _MYT_OFFSET                      # the window is MYT, rows are UTC
-    back = (
-        db.query(ChargerConnectionEvent)
-        .filter(
-            ChargerConnectionEvent.charge_point_id == charger.charge_point_id,
-            ChargerConnectionEvent.event == "connected",
-            ChargerConnectionEvent.at <= cutoff,
-        )
-        .order_by(ChargerConnectionEvent.at.desc())
-        .first()
+    q = db.query(ChargerConnectionEvent).filter(                # rows are UTC,
+        ChargerConnectionEvent.charge_point_id == charger.charge_point_id,
+        ChargerConnectionEvent.event == "disconnected",
+        ChargerConnectionEvent.at <= until - _MYT_OFFSET,       # the window MYT
     )
-    if back is None:
-        return None
-    dropped = (
-        db.query(ChargerConnectionEvent)
-        .filter(
-            ChargerConnectionEvent.charge_point_id == charger.charge_point_id,
-            ChargerConnectionEvent.event == "disconnected",
-            ChargerConnectionEvent.at <= back.at,
-        )
-        .order_by(ChargerConnectionEvent.at.desc())
-        .first()
-    )
+    if since is not None:
+        q = q.filter(ChargerConnectionEvent.at > since - _MYT_OFFSET)
+    # The first drop inside the window, not the latest: once the link is down
+    # we stop observing, and a later reconnection does not tell us the car
+    # stayed in the bay for the gap.
+    dropped = q.order_by(ChargerConnectionEvent.at.asc()).first()
     if dropped is None:
         return None
     return dropped.at + _MYT_OFFSET
@@ -328,7 +328,12 @@ def settle_unplug(db, charger, now: Optional[datetime] = None):
     # went down, because nothing after that was observed. See
     # last_contact_before.
     try:
-        lost = last_contact_before(db, charger, reported)
+        # Only outages inside this session's own accrual window can have cost
+        # us sight of the bay. See last_contact_before.
+        lost = last_contact_before(
+            db, charger, reported,
+            since=getattr(sess, "idle_started_at", None) or sess.stop_time,
+        )
     except Exception:            # never let billing fail over a diagnostic log
         lost = None
     if lost is not None and lost < reported:
