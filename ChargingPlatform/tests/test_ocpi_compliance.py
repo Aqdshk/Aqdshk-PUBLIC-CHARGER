@@ -1572,6 +1572,74 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         from ocpi.router import _build_cdr_dict
         return _build_cdr_dict(self.sess)
 
+    def _reprice_the_charger(self, **kw):
+        for field, value in kw.items():
+            setattr(self.charger, field, value)
+        self.db.commit()
+
+    def test_the_session_takes_a_copy_of_the_prices_when_it_is_created(self):
+        # Stamped by a mapper event, so the six places that create a session
+        # do not each have to remember.
+        self.assertEqual(float(self.sess.tariff_per_kwh_at_start), 1.40)
+        self.assertEqual(float(self.sess.idle_fee_per_min_at_start), 0.20)
+        self.assertEqual(self.sess.idle_grace_minutes_at_start, 5)
+        self.assertTrue(self.sess.idle_fee_enabled_at_start)
+
+    def test_raising_the_idle_rate_does_not_rewrite_a_bill_already_issued(self):
+        """The reason the snapshot exists.
+
+        Session 588 went to Voltality carrying RM1.60 of parking. A CDR is
+        rebuilt from the session on every read, so putting the idle rate up to
+        RM0.30 would have made that same record read RM2.40 the next time they
+        pulled it, against a figure they had already settled.
+        """
+        before = self._cdr()
+        self._reprice_the_charger(idle_fee_per_min=0.30, idle_grace_minutes=10)
+        after = self._cdr()
+
+        self.assertEqual(after["total_parking_cost"], before["total_parking_cost"])
+        self.assertEqual(after["total_cost"], before["total_cost"])
+        charged = [e for e in after["tariffs"][0]["elements"]
+                   if e["price_components"][0]["type"] == "PARKING_TIME"
+                   and e["price_components"][0]["price"]]
+        self.assertEqual(charged[0]["price_components"][0]["price"], 12.0)  # RM0.20/min
+        self.assertEqual(charged[0]["restrictions"]["min_duration"], 300)   # 5 min
+
+    def test_raising_the_energy_rate_does_not_rewrite_a_bill_already_issued(self):
+        before = self._cdr()
+        self._reprice_the_charger(tariff_per_kwh=2.50)
+        after = self._cdr()
+
+        self.assertEqual(after["total_energy_cost"], before["total_energy_cost"])
+        energy = [c for e in after["tariffs"][0]["elements"]
+                  for c in e["price_components"] if c["type"] == "ENERGY"]
+        self.assertEqual(energy[0]["price"], 1.40)
+
+    def test_a_session_from_before_the_snapshot_still_reads_the_charger(self):
+        # Nothing was backfilled, so every older row carries nulls and has to
+        # go on behaving exactly as it did.
+        self.sess.tariff_per_kwh_at_start = None
+        self.sess.idle_fee_enabled_at_start = None
+        self.sess.idle_fee_per_min_at_start = None
+        self.sess.idle_grace_minutes_at_start = None
+        self._reprice_the_charger(tariff_per_kwh=2.50, idle_fee_per_min=0.30)
+
+        cdr = self._cdr()
+        energy = [c for e in cdr["tariffs"][0]["elements"]
+                  for c in e["price_components"] if c["type"] == "ENERGY"]
+        self.assertEqual(energy[0]["price"], 2.50)
+        self.assertEqual(cdr["total_energy_cost"]["excl_vat"], 5.0)   # 2 kWh
+
+    def test_the_tariffs_endpoint_still_shows_todays_price(self):
+        # A tariff standing on its own is what we charge now, not what some
+        # past session was charged. Only a CDR freezes.
+        from ocpi.router import _build_tariff
+        self._reprice_the_charger(tariff_per_kwh=2.50)
+        live = _build_tariff(self.charger, "2026-11-12T00:00:00Z")
+        energy = [c for e in live["elements"]
+                  for c in e["price_components"] if c["type"] == "ENERGY"]
+        self.assertEqual(energy[0]["price"], 2.50)
+
     def test_the_cdr_embeds_the_tariff(self):
         tariffs = self._cdr()["tariffs"]
         self.assertEqual(len(tariffs), 1)
@@ -1597,6 +1665,10 @@ class CdrCarriesItsTariffTests(unittest.TestCase):
         # so a tariff with no PARKING_TIME leaves the partner holding a
         # duration they cannot price, which is the fault Voltality raised
         # against session 528. Zero says the same thing and can be checked.
+        # On the session, not on the charger: a charger edited after the fact
+        # must not rewrite a bill already issued, which is what the snapshot
+        # is for. This is a charger that never charged for parking.
+        self.sess.idle_fee_enabled_at_start = False
         self.charger.idle_fee_enabled = False
         self.db.commit()
         cdr = self._cdr()

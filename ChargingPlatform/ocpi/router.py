@@ -117,7 +117,7 @@ def _tariff_id(charger) -> str:
     return f"TARIFF-{charger.charge_point_id}"
 
 
-def _build_tariff(charger, now: str) -> dict:
+def _build_tariff(charger, now: str, sess=None) -> dict:
     """The OCPI tariff for one charger, from its own rate and idle settings.
 
     The tariffs endpoint used to read a `Pricing` table that is empty, so it
@@ -139,6 +139,10 @@ def _build_tariff(charger, now: str) -> dict:
     tariff then says what it costs during those seconds rather than leaving it
     to be inferred.
     """
+    tariff_id = _tariff_id(charger)
+    # With a session, the rates it froze at its start; the tariffs endpoint
+    # passes none and gets today's, which is what a tariff on its own means.
+    charger = idle_billing.priced(sess, charger)
     energy_rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
     elements = [
         {
@@ -194,7 +198,7 @@ def _build_tariff(charger, now: str) -> dict:
         elements.append(charged)
 
     return {
-        "id": _tariff_id(charger),
+        "id": tariff_id,
         "currency": "MYR",
         "country_code": os.getenv("OCPI_COUNTRY_CODE", "MY"),
         "party_id": os.getenv("OCPI_PARTY_ID", "PLG"),
@@ -1158,7 +1162,11 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     stop_time = sess.unplugged_at or sess.stop_time or datetime.utcnow()
     duration_h = (stop_time - start_time).total_seconds() / 3600
 
-    price_per_kwh = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    # The rate this session froze at its start, so a later price edit cannot
+    # rewrite a bill the partner has already settled against. See
+    # idle_billing.priced.
+    rates = idle_billing.priced(sess, charger)
+    price_per_kwh = float(rates.tariff_per_kwh) if rates.tariff_per_kwh is not None else 0.50
     energy_cost = round(energy * price_per_kwh, 2)
 
     # A CDR is final, so it cannot be issued while the idle figure can still
@@ -1257,7 +1265,7 @@ def _build_cdr_dict(sess) -> Optional[dict]:
         # a partner could not show a driver why the parking cost was what it
         # was. Voltality asked for the idle cost and grace to be visible on
         # the CDR; this is where OCPI puts them.
-        "tariffs": [_build_tariff(charger, _charger_changed_at(charger))],
+        "tariffs": [_build_tariff(charger, _charger_changed_at(charger), sess)],
         "charging_periods": periods,
         # The same column the CDR list filters on. It was the unplug instant,
         # which happens to be the last write today and so matched by accident.
@@ -1634,7 +1642,8 @@ def _session_cost(sess) -> float:
     charger = getattr(sess, "charger", None)
     if charger is None:
         return 0.0
-    rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    rates = idle_billing.priced(sess, charger)
+    rate = float(rates.tariff_per_kwh) if rates.tariff_per_kwh is not None else 0.50
     cost = float(sess.energy_consumed or 0) * rate
     _, idle_fee = idle_billing.compute_idle(sess, charger)
     cost += idle_fee

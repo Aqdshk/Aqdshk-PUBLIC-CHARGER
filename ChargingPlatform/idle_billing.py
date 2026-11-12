@@ -118,6 +118,52 @@ def measured_idle_seconds(sess, charger=None, now: Optional[datetime] = None) ->
     return (end - start).total_seconds()
 
 
+class _Prices:
+    """The four numbers that price a session, under the charger's own names.
+
+    Readers take a charger and ask it for `idle_fee_per_min` and the rest, so
+    the snapshot is handed back wearing the same names rather than every
+    caller learning a second spelling.
+    """
+
+    __slots__ = ("tariff_per_kwh", "idle_fee_enabled",
+                 "idle_fee_per_min", "idle_grace_minutes")
+
+    def __init__(self, kwh, enabled, per_min, grace):
+        self.tariff_per_kwh = kwh
+        self.idle_fee_enabled = enabled
+        self.idle_fee_per_min = per_min
+        self.idle_grace_minutes = grace
+
+
+def priced(sess, charger):
+    """The prices that applied to this session, not the ones in force today.
+
+    A CDR is rebuilt from the session row on every read, and it used to take
+    the rates off the charger as it stands now. Editing a charger's price
+    therefore rewrote every bill it had ever issued: session 588 went to
+    Voltality carrying RM1.60 of parking, and raising the idle rate to RM0.30
+    would have made that same record read RM2.40 the next time they pulled it.
+    Our terms promise the opposite, that a price change "will never affect a
+    session already in progress", and a partner that has already settled
+    against a figure cannot have it moved underneath them.
+
+    Sessions written before the snapshot existed carry nothing, and those fall
+    back to the charger, which is what every reader did before.
+    """
+    if sess is None:
+        return charger
+    frozen = getattr(sess, "tariff_per_kwh_at_start", None)
+    if frozen is None:
+        return charger
+    return _Prices(
+        frozen,
+        getattr(sess, "idle_fee_enabled_at_start", None),
+        getattr(sess, "idle_fee_per_min_at_start", None),
+        getattr(sess, "idle_grace_minutes_at_start", None),
+    )
+
+
 def rate_per_hour(charger) -> float:
     """The parking rate as OCPI states it, per hour, used to bill and to publish.
 
@@ -224,6 +270,7 @@ def compute_idle(sess, charger, now: Optional[datetime] = None) -> Tuple[int, fl
     and the free window is expressed as a tariff restriction over it. Use
     measured_idle_seconds for anything a partner re-prices.
     """
+    charger = priced(sess, charger)
     if not charger or not charger.idle_fee_enabled:
         return 0, 0.0
 

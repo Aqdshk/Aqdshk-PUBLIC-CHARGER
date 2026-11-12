@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text,
-    UniqueConstraint, create_engine, event, inspect as sa_inspect,
+    UniqueConstraint, create_engine, event, inspect as sa_inspect, text,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
@@ -644,6 +644,23 @@ class ChargingSession(Base):
     refund_status    = Column(String(32), nullable=True)
     refund_txn_ref   = Column(String(64), nullable=True)
     refund_at        = Column(DateTime, nullable=True)
+    # The prices that applied when this session began, copied off the charger
+    # at insert by _stamp_session_prices.
+    #
+    # A CDR is rebuilt from the session row every time a partner reads it, and
+    # it used to take the rates from the charger as it stands today. Editing a
+    # charger's price therefore rewrote every bill it had ever issued: session
+    # 588 was published to Voltality at RM1.60 of parking, and raising the idle
+    # rate to RM0.30 would have turned that same record into RM2.40 the next
+    # time they pulled it. Our own terms promise the opposite, that a price
+    # change "will never affect a session already in progress".
+    #
+    # Null on every row written before this existed, and the readers fall back
+    # to the charger for those, which is exactly what they did before.
+    tariff_per_kwh_at_start     = Column(Numeric(8, 4), nullable=True)
+    idle_fee_enabled_at_start   = Column(Boolean, nullable=True)
+    idle_fee_per_min_at_start   = Column(Numeric(6, 2), nullable=True)
+    idle_grace_minutes_at_start = Column(Integer, nullable=True)
     # When anything about this session last changed, in Malaysia wall time like
     # every other clock on this row. A roaming partner filters on it to decide
     # what to re-read, so it has to be a real stored value and not something
@@ -1273,6 +1290,36 @@ def init_db():
 @event.listens_for(ChargingSession, "before_update")
 def _stamp_session_last_updated(mapper, connection, target):
     target.last_updated = _now_myt()
+
+
+@event.listens_for(ChargingSession, "before_insert")
+def _stamp_session_prices(mapper, connection, target):
+    """Freeze the charger's prices onto the session as it is created.
+
+    Sessions are created from six places across two OCPP stacks, the API and
+    the edge sync, so this is a mapper event for the same reason last_updated
+    is: the next person to add a seventh must not have to remember.
+
+    Only on insert. A price edited later is a new price, and the whole point
+    of the snapshot is that it does not reach back into a session that has
+    already started. A caller that has set a value itself is left alone, which
+    is what lets a test or a correction state the rates explicitly.
+    """
+    if target.charger_id is None or target.tariff_per_kwh_at_start is not None:
+        return
+    row = connection.execute(
+        text(
+            "SELECT tariff_per_kwh, idle_fee_enabled, idle_fee_per_min, "
+            "idle_grace_minutes FROM chargers WHERE id = :cid"
+        ),
+        {"cid": target.charger_id},
+    ).first()
+    if row is None:
+        return
+    target.tariff_per_kwh_at_start = row[0]
+    target.idle_fee_enabled_at_start = bool(row[1])
+    target.idle_fee_per_min_at_start = row[2]
+    target.idle_grace_minutes_at_start = row[3]
 
 
 # What a roaming partner can actually see about a charger. Heartbeats are
