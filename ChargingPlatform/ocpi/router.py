@@ -529,9 +529,44 @@ def _exclude_held_cdrs(q):
     """
     cutoff = idle_billing.now_myt() - timedelta(minutes=idle_billing.hold_cap_minutes())
     return q.filter(
-        ChargingSession.unplugged_at.isnot(None)
+        _cdr_settled_sql()
         | (ChargingSession.stop_time <= cutoff)
     )
+
+
+def _cdr_settled_sql():
+    """The unplug that releases a CDR, as a SQL predicate.
+
+    An interrupted session does not qualify, although the watchdog stamps
+    unplugged_at on it. That stamp means "nobody is going to report this cable
+    coming out", not that the session is final: a meter value arriving after
+    the stop reopens it, because some chargers send BootNotification on a mere
+    network blip with the transaction still running. Issuing the CDR the moment
+    the watchdog fired would hand a partner a final bill for a charge that then
+    carried on. The hold cap in the caller releases it instead, by which time
+    the charger has either come back and resumed or it has not.
+    """
+    return ChargingSession.unplugged_at.isnot(None) & (
+        ChargingSession.status != "interrupted"
+    )
+
+
+def _cdr_is_held(sess, now: Optional[datetime] = None) -> bool:
+    """Whether this session's CDR is still being withheld. Mirrors the SQL."""
+    if sess.status != "interrupted":
+        return idle_billing.awaiting_unplug(sess, getattr(sess, "charger", None))
+    # The hold exists so a bill is not issued for a charge that then carried
+    # on. A session that owes nothing has no bill to issue, so there is
+    # nothing to hold back and it is final the moment the watchdog closes it.
+    # Rule B of the watchdog closes sessions that never started at all, and
+    # leaving those pending for three hours would report them ACTIVE long
+    # after everyone involved had gone home.
+    if _session_cost(sess) <= 0:
+        return False
+    if not sess.stop_time:
+        return True
+    now = now or idle_billing.now_myt()
+    return now < sess.stop_time + timedelta(minutes=idle_billing.hold_cap_minutes())
 
 
 def _exclude_invalid_cdrs(q):
@@ -1014,8 +1049,11 @@ def _session_still_running(sess) -> bool:
     """
     if sess.status in ("active", "pending"):
         return True
-    charger = getattr(sess, "charger", None)
-    return idle_billing.awaiting_unplug(sess, charger)
+    # Exactly while its CDR is held, so COMPLETED always means "final, and the
+    # CDR is there to pull". An interrupted session is held past the watchdog's
+    # unplug stamp, and reporting it COMPLETED in the meantime would promise a
+    # record that is not being served yet.
+    return _cdr_is_held(sess)
 
 
 def _is_invalid_session(sess) -> bool:
@@ -1127,7 +1165,7 @@ def _build_cdr_dict(sess) -> Optional[dict]:
     # grow. On a remote stop the transaction closes immediately but the car
     # may sit in the bay for another hour, and publishing here would bill the
     # partner for a charge whose parking time is not yet known.
-    if idle_billing.awaiting_unplug(sess, charger):
+    if _cdr_is_held(sess):
         return None
 
     # Nothing was delivered and nothing is owed, so there is nothing to bill.
@@ -1245,7 +1283,15 @@ async def get_sessions(
     """Get charging sessions (OCPI pull model), scoped to the caller."""
     q = _scope_to_caller(
         db.query(ChargingSession).filter(
-            ChargingSession.status.in_(["active", "completed", "stopped"])
+            # "interrupted" belongs here too. It is what the watchdog writes
+            # when a charger vanishes mid-charge, and leaving it out meant a
+            # real session that had delivered energy simply disappeared from
+            # the partner's view instead of reaching a final state. Voltality's
+            # S4 asks for exactly that: "session eventually reaches correct
+            # final state once charger connectivity is restored".
+            ChargingSession.status.in_(
+                ["active", "completed", "stopped", "interrupted"]
+            )
         ),
         caller,
     )
@@ -1295,7 +1341,10 @@ async def get_cdrs(
     """Get Charge Detail Records (CDRs) for billing, scoped to the caller."""
     q = _scope_to_caller(
         db.query(ChargingSession).filter(
-            ChargingSession.status.in_(["completed", "stopped"]),
+            # See the sessions endpoint: a watchdog-closed session still owes
+            # money for the energy it delivered. _exclude_held_cdrs keeps it
+            # back until it can no longer reopen.
+            ChargingSession.status.in_(["completed", "stopped", "interrupted"]),
             ChargingSession.stop_time.isnot(None),
         ),
         caller,

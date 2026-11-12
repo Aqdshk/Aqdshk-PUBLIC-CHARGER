@@ -987,6 +987,56 @@ class InvalidSessionTests(unittest.TestCase):
         s = self._sess(energy_consumed=1.5)
         self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
 
+    def test_a_watchdog_closed_charge_is_published_at_all(self):
+        """Voltality's S4: the session has to reach a final state.
+
+        Sessions 534 and 597 on VOLTALITYTEST1 delivered 1 kWh and 4 kWh, were
+        closed by the watchdog when the charger vanished, and then appeared in
+        neither /sessions nor /cdrs: RM7.00 of real charging that the partner
+        could not see, let alone bill. "interrupted" was simply missing from
+        both status filters.
+        """
+        # authorization_reference is what marks a session as a partner's, and
+        # the shared token is only served those.
+        s = self._sess(status="interrupted", transaction_id=4097,
+                       energy_consumed=4.0,
+                       authorization_reference="s4-watchdog")
+        client = TestClient(api.app)
+        body = client.get("/ocpi/2.2.1/sessions?limit=1000", headers=AUTH).json()
+        self.assertIn(str(s.transaction_id), {x["id"] for x in body["data"]})
+
+    def test_a_watchdog_closed_charge_holds_its_cdr_then_releases_it(self):
+        """It can still reopen, so the bill waits, but not for ever.
+
+        A meter value timestamped after the stop puts an interrupted session
+        back to active, because some chargers reboot on a network blip with the
+        transaction still running. Issuing the CDR the instant the watchdog
+        fired would hand the partner a final bill for a charge that carried on.
+        """
+        from ocpi.router import _build_cdr_dict, _build_session_dict
+        s = self._sess(status="interrupted", energy_consumed=4.0)
+
+        self.assertIsNone(_build_cdr_dict(s))                  # held
+        self.assertEqual(_build_session_dict(s)["status"], "ACTIVE")
+
+        s.stop_time = idle_billing.now_myt() - timedelta(
+            minutes=idle_billing.hold_cap_minutes() + 1
+        )
+        s.unplugged_at = s.stop_time
+        self.db.commit()
+
+        cdr = _build_cdr_dict(s)
+        self.assertIsNotNone(cdr)                              # released
+        self.assertEqual(cdr["total_energy"], 4.0)
+        self.assertEqual(_build_session_dict(s)["status"], "COMPLETED")
+
+    def test_a_watchdog_closed_charge_that_owes_nothing_is_not_held(self):
+        # No bill to issue, so there is nothing to wait for. Holding these
+        # would report a session nobody ever started as ACTIVE for hours.
+        from ocpi.router import _build_session_dict
+        s = self._sess(status="interrupted", stop_reason="NeverStarted")
+        self.assertEqual(_build_session_dict(s)["status"], "INVALID")
+
     def test_a_running_session_is_active(self):
         from ocpi.router import _build_session_dict
         s = self._sess(status="active", stop_time=None, unplugged_at=None)
