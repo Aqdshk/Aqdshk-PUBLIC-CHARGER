@@ -1920,3 +1920,212 @@ class GracePeriodInTariffTests(unittest.TestCase):
         self.assertEqual(fee, 1.20)
         _, charged = self._parking(self._tariff())
         self.assertEqual(round(charged[0]["price"] / 60 * minutes, 2), fee)
+
+
+class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
+    """What we present when we call a partner, rather than what we accept.
+
+    Voltality answered 401 to every CommandResult we posted. Two separate
+    faults were in the way. The first, fixed earlier, was that no partner
+    token was stored at all, so the header went out empty. The second is this
+    one: OCPI 2.2.1 carries the token base64-encoded, and we sent it raw.
+    Their UAT was checked directly on 2026-11-12 and refuses the plain form
+    with 401 while accepting the encoded form, so storing the token without
+    this change would have left the callbacks failing exactly as before.
+    """
+
+    TOKEN = "43d4a1e2-0000-0000-0000-000000000000"
+
+    def test_the_header_is_base64_and_decodes_to_the_token(self):
+        import base64
+
+        from ocpi.push import auth_header
+
+        header = auth_header(self.TOKEN)
+        self.assertTrue(header.startswith("Token "))
+        encoded = header[len("Token "):]
+        self.assertNotEqual(encoded, self.TOKEN)
+        self.assertEqual(
+            base64.b64decode(encoded, validate=True).decode("utf-8"),
+            self.TOKEN,
+        )
+
+    def test_we_never_send_the_bare_token(self):
+        """The exact shape their UAT rejects."""
+        from ocpi.push import auth_header
+
+        self.assertNotEqual(auth_header(self.TOKEN), f"Token {self.TOKEN}")
+
+    def test_what_we_send_is_what_our_own_reader_accepts(self):
+        """Lenient inbound, strict outbound: the two still have to meet.
+
+        A partner running our code must be able to read our header, or we
+        would be doing to them what Voltality did to us.
+        """
+        from ocpi.push import auth_header
+        from ocpi.router import _token_candidates
+
+        self.assertIn(self.TOKEN, _token_candidates(auth_header(self.TOKEN)))
+
+    async def test_a_command_result_goes_out_encoded(self):
+        """End to end through the callback, not just the helper."""
+        # `import ocpi.router as router` binds the APIRouter object that
+        # ocpi/__init__ exports under that name, not the module.
+        import importlib
+
+        router = importlib.import_module("ocpi.router")
+
+        sent = {}
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None, headers=None):
+                sent["url"] = url
+                sent["headers"] = headers or {}
+                sent["body"] = json
+
+        import httpx
+
+        real_client = httpx.AsyncClient
+        real_token = router._outbound_token
+        httpx.AsyncClient = _FakeClient
+        router._outbound_token = lambda: self.TOKEN
+        try:
+            await router._post_command_result(
+                "https://api-uat.example.io/ocpi/emsp/2.2.1/commands/START_SESSION/1",
+                "ACCEPTED",
+            )
+        finally:
+            httpx.AsyncClient = real_client
+            router._outbound_token = real_token
+
+        from ocpi.push import auth_header
+
+        self.assertEqual(sent["headers"].get("Authorization"), auth_header(self.TOKEN))
+        self.assertEqual(sent["body"], {"result": "ACCEPTED"})
+
+    async def test_no_stored_token_still_sends_no_header(self):
+        """Better a missing header than a header built from an empty string."""
+        # `import ocpi.router as router` binds the APIRouter object that
+        # ocpi/__init__ exports under that name, not the module.
+        import importlib
+
+        router = importlib.import_module("ocpi.router")
+
+        sent = {}
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None, headers=None):
+                sent["headers"] = headers or {}
+
+        import os
+
+        import httpx
+
+        real_client = httpx.AsyncClient
+        real_token = router._outbound_token
+        real_env = os.environ.pop("OCPI_OUTBOUND_TOKEN", None)
+        httpx.AsyncClient = _FakeClient
+        router._outbound_token = lambda: None
+        try:
+            await router._post_command_result("https://example.test/cb", "ACCEPTED")
+        finally:
+            httpx.AsyncClient = real_client
+            router._outbound_token = real_token
+            if real_env is not None:
+                os.environ["OCPI_OUTBOUND_TOKEN"] = real_env
+
+        self.assertNotIn("Authorization", sent["headers"])
+
+
+class PushGateTests(unittest.TestCase):
+    """Storing a partner must not, by itself, start pushing to them.
+
+    ocpi_partners was empty from the day it was created, so the push module
+    has never sent anything. Writing Voltality's credential into it to fix the
+    command callbacks would otherwise have switched outbound pushing on at the
+    same moment, the day before their UAT. The fix and the new behaviour are
+    separate decisions, so push waits for an explicit flag.
+    """
+
+    def setUp(self):
+        import os
+
+        self._real = os.environ.pop("OCPI_PUSH_ENABLED", None)
+
+    def tearDown(self):
+        import os
+
+        os.environ.pop("OCPI_PUSH_ENABLED", None)
+        if self._real is not None:
+            os.environ["OCPI_PUSH_ENABLED"] = self._real
+
+    def test_off_by_default(self):
+        from ocpi import push
+
+        self.assertFalse(push.enabled())
+
+    def test_the_flag_turns_it_on(self):
+        import os
+
+        from ocpi import push
+
+        for value in ("1", "true", "TRUE", "yes", "on"):
+            os.environ["OCPI_PUSH_ENABLED"] = value
+            self.assertTrue(push.enabled(), value)
+
+    def test_a_nonsense_value_leaves_it_off(self):
+        import os
+
+        from ocpi import push
+
+        for value in ("0", "false", "no", "off", "", "maybe"):
+            os.environ["OCPI_PUSH_ENABLED"] = value
+            self.assertFalse(push.enabled(), value)
+
+    def test_nothing_is_queued_while_it_is_off(self):
+        """The guard is at the call site, so a disabled push costs nothing."""
+        import asyncio
+
+        from ocpi import push
+
+        real_queue = push._QUEUE
+        try:
+            push._QUEUE = asyncio.Queue(maxsize=10)
+            push.enqueue("cdr", 1)
+            self.assertEqual(push._QUEUE.qsize(), 0)
+        finally:
+            push._QUEUE = real_queue
+
+    def test_it_queues_once_turned_on(self):
+        """And the guard is the only thing standing in the way."""
+        import asyncio
+        import os
+
+        from ocpi import push
+
+        real_queue = push._QUEUE
+        try:
+            os.environ["OCPI_PUSH_ENABLED"] = "1"
+            push._QUEUE = asyncio.Queue(maxsize=10)
+            push.enqueue("cdr", 1)
+            self.assertEqual(push._QUEUE.qsize(), 1)
+        finally:
+            push._QUEUE = real_queue

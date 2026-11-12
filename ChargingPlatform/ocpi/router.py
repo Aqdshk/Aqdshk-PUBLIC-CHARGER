@@ -1483,10 +1483,15 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         # OCPI_OUTBOUND_TOKEN, which has never been set, so every callback went
         # out with no Authorization header and Voltality answered 401. Their
         # commands ran here and they were never told the outcome.
+        from .push import auth_header
+
         token = _outbound_token() or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
         headers = {"Content-Type": "application/json"}
         if token:
-            headers["Authorization"] = f"Token {token}"
+            # Base64, per OCPI 2.2.1. Sending it raw is itself a 401 on
+            # Voltality's UAT, so a stored token alone would not have fixed
+            # this. See auth_header for the evidence.
+            headers["Authorization"] = auth_header(token)
         else:
             logger.warning(
                 "[ocpi-commands] no partner token stored, callback to %s will "
