@@ -1922,6 +1922,14 @@ class GracePeriodInTariffTests(unittest.TestCase):
         self.assertEqual(round(charged[0]["price"] / 60 * minutes, 2), fee)
 
 
+class _FakeResponse:
+    """Just enough of an httpx response for the callback to report on."""
+
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
 class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
     """What we present when we call a partner, rather than what we accept.
 
@@ -1991,6 +1999,7 @@ class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
                 sent["url"] = url
                 sent["headers"] = headers or {}
                 sent["body"] = json
+                return _FakeResponse(200)
 
         import httpx
 
@@ -2034,6 +2043,7 @@ class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
 
             async def post(self, url, json=None, headers=None):
                 sent["headers"] = headers or {}
+                return _FakeResponse(200)
 
         import os
 
@@ -2129,3 +2139,59 @@ class PushGateTests(unittest.TestCase):
             self.assertEqual(push._QUEUE.qsize(), 1)
         finally:
             push._QUEUE = real_queue
+
+
+class CallbackOutcomeTests(unittest.IsolatedAsyncioTestCase):
+    """A refused callback has to leave a trace on our side.
+
+    httpx does not raise on 4xx, so the 401s Voltality reported four times
+    produced no log line here at all. We only ever learned of them by
+    WhatsApp, which is why the cause took weeks to find.
+    """
+
+    async def _fire(self, status, text=""):
+        import importlib
+        import logging
+
+        router = importlib.import_module("ocpi.router")
+
+        class _Client:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None, headers=None):
+                return _FakeResponse(status, text)
+
+        import httpx
+
+        real_client, real_token = httpx.AsyncClient, router._outbound_token
+        httpx.AsyncClient = _Client
+        router._outbound_token = lambda: "tok"
+        try:
+            with self.assertLogs("ocpi.router", level=logging.INFO) as caught:
+                await router._post_command_result("https://partner.test/cb", "ACCEPTED")
+        finally:
+            httpx.AsyncClient = real_client
+            router._outbound_token = real_token
+        return caught.output
+
+    async def test_a_refused_callback_is_logged_as_a_warning(self):
+        lines = await self._fire(401, "Unauthorized")
+        self.assertTrue(any("WARNING" in l and "401" in l for l in lines), lines)
+        self.assertTrue(any("refused" in l for l in lines), lines)
+
+    async def test_an_accepted_callback_says_so(self):
+        lines = await self._fire(200)
+        self.assertTrue(any("accepted" in l for l in lines), lines)
+        self.assertFalse(any("WARNING" in l for l in lines), lines)
+
+    async def test_the_result_we_sent_is_in_the_line(self):
+        """So a log reader can tie the outcome to the command."""
+        lines = await self._fire(401)
+        self.assertTrue(any("ACCEPTED" in l for l in lines), lines)

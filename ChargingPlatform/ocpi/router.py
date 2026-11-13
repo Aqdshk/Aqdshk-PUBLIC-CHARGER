@@ -1502,7 +1502,17 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         if message:
             body["message"] = [{"language": "en", "text": message}]
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await client.post(response_url, json=body, headers=headers)
+            r = await client.post(response_url, json=body, headers=headers)
+        # httpx does not raise on 4xx, so without this a refused callback was
+        # silent: the 401s Voltality reported four times left no trace on our
+        # side and we learned about them by WhatsApp. Log the outcome either
+        # way, so a failing callback is visible here during a UAT.
+        if r.status_code < 300:
+            logger.info("[ocpi-commands] callback %s to %s accepted (%s)",
+                        result, response_url, r.status_code)
+        else:
+            logger.warning("[ocpi-commands] callback %s to %s refused: %s %s",
+                           result, response_url, r.status_code, r.text[:200])
     except Exception as e:
         logger.warning(f"[ocpi-commands] callback POST to {response_url} failed: {e}")
 
