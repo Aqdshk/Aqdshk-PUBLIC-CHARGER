@@ -2195,3 +2195,122 @@ class CallbackOutcomeTests(unittest.IsolatedAsyncioTestCase):
         """So a log reader can tie the outcome to the command."""
         lines = await self._fire(401)
         self.assertTrue(any("ACCEPTED" in l for l in lines), lines)
+
+
+class StateOfChargeTests(unittest.TestCase):
+    """SoC belongs on the Session, in a charging period, and nowhere else.
+
+    Voltality tested with a simulator that reports SoC and found our Session
+    objects carried no `charging_periods` at all, so the value had nowhere to
+    go. We had been storing it on every meter value since the column was
+    added; it simply never reached the partner.
+
+    OCPI 2.2.1 lists STATE_OF_CHARGE among the dimensions that "SHALL
+    therefore only be used in Sessions", so the CDR must not gain it.
+    """
+
+    CP = "SOCTEST1"
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        cls.db = SessionLocal()
+        # Deliberately not published and in no tenant: these tests build the
+        # Session object directly, and a charger that joins a tenant would
+        # move the counts test_tenants asserts on.
+        cls.charger = Charger(charge_point_id=cls.CP, tariff_per_kwh=1.40,
+                              idle_fee_enabled=False)
+        cls.db.add(cls.charger)
+        cls.db.commit()
+
+        start = datetime(2026, 11, 13, 16, 0, 0)
+        cls.sess = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=90901,
+            status="completed", start_time=start,
+            stop_time=start + timedelta(minutes=30),
+            unplugged_at=start + timedelta(minutes=31),
+            energy_consumed=12.0, user_id="SOCUSER",
+        )
+        cls.db.add(cls.sess)
+        cls.db.commit()
+
+        # Readings a real charger would send: SoC climbing, with repeats in
+        # between where nothing moved.
+        for minute, soc in ((0, 20.0), (5, 20.0), (10, 35.0), (15, 35.0),
+                            (20, 58.0), (30, 80.0)):
+            cls.db.add(MeterValue(
+                charger_id=cls.charger.id, transaction_id=90901,
+                connector_id=1, timestamp=start + timedelta(minutes=minute),
+                total_kwh=minute / 2.5, soc=soc))
+        cls.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Leave the shared test database as we found it.
+        cls.db.query(MeterValue).filter(
+            MeterValue.charger_id == cls.charger.id).delete()
+        cls.db.query(ChargingSession).filter(
+            ChargingSession.charger_id == cls.charger.id).delete()
+        cls.db.query(Charger).filter(Charger.id == cls.charger.id).delete()
+        cls.db.commit()
+        cls.db.close()
+
+    def _session(self):
+        from ocpi.router import _build_session_dict
+        return _build_session_dict(self.sess)
+
+    def test_the_session_now_has_charging_periods(self):
+        self.assertIn("charging_periods", self._session())
+
+    def test_every_period_carries_a_state_of_charge(self):
+        for p in self._session()["charging_periods"]:
+            types = [d["type"] for d in p["dimensions"]]
+            self.assertIn("STATE_OF_CHARGE", types)
+
+    def test_the_percentages_are_the_ones_the_charger_reported(self):
+        got = [d["volume"] for p in self._session()["charging_periods"]
+               for d in p["dimensions"]]
+        self.assertEqual(got, [20.0, 35.0, 58.0, 80.0])
+
+    def test_a_reading_that_did_not_move_is_not_republished(self):
+        """Six readings, four of them distinct."""
+        self.assertEqual(len(self._session()["charging_periods"]), 4)
+
+    def test_each_period_is_stamped_with_its_own_reading_time(self):
+        from ocpi.router import _session_time
+        first = self._session()["charging_periods"][0]
+        self.assertEqual(first["start_date_time"],
+                         _session_time(datetime(2026, 11, 13, 16, 0, 0)))
+
+    def test_the_cdr_does_not_carry_state_of_charge(self):
+        """Session only, per the spec. A CDR with SoC is non-compliant."""
+        from ocpi.router import _build_cdr_dict
+        cdr = _build_cdr_dict(self.sess)
+        dims = {d["type"] for p in cdr["charging_periods"] for d in p["dimensions"]}
+        self.assertNotIn("STATE_OF_CHARGE", dims)
+
+    def test_a_session_without_soc_omits_the_field_entirely(self):
+        """Most chargers never report it, and an empty array claims otherwise."""
+        from ocpi.router import _build_session_dict
+        quiet = ChargingSession(
+            charger_id=self.charger.id, transaction_id=90902,
+            status="completed", start_time=datetime(2026, 11, 13, 18, 0, 0),
+            stop_time=datetime(2026, 11, 13, 18, 20, 0),
+            energy_consumed=5.0, user_id="NOSOC")
+        self.db.add(quiet)
+        self.db.commit()
+        self.assertNotIn("charging_periods", _build_session_dict(quiet))
+
+    def test_the_list_endpoint_does_not_query_once_per_session(self):
+        """Prefetched rows are used as given, so a page costs one query."""
+        from ocpi.router import _build_session_dict
+        built = _build_session_dict(self.sess, [])
+        self.assertNotIn("charging_periods", built)
+
+    def test_prefetching_produces_what_the_single_lookup_does(self):
+        from ocpi.router import _build_session_dict, _soc_rows_for
+        rows = _soc_rows_for(self.db, [self.sess])
+        key = (self.sess.charger_id, self.sess.transaction_id)
+        self.assertEqual(
+            _build_session_dict(self.sess, rows.get(key, []))["charging_periods"],
+            self._session()["charging_periods"])

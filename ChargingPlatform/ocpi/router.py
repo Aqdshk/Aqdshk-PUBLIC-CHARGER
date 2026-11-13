@@ -1104,7 +1104,95 @@ def _session_last_updated(sess):
     )
 
 
-def _build_session_dict(sess) -> Optional[dict]:
+# A charger reporting SoC every few seconds for a three hour charge would
+# otherwise put thousands of periods in one Session.
+_MAX_SOC_PERIODS = 200
+
+
+def _soc_rows_for(db, sessions) -> dict:
+    """SoC readings for a whole page of sessions, in one query instead of N.
+
+    The sessions list serves up to 1000 rows and a per-session lookup would be
+    a thousand round trips for a field most chargers never report at all.
+    """
+    keys = {
+        (s.charger_id, s.transaction_id)
+        for s in sessions
+        if s.charger_id is not None and s.transaction_id is not None
+    }
+    if not keys:
+        return {}
+    rows = (
+        db.query(MeterValue.charger_id, MeterValue.transaction_id,
+                 MeterValue.timestamp, MeterValue.soc)
+        .filter(MeterValue.soc.isnot(None),
+                MeterValue.charger_id.in_({k[0] for k in keys}),
+                MeterValue.transaction_id.in_({k[1] for k in keys}))
+        .order_by(MeterValue.timestamp.asc())
+        .all()
+    )
+    out: dict = {}
+    for charger_id, txn, ts, soc in rows:
+        # in_ over both columns separately can cross-match, so check the pair.
+        if (charger_id, txn) in keys:
+            out.setdefault((charger_id, txn), []).append((ts, soc))
+    return out
+
+
+def _session_charging_periods(sess, soc_rows=None) -> list:
+    """A Session's charging periods, carrying the vehicle's state of charge.
+
+    Voltality raised this on 2026-11-13: we record SoC on every meter value
+    that reports it, and their simulator was sending it, but the Session
+    object carried no `charging_periods` at all, so there was nowhere for it
+    to go and they could not see it.
+
+    OCPI 2.2.1 lists STATE_OF_CHARGE among the dimensions that "are not useful
+    for CDRs, and SHALL therefore only be used in Sessions". So this is
+    deliberately not shared with _build_cdr_dict: putting SoC on a CDR would
+    be a spec violation, not a bonus.
+
+    Only some DC chargers report SoC, so an empty list is the ordinary case
+    and not a fault. Readings that repeat the same percentage are dropped:
+    a value every few seconds that has not moved says nothing, and the points
+    where it changed are what a driver's app draws.
+    """
+    if soc_rows is None:
+        db = SessionLocal()
+        try:
+            soc_rows = (
+                db.query(MeterValue.timestamp, MeterValue.soc)
+                .filter(MeterValue.soc.isnot(None),
+                        MeterValue.charger_id == sess.charger_id,
+                        MeterValue.transaction_id == sess.transaction_id)
+                .order_by(MeterValue.timestamp.asc())
+                .all()
+            )
+        except Exception as e:
+            logger.warning("[ocpi-sessions] could not read SoC for %s: %s", sess.id, e)
+            return []
+        finally:
+            db.close()
+
+    periods = []
+    last = None
+    for ts, soc in soc_rows:
+        if ts is None or soc is None:
+            continue
+        pct = round(float(soc), 1)
+        if pct == last:
+            continue
+        last = pct
+        periods.append({
+            "start_date_time": _session_time(ts),
+            "dimensions": [{"type": "STATE_OF_CHARGE", "volume": pct}],
+        })
+        if len(periods) >= _MAX_SOC_PERIODS:
+            break
+    return periods
+
+
+def _build_session_dict(sess, soc_rows=None) -> Optional[dict]:
     """One OCPI Session. Shared by the pull endpoint and by push."""
     charger = sess.charger
     if not charger:
@@ -1113,7 +1201,8 @@ def _build_session_dict(sess) -> Optional[dict]:
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     gun = sess.evse_id or sess.connector_id or 1
-    return {
+    periods = _session_charging_periods(sess, soc_rows)
+    out = {
         # country_code and party_id are mandatory on a 2.2.1 Session; without
         # them a partner cannot tell whose session it is.
         "country_code": country,
@@ -1144,6 +1233,12 @@ def _build_session_dict(sess) -> Optional[dict]:
         "authorization_reference": sess.authorization_reference,
         "last_updated": _session_time(_session_last_updated(sess)),
     }
+    # Omitted rather than sent empty: the field is optional, and an empty
+    # array reads as "this session had no charging periods", which is a
+    # different claim from "this charger does not report SoC".
+    if periods:
+        out["charging_periods"] = periods
+    return out
 
 
 def _build_cdr_dict(sess) -> Optional[dict]:
@@ -1324,7 +1419,13 @@ async def get_sessions(
     sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(page).all()
     _set_pagination(response, request, total, offset, page)
 
-    result = [d for d in (_build_session_dict(s) for s in sessions) if d]
+    soc = _soc_rows_for(db, sessions)
+    result = [
+        d for d in (
+            _build_session_dict(s, soc.get((s.charger_id, s.transaction_id), []))
+            for s in sessions
+        ) if d
+    ]
 
     return {
         "status_code": 1000,
