@@ -196,6 +196,10 @@
                 <h3>✏️ Edit charger — <span id="ecId">—</span></h3>
                 <label>Location label</label>
                 <input type="text" id="ecLocation" placeholder="e.g. Carpark B · Slot 12">
+                <label>City</label>
+                <input type="text" id="ecCity" placeholder="e.g. Shah Alam">
+                <label>Postcode</label>
+                <input type="text" id="ecPostal" placeholder="e.g. 40200">
                 <label>Latitude</label>
                 <input type="number" step="any" id="ecLat" placeholder="3.0738">
                 <label>Longitude</label>
@@ -897,6 +901,8 @@
             _editingCpId = cpId;
             document.getElementById('ecId').textContent = cpId;
             document.getElementById('ecLocation').value = c.location || '';
+            document.getElementById('ecCity').value = c.city || '';
+            document.getElementById('ecPostal').value = c.postal_code || '';
             document.getElementById('ecLat').value = c.latitude ?? '';
             document.getElementById('ecLng').value = c.longitude ?? '';
             document.getElementById('ecConnector').value = c.connector_type || '';
@@ -984,6 +990,11 @@
             const ct  = document.getElementById('ecConnector').value;
             const pw  = document.getElementById('ecPower').value;
             if (loc !== '') body.location = loc;
+            // Always sent, unlike the fields above: emptying the box is how
+            // you hand a charger back to the platform-wide default, and a
+            // blank that is never sent could not express that.
+            body.city = document.getElementById('ecCity').value.trim();
+            body.postal_code = document.getElementById('ecPostal').value.trim();
             if (lat !== '') body.latitude = parseFloat(lat);
             if (lng !== '') body.longitude = parseFloat(lng);
             if (ct  !== '') body.connector_type = ct;

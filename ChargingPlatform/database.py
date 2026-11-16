@@ -337,6 +337,14 @@ class Charger(Base):
 
     # Physical / location info (set via admin API or directly in DB)
     location = Column(String(500), nullable=True)        # Human-readable address
+    # OCPI models an address in parts, and we only ever had the street line.
+    # City and postcode came from OCPI_LOCATION_CITY / OCPI_LOCATION_POSTAL,
+    # one value for the whole platform, so every published charger claimed to
+    # be in Kuala Lumpur 50000 however far from it the coordinates pointed.
+    # NULL falls back to those settings, which is what every charger did
+    # before these columns existed.
+    city = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
@@ -1329,7 +1337,7 @@ def _stamp_session_prices(mapper, connection, target):
 _PARTNER_VISIBLE_CHARGER_FIELDS = frozenset({
     "charge_point_id", "connector_status", "availability", "status",
     "number_of_connectors", "connector_type", "max_power_kw",
-    "location", "latitude", "longitude",
+    "location", "city", "postal_code", "latitude", "longitude",
     "tariff_per_kwh", "idle_fee_enabled", "idle_fee_per_min",
     "idle_grace_minutes", "is_public", "tenant",
 })

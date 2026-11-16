@@ -774,12 +774,26 @@ def _location_fields(charger) -> tuple:
     middle of Kuala Lumpur while its row said Seksyen 15, Shah Alam. A driver
     navigating from a partner app was sent 25km to the wrong place.
 
+    City and postcode were the last parts still coming from the environment,
+    which is one value for the whole platform. DC3001 sits in Shah Alam with
+    correct coordinates and was published as Kuala Lumpur 50000, so the text
+    contradicted the pin. They are per charger now, editable beside the
+    address in the dashboard.
+
     The environment values stay as the fallback for a charger nobody has
     filled in yet.
     """
     address = (getattr(charger, "location", None) or "").strip()
     if not address:
         address = os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station")
+
+    city = (getattr(charger, "city", None) or "").strip()
+    if not city:
+        city = os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur")
+
+    postal = (getattr(charger, "postal_code", None) or "").strip()
+    if not postal:
+        postal = os.getenv("OCPI_LOCATION_POSTAL", "50000")
 
     lat = getattr(charger, "latitude", None)
     lon = getattr(charger, "longitude", None)
@@ -791,8 +805,8 @@ def _location_fields(charger) -> tuple:
 
     return (
         address,
-        os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        os.getenv("OCPI_LOCATION_POSTAL", "50000"),
+        city,
+        postal,
         {"latitude": _coord(lat), "longitude": _coord(lon)},
     )
 

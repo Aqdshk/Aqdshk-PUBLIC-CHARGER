@@ -1518,6 +1518,12 @@ async def delete_tenant(
 
 class UpdateChargerInfoRequest(BaseModel):
     location: Optional[str] = None
+    # OCPI publishes an address in parts. These two used to come from a single
+    # platform-wide setting, so every charger was labelled Kuala Lumpur 50000
+    # whatever its street line and coordinates said. Empty string clears them
+    # back to that setting; None leaves them alone.
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
@@ -1544,6 +1550,10 @@ async def update_charger_info(
         raise HTTPException(status_code=404, detail="Charger not found")
     if req.location is not None:
         charger.location = req.location
+    if req.city is not None:
+        charger.city = req.city.strip() or None
+    if req.postal_code is not None:
+        charger.postal_code = req.postal_code.strip() or None
     if req.latitude is not None:
         charger.latitude = req.latitude
     if req.longitude is not None:
@@ -1573,6 +1583,8 @@ async def update_charger_info(
         "success": True,
         "charge_point_id": charge_point_id,
         "location": charger.location,
+        "city": charger.city,
+        "postal_code": charger.postal_code,
         "latitude": charger.latitude,
         "longitude": charger.longitude,
         "connector_type": eff_connector,
@@ -2893,6 +2905,11 @@ async def partner_list_chargers(
                 "charger_id": c.charge_point_id,
                 "name": c.name,
                 "location": c.location,
+                # The Edit charger dialog populates from this list, so the
+                # address parts have to travel with it or the two new boxes
+                # would open empty however often they are saved.
+                "city": c.city,
+                "postal_code": c.postal_code,
                 "latitude": c.latitude,
                 "longitude": c.longitude,
                 "connector_type": c.connector_type,

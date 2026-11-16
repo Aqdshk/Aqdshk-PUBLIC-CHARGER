@@ -2314,3 +2314,113 @@ class StateOfChargeTests(unittest.TestCase):
         self.assertEqual(
             _build_session_dict(self.sess, rows.get(key, []))["charging_periods"],
             self._session()["charging_periods"])
+
+
+class ChargerAddressTests(unittest.TestCase):
+    """A charger's city and postcode belong to the charger.
+
+    OCPI publishes an address in parts. The street line came from the charger
+    row, but city and postal_code came from OCPI_LOCATION_CITY and
+    OCPI_LOCATION_POSTAL, one value for the whole platform, never changed from
+    their defaults. DC3001 sits in Shah Alam with correct coordinates and was
+    published as Kuala Lumpur 50000, so the text contradicted the pin while
+    Perodua were being shown the charger.
+    """
+
+    CP = "ADDRTEST1"
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        cls.db = SessionLocal()
+        cls.charger = Charger(charge_point_id=cls.CP, tariff_per_kwh=1.40,
+                              location="2, Jalan Gergaji 15/14, Seksyen 15",
+                              city="Shah Alam", postal_code="40200",
+                              latitude=3.06566, longitude=101.533168)
+        cls.db.add(cls.charger)
+        cls.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(Charger).filter(Charger.id == cls.charger.id).delete()
+        cls.db.commit()
+        cls.db.close()
+
+    def _fields(self):
+        from ocpi.router import _location_fields
+        return _location_fields(self.charger)
+
+    def test_the_city_comes_from_the_charger(self):
+        self.assertEqual(self._fields()[1], "Shah Alam")
+
+    def test_the_postcode_comes_from_the_charger(self):
+        self.assertEqual(self._fields()[2], "40200")
+
+    def test_the_street_line_is_unchanged(self):
+        self.assertEqual(self._fields()[0], "2, Jalan Gergaji 15/14, Seksyen 15")
+
+    def test_the_pin_and_the_text_agree(self):
+        """The defect in one assertion: a Shah Alam pin said Kuala Lumpur."""
+        address, city, postal, coords = self._fields()
+        self.assertEqual(coords["latitude"], "3.065660")
+        self.assertNotEqual(city, "Kuala Lumpur")
+
+    def test_a_charger_with_no_city_falls_back_to_the_setting(self):
+        """NULL keeps exactly the behaviour every charger had before."""
+        import os
+
+        from ocpi.router import _location_fields
+        blank = Charger(charge_point_id="ADDRTEST2", tariff_per_kwh=1.40,
+                        location="Somewhere", latitude=3.0, longitude=101.0)
+        self.db.add(blank)
+        self.db.commit()
+        try:
+            real = os.environ.get("OCPI_LOCATION_CITY")
+            os.environ["OCPI_LOCATION_CITY"] = "Kuala Lumpur"
+            try:
+                self.assertEqual(_location_fields(blank)[1], "Kuala Lumpur")
+            finally:
+                os.environ.pop("OCPI_LOCATION_CITY", None)
+                if real is not None:
+                    os.environ["OCPI_LOCATION_CITY"] = real
+        finally:
+            self.db.query(Charger).filter(Charger.id == blank.id).delete()
+            self.db.commit()
+
+    def test_whitespace_is_not_a_city(self):
+        """A box someone spacebarred is empty, not a place called ' '."""
+        import os
+
+        from ocpi.router import _location_fields
+        self.charger.city = "   "
+        try:
+            real = os.environ.get("OCPI_LOCATION_CITY")
+            os.environ["OCPI_LOCATION_CITY"] = "Fallback City"
+            try:
+                self.assertEqual(_location_fields(self.charger)[1], "Fallback City")
+            finally:
+                os.environ.pop("OCPI_LOCATION_CITY", None)
+                if real is not None:
+                    os.environ["OCPI_LOCATION_CITY"] = real
+        finally:
+            self.charger.city = "Shah Alam"
+
+    def test_the_published_location_carries_them(self):
+        """End to end, not just the helper."""
+        from ocpi.router import _build_location_dict
+        loc = _build_location_dict(self.charger)
+        self.assertEqual(loc["city"], "Shah Alam")
+        self.assertEqual(loc["postal_code"], "40200")
+        self.assertEqual(loc["address"], "2, Jalan Gergaji 15/14, Seksyen 15")
+
+    def test_a_cdr_location_carries_them_too(self):
+        """A CDR embeds its own copy of the location and must not disagree."""
+        from ocpi.router import _location_fields
+        address, city, postal, _ = _location_fields(self.charger)
+        self.assertEqual((city, postal), ("Shah Alam", "40200"))
+
+    def test_changing_the_city_is_visible_to_a_partner(self):
+        """It is in the partner-visible set, so polling on last_updated sees it."""
+        from database import _PARTNER_VISIBLE_CHARGER_FIELDS
+        self.assertIn("city", _PARTNER_VISIBLE_CHARGER_FIELDS)
+        self.assertIn("postal_code", _PARTNER_VISIBLE_CHARGER_FIELDS)
