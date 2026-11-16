@@ -136,6 +136,11 @@ services:
       - OCPI_LOCATION_POSTAL=${OCPI_LOCATION_POSTAL:-50000}
       - OCPI_LOCATION_LAT=${OCPI_LOCATION_LAT:-3.1390}
       - OCPI_LOCATION_LON=${OCPI_LOCATION_LON:-101.6869}
+      # Published on every connector, so a roaming partner can show a driver
+      # the terms they are charging under. Left unset until 2026-11-16, when
+      # the last blanks came out of the page: advertising a half-written legal
+      # document to a partner is worse than advertising none.
+      - OCPI_TERMS_URL=${OCPI_TERMS_URL:-https://charger.czeros.tech/terms}
     volumes:
       - ./ChargingPlatform/static/firmware:/app/static/firmware
     networks:

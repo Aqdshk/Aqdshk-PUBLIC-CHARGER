@@ -222,12 +222,13 @@ _CONNECTOR_STANDARDS = {
 
 
 def _terms_url() -> Optional[str]:
-    """Where our terms and conditions live, or None until one is published.
+    """Where our terms and conditions live, or None if none is published.
 
-    Opt-in on purpose. The page exists but still has blanks for the company
-    details and the liability cap, and advertising a half-written legal
-    document to a roaming partner is worse than advertising none. Set
-    OCPI_TERMS_URL once it is signed off.
+    Opt-in on purpose, and unset until 2026-11-16 because the page still had
+    blanks in it: advertising a half-written legal document to a roaming
+    partner is worse than advertising none. The blanks are gone, so
+    docker-compose.prod.yml now points this at /terms and every connector
+    carries the link.
     """
     return os.getenv("OCPI_TERMS_URL", "").strip() or None
 
