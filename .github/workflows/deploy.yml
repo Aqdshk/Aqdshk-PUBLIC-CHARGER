@@ -135,6 +135,13 @@ jobs:
               -o StrictHostKeyChecking=no -o BatchMode=yes \
               "${VPS_USER}@${VPS_HOST}" \
               "REF='${REF}' REBUILD_APPEV='${REBUILD_APPEV}' RUN_MIGRATIONS='${RUN_MIGRATIONS}' bash -s" <<'REMOTE_SCRIPT'
+            # The script arrives on stdin. The braces make bash read all of it
+            # before running any of it. On 2026-09-28 `compose run` (the
+            # migration) read the rest of stdin itself: the restart, image
+            # check and health check never ran, bash reached the end of what
+            # was left and exited 0, and the deploy went green while the old
+            # container kept serving. Same failure as HICOM on 2026-09-25.
+            {
             set -euo pipefail
 
             # The deploy user is `plagsini`; root SSH was disabled on
@@ -163,17 +170,36 @@ jobs:
             # caused the 2026-08-28 outage. Build the image instead.
             echo "=== Build charging-platform ==="
             ${COMPOSE} build charging-platform
+            BUILT_IMAGE=$(sudo docker image inspect plagsini-ev-charging-platform:latest --format '{{.Id}}')
+            echo "Built image: ${BUILT_IMAGE}"
 
             if [ "${RUN_MIGRATIONS}" = "true" ]; then
               # Against the new image, before the running container is swapped,
               # so the app never starts against a schema it does not expect.
               echo "=== Alembic upgrade head ==="
-              ${COMPOSE} run --rm --no-deps charging-platform alembic upgrade head
+              # -T and </dev/null: never let this read the script's stdin.
+              ${COMPOSE} run --rm --no-deps -T charging-platform alembic upgrade head < /dev/null
             fi
 
             echo "=== Restart charging-platform ==="
             # --no-deps so a deploy never restarts MySQL underneath the API.
-            ${COMPOSE} up -d --no-deps charging-platform
+            #
+            # --force-recreate because plain `up -d` left the container on the
+            # previous image on 2026-09-07: a new image was built and the
+            # migration ran against it, but the running container was never
+            # replaced, so the deploy reported success while serving old code.
+            ${COMPOSE} up -d --no-deps --force-recreate charging-platform
+
+            # Refuse to call a deploy successful unless the container is
+            # actually running the image we just built. This is the failure
+            # mode that hid twice: once behind docker cp, once behind up -d.
+            RUNNING_IMAGE=$(sudo docker inspect plagsini-api --format '{{.Image}}')
+            if [ "${RUNNING_IMAGE}" != "${BUILT_IMAGE}" ]; then
+              echo "Container is on ${RUNNING_IMAGE} but ${BUILT_IMAGE} was built."
+              echo "The deploy did not take effect."
+              exit 1
+            fi
+            echo "Container confirmed on the freshly built image."
 
             echo "=== AppEV rebuild (if requested) ==="
             if [ "${REBUILD_APPEV}" = "true" ]; then
@@ -195,6 +221,7 @@ jobs:
             echo "Health check FAILED after 30s — recent api logs:"
             sudo docker logs --tail 30 plagsini-api 2>&1
             exit 1
+            }
           REMOTE_SCRIPT
 
       - name: Notify Telegram — deploy success
