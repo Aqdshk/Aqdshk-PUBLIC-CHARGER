@@ -695,8 +695,14 @@ class ChargerStatus(BaseModel):
     firmware_version: Optional[str]
     # OCPP version negotiated at the last handshake — "1.6" or "2.0.1".
     ocpp_version: Optional[str] = None
-    # OCPI publication override: True always, False never, None automatic.
+    # OCPI publication: True publishes, False and None do not.
     is_public: Optional[bool] = None
+    # Whether a roaming partner actually sees this charger, which is the flag
+    # above AND a tenant we publish from. Declared here because the route
+    # carries response_model=List[ChargerStatus], and FastAPI drops any key
+    # the model does not name: the handler returned this field and the
+    # browser never received it, so every card read it as hidden.
+    roaming_published: Optional[bool] = None
     # How the charger authenticated on its last handshake, and whether it
     # would survive enforcement being switched on.
     auth_method: Optional[str] = None

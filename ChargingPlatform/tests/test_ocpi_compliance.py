@@ -2605,3 +2605,65 @@ class PublishesHelperTests(unittest.TestCase):
     def test_a_flagged_charger_in_a_withheld_tenant_is_not_published(self):
         from ocpi.router import publishes
         self.assertFalse(publishes(self._add("FLAGGEDPER", "perodua", True)))
+
+
+class ChargersPayloadTests(unittest.TestCase):
+    """The dashboard has to receive what the handler computed.
+
+    `publishes` was right, the handler put `roaming_published` in the dict,
+    and the browser still showed every charger as hidden. The route carries
+    response_model=List[ChargerStatus] and FastAPI drops any key the model
+    does not declare, so the field never left the server. A unit test on the
+    predicate cannot see that; this asks the endpoint.
+    """
+
+    CP = "PAYLOADTEST1"
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+        cls.charger = Charger(charge_point_id=cls.CP, tenant="czero-tng",
+                              is_public=True, tariff_per_kwh=1.40,
+                              status="offline", availability="available")
+        cls.db.add(cls.charger)
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(Charger).filter(Charger.id == cls.charger.id).delete()
+        cls.db.commit()
+        cls.db.close()
+        api.invalidate_chargers_cache()
+
+    def _row(self):
+        r = self.client.get("/api/chargers")
+        self.assertEqual(r.status_code, 200, r.text)
+        for c in r.json():
+            if c.get("charge_point_id") == self.CP:
+                return c
+        self.fail("%s missing from /api/chargers" % self.CP)
+
+    def test_the_field_survives_the_response_model(self):
+        self.assertIn("roaming_published", self._row())
+
+    def test_a_published_charger_says_so(self):
+        self.assertIs(self._row()["roaming_published"], True)
+
+    def test_it_matches_the_predicate(self):
+        from ocpi.router import publishes
+        self.assertEqual(self._row()["roaming_published"], publishes(self.charger))
+
+    def test_a_withheld_tenant_is_reported_as_not_published(self):
+        self.charger.tenant = "perodua"
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        try:
+            self.assertIs(self._row()["roaming_published"], False)
+            self.assertIs(self._row()["is_public"], True)
+        finally:
+            self.charger.tenant = "czero-tng"
+            self.db.commit()
+            api.invalidate_chargers_cache()
