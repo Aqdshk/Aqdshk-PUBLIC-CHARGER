@@ -1358,20 +1358,26 @@
             alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
         }
 
-        // Roaming (OCPI) visibility. Three states rather than a toggle, so a
-        // prompt: on / off are operator overrides, auto defers to heartbeat age.
+        // Roaming (OCPI) visibility. The column is tri-state, so a prompt
+        // rather than a toggle. Only `on` publishes. This text used to say
+        // `auto` published a charger while its heartbeat was recent, which
+        // was true until publication became opt-in: a charger left on auto
+        // has not been published since, and an operator reading the old text
+        // would have believed the opposite.
         async function setPublish(cpId) {
             const cur = (_allChargers.find(c => c.charge_point_id === cpId) || {}).is_public;
-            const now = cur === true ? 'always published'
+            const now = cur === true ? 'published to roaming partners'
                       : cur === false ? 'hidden'
-                      : 'automatic (published while the heartbeat is recent)';
+                      : 'not set, which means hidden';
             const ans = prompt(
                 `Roaming visibility for ${cpId}\n\n` +
                 `Currently: ${now}\n\n` +
+                `Only "on" publishes. A charger must also sit in a tenant\n` +
+                `we publish from, which today is czero-tng or mini.\n\n` +
                 `Type one of:\n` +
-                `  auto  — publish only while seen in the last 7 days (default)\n` +
-                `  on    — always publish, even while offline\n` +
-                `  off   — never publish to roaming partners`,
+                `  on    — publish, and keep publishing while it is offline\n` +
+                `  off   — never publish to roaming partners\n` +
+                `  auto  — clear the setting; an unset charger is not published`,
                 cur === true ? 'on' : cur === false ? 'off' : 'auto');
             if (ans === null) return;
             const key = ans.trim().toLowerCase();
