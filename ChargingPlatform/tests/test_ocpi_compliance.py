@@ -2424,3 +2424,71 @@ class ChargerAddressTests(unittest.TestCase):
         from database import _PARTNER_VISIBLE_CHARGER_FIELDS
         self.assertIn("city", _PARTNER_VISIBLE_CHARGER_FIELDS)
         self.assertIn("postal_code", _PARTNER_VISIBLE_CHARGER_FIELDS)
+
+
+class NewChargerIsHiddenTests(unittest.TestCase):
+    """A charger that registers itself must not reach a roaming partner.
+
+    Chargers are created from a BootNotification on both OCPP stacks, by the
+    edge sync and from the dashboard. Publication has been opt-in since the
+    Proton home chargers leaked, so a new row was already hidden while its
+    flag was NULL; this pins it to an explicit False so the state is a
+    decision rather than an absence, and so a future call site cannot quietly
+    opt a charger in by setting the column itself.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.made = []
+
+    def tearDown(self):
+        for c in self.made:
+            self.db.query(Charger).filter(Charger.id == c.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _add(self, **kw):
+        c = Charger(tariff_per_kwh=1.40, **kw)
+        self.db.add(c)
+        self.db.commit()
+        self.made.append(c)
+        return c
+
+    def test_a_new_charger_is_hidden(self):
+        c = self._add(charge_point_id="NEWBOOT1")
+        self.assertIs(c.is_public, False)
+
+    def test_it_is_false_not_merely_null(self):
+        """NULL hides it too, but says nobody decided."""
+        c = self._add(charge_point_id="NEWBOOT2")
+        self.assertIsNotNone(c.is_public)
+
+    def test_publishing_one_on_purpose_still_works(self):
+        c = self._add(charge_point_id="NEWBOOT3", is_public=True)
+        self.assertIs(c.is_public, True)
+
+    def test_an_explicit_false_is_left_alone(self):
+        c = self._add(charge_point_id="NEWBOOT4", is_public=False)
+        self.assertIs(c.is_public, False)
+
+    def test_a_new_charger_is_not_served_to_a_partner(self):
+        """The point of the whole thing, asserted through the real filter."""
+        from ocpi.router import _publishable
+        self._add(charge_point_id="NEWBOOT5", tenant="czero-tng")
+        served = {
+            c.charge_point_id
+            for c in _publishable(self.db.query(Charger)).all()
+        }
+        self.assertNotIn("NEWBOOT5", served)
+
+    def test_the_same_charger_appears_once_published(self):
+        from ocpi.router import _publishable
+        c = self._add(charge_point_id="NEWBOOT6", tenant="czero-tng")
+        c.is_public = True
+        self.db.commit()
+        served = {
+            x.charge_point_id
+            for x in _publishable(self.db.query(Charger)).all()
+        }
+        self.assertIn("NEWBOOT6", served)

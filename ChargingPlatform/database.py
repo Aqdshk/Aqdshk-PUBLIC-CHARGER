@@ -377,12 +377,17 @@ class Charger(Base):
     last_remote_ip = Column(String(64), nullable=True)
 
     # Whether this charger is published over OCPI to roaming partners.
-    #   None  → decide automatically from heartbeat age (the default)
-    #   True  → always publish, even while offline
+    #   True  → publish to roaming partners, including while offline
     #   False → never publish
-    # The automatic default exists because the table accumulates chargers that
-    # connected once and were never seen again; publishing those sends roaming
-    # users to charge points that are not there.
+    #   None  → never set; treated as False
+    # None used to mean "decide from heartbeat age", which published any
+    # charger that had checked in recently. That is how three Proton home
+    # chargers reached Voltality. Publication is opt-in now: see _publishable
+    # in ocpi/router.py, which requires True outright.
+    #
+    # A charger created from a BootNotification therefore starts hidden, and
+    # since 2026-11-18 it starts explicitly False rather than None, so the
+    # dashboard shows a deliberate "hidden" instead of an ambiguous blank.
     is_public = Column(Boolean, nullable=True)
 
     # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
@@ -1351,6 +1356,24 @@ _PARTNER_VISIBLE_CHARGER_FIELDS = frozenset({
 @event.listens_for(Charger, "before_insert")
 def _stamp_charger_created(mapper, connection, target):
     target.last_updated = _utcnow()
+
+
+@event.listens_for(Charger, "before_insert")
+def _new_charger_starts_hidden(mapper, connection, target):
+    """A charger nobody has decided about is not advertised to a partner.
+
+    Chargers are created from a BootNotification on both OCPP stacks, by the
+    edge sync, and from the dashboard, so the guarantee belongs here rather
+    than at five call sites that each have to remember it. A sixth will be
+    added one day and this still holds.
+
+    Leaving the column NULL would be equally hidden, since _publishable
+    requires True outright. Writing False says it on purpose: the operator
+    sees "hidden" rather than a blank, and nobody has to know what a NULL
+    means in order to trust it.
+    """
+    if target.is_public is None:
+        target.is_public = False
 
 
 @event.listens_for(Charger, "before_update")
