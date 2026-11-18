@@ -754,18 +754,21 @@
                     // its own socket state — the charger-level availability is
                     // the best socket, which would light up the wrong button on
                     // a unit where one gun is free and the other is charging.
-                    // Whether roaming partners currently see this charger. Mirrors
-                    // the server rule in ocpi/router.py: explicit override wins,
-                    // otherwise it comes down to how stale the heartbeat is.
+                    // Whether roaming partners see this charger. The server
+                    // answers it with the same predicate the OCPI endpoints
+                    // use, because this block used to work it out here and
+                    // still had the rule retired in October: a charger with a
+                    // recent heartbeat and no flag was reported as "Published
+                    // (auto)" while being withheld.
                     const roam = (() => {
-                        if (charger.is_public === true)  return {label:'✓ Always published', hint:'Forced on — published even while offline'};
-                        if (charger.is_public === false) return {label:'✗ Hidden',           hint:'Forced off — never published to roaming partners'};
-                        const hbAge = charger.last_heartbeat
-                            ? (Date.now() - new Date(charger.last_heartbeat).getTime()) / 86400000
-                            : Infinity;
-                        return hbAge <= 7
-                            ? {label:'✓ Published (auto)', hint:'Seen within 7 days, so published automatically'}
-                            : {label:'— Not published',    hint:'No heartbeat in over 7 days, so withheld from roaming partners'};
+                        if (charger.roaming_published) {
+                            return {label:'✓ Published', hint:'Roaming partners see this charger, including while it is offline'};
+                        }
+                        if (charger.is_public === true) {
+                            return {label:'✗ Hidden',
+                                    hint:`Set to publish, but the ${charger.tenant || 'unassigned'} tenant is never published to roaming partners`};
+                        }
+                        return {label:'✗ Hidden', hint:'Not published to roaming partners'};
                     })();
                     // Auth readiness. Enforcement is off fleet-wide, so this
                     // answers "would this charger survive us turning it on"
@@ -1358,31 +1361,30 @@
             alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
         }
 
-        // Roaming (OCPI) visibility. The column is tri-state, so a prompt
-        // rather than a toggle. Only `on` publishes. This text used to say
-        // `auto` published a charger while its heartbeat was recent, which
-        // was true until publication became opt-in: a charger left on auto
-        // has not been published since, and an operator reading the old text
-        // would have believed the opposite.
+        // Roaming (OCPI) visibility: on or off, nothing else.
+        //
+        // There used to be a third choice, `auto`, which wrote NULL and once
+        // meant "publish while the heartbeat is recent". That rule is what
+        // put three Proton home chargers on Voltality's map, and publication
+        // has been opt-in ever since, so `auto` had become an alias for off
+        // that read like an alias for on. The API still accepts null, and
+        // chargers that predate this still carry it; they are hidden, which
+        // is what the prompt now reports.
         async function setPublish(cpId) {
             const cur = (_allChargers.find(c => c.charge_point_id === cpId) || {}).is_public;
-            const now = cur === true ? 'published to roaming partners'
-                      : cur === false ? 'hidden'
-                      : 'not set, which means hidden';
+            const now = cur === true ? 'published to roaming partners' : 'hidden';
             const ans = prompt(
                 `Roaming visibility for ${cpId}\n\n` +
                 `Currently: ${now}\n\n` +
-                `Only "on" publishes. A charger must also sit in the\n` +
-                `CZero TNG Public tenant.\n\n` +
+                `A charger must also sit in the CZero TNG Public tenant.\n\n` +
                 `Type one of:\n` +
-                `  on    — publish, and keep publishing while it is offline\n` +
-                `  off   — never publish to roaming partners\n` +
-                `  auto  — clear the setting; an unset charger is not published`,
-                cur === true ? 'on' : cur === false ? 'off' : 'auto');
+                `  on   — publish, and keep publishing while it is offline\n` +
+                `  off  — never publish to roaming partners`,
+                cur === true ? 'on' : 'off');
             if (ans === null) return;
             const key = ans.trim().toLowerCase();
-            const map = { auto: null, on: true, off: false };
-            if (!(key in map)) { alert('Type auto, on or off.'); return; }
+            const map = { on: true, off: false };
+            if (!(key in map)) { alert('Type on or off.'); return; }
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { alert('Please log in again.'); return; }
             try {

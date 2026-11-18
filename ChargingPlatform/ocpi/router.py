@@ -450,6 +450,19 @@ def _publishable(query, cutoff: Optional[datetime] = None):
     )
 
 
+def publishes(charger) -> bool:
+    """Whether a roaming partner can see this charger, for one instance.
+
+    The same rule as _publishable, which answers it for a query. The
+    dashboard used to decide this for itself in JavaScript and still had the
+    pre-2026-10 rule, so a charger with a recent heartbeat and no flag was
+    shown as "Published (auto)" when it had not been published for weeks.
+    A rule worth getting right is worth having in one place.
+    """
+    return bool(getattr(charger, "is_public", None) is True
+                and getattr(charger, "tenant", None) in _PUBLISHABLE_TENANTS)
+
+
 def _get_base_url(request: Request) -> str:
     """Build base URL for OCPI endpoints."""
     base = os.getenv("OCPI_BASE_URL", "").strip()

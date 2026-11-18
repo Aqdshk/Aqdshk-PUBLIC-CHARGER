@@ -612,6 +612,10 @@ app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="sta
 
 # OCPI 2.2.1 - CPO interface for roaming (TNG integration)
 from ocpi import router as ocpi_router, aion_router
+# From the module, not the package: `ocpi.router` the name bound in
+# ocpi/__init__ is the APIRouter object, so ocpi_router.publishes would be an
+# attribute error at request time rather than import time.
+from ocpi.router import publishes as _ocpi_publishes
 app.include_router(ocpi_router)
 app.include_router(aion_router)
 
@@ -1213,6 +1217,12 @@ async def get_chargers(
             "max_power_kw": eff_power,
             "ocpp_version": charger.ocpp_version,
             "is_public": charger.is_public,
+            # Whether a roaming partner actually sees it, answered by the same
+            # predicate the OCPI endpoints use. The dashboard worked this out
+            # for itself and still had the rule we retired in October, so a
+            # charger with a recent heartbeat and no flag was labelled
+            # "Published (auto)" while being withheld.
+            "roaming_published": _ocpi_publishes(charger),
             "auth_method": charger.auth_method,
             "auth_ok": charger.auth_ok,
             "price_per_kwh": price_per_kwh,

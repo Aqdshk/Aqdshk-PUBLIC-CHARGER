@@ -2546,3 +2546,62 @@ class PublishableTenantTests(unittest.TestCase):
     def test_the_list_is_exactly_one_tenant(self):
         from ocpi.router import _PUBLISHABLE_TENANTS
         self.assertEqual(_PUBLISHABLE_TENANTS, {"czero-tng"})
+
+
+class PublishesHelperTests(unittest.TestCase):
+    """One rule, two callers: the OCPI query and the dashboard card.
+
+    The card used to decide this in JavaScript and still carried the rule
+    retired in October, so a charger with a recent heartbeat and no flag was
+    shown as "Published (auto)" while the OCPI endpoints withheld it. The
+    server now answers, and these pin the helper to the query it mirrors.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.made = []
+
+    def tearDown(self):
+        for c in self.made:
+            self.db.query(Charger).filter(Charger.id == c.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _add(self, cp, tenant, flag):
+        c = Charger(charge_point_id=cp, tenant=tenant, is_public=flag,
+                    tariff_per_kwh=1.40,
+                    last_heartbeat=datetime.utcnow())
+        self.db.add(c)
+        self.db.commit()
+        self.made.append(c)
+        return c
+
+    def test_it_agrees_with_the_query_on_every_case(self):
+        from ocpi.router import _publishable, publishes
+        cases = [
+            ("AGREE1", "czero-tng", True),
+            ("AGREE2", "czero-tng", False),
+            ("AGREE3", "czero-tng", None),
+            ("AGREE4", "perodua", True),
+            ("AGREE5", "mini", True),
+            ("AGREE6", None, True),
+        ]
+        for cp, tenant, flag in cases:
+            self._add(cp, tenant, flag)
+        served = {c.charge_point_id for c in _publishable(self.db.query(Charger)).all()}
+        for cp, _, _ in cases:
+            c = next(x for x in self.made if x.charge_point_id == cp)
+            with self.subTest(cp):
+                self.assertEqual(publishes(c), cp in served)
+
+    def test_a_recent_heartbeat_does_not_publish_on_its_own(self):
+        """The exact belief the dashboard used to report."""
+        from ocpi.router import publishes
+        c = self._add("FRESHBUTOFF", "czero-tng", None)
+        self.assertIsNotNone(c.last_heartbeat)
+        self.assertFalse(publishes(c))
+
+    def test_a_flagged_charger_in_a_withheld_tenant_is_not_published(self):
+        from ocpi.router import publishes
+        self.assertFalse(publishes(self._add("FLAGGEDPER", "perodua", True)))
