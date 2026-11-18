@@ -2492,3 +2492,57 @@ class NewChargerIsHiddenTests(unittest.TestCase):
             for x in _publishable(self.db.query(Charger)).all()
         }
         self.assertIn("NEWBOOT6", served)
+
+
+class PublishableTenantTests(unittest.TestCase):
+    """Only the CZero TNG tenant reaches a roaming partner.
+
+    `mini` sat in this list until 2026-11-18 and published nothing, because
+    its one charger is not flagged. Aqid asked for czero-tng alone: a list
+    that admits a tenant nobody intends to publish is a door left open.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        self.made = []
+
+    def tearDown(self):
+        for c in self.made:
+            self.db.query(Charger).filter(Charger.id == c.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _add(self, cp, tenant):
+        c = Charger(charge_point_id=cp, tenant=tenant, tariff_per_kwh=1.40,
+                    is_public=True)
+        self.db.add(c)
+        self.db.commit()
+        self.made.append(c)
+        return c
+
+    def _served(self):
+        from ocpi.router import _publishable
+        return {c.charge_point_id for c in _publishable(self.db.query(Charger)).all()}
+
+    def test_czero_tng_publishes(self):
+        self._add("TENANTOK1", "czero-tng")
+        self.assertIn("TENANTOK1", self._served())
+
+    def test_mini_no_longer_publishes(self):
+        """Flagged on, and still withheld, because the tenant is not ours."""
+        self._add("TENANTMINI", "mini")
+        self.assertNotIn("TENANTMINI", self._served())
+
+    def test_a_fleet_tenant_is_withheld_even_when_flagged(self):
+        for cp, tenant in (("TENANTPER", "perodua"),
+                           ("TENANTPRO", "proton"),
+                           ("TENANTHIC", "hicom")):
+            self._add(cp, tenant)
+        served = self._served()
+        for cp in ("TENANTPER", "TENANTPRO", "TENANTHIC"):
+            self.assertNotIn(cp, served, cp)
+
+    def test_the_list_is_exactly_one_tenant(self):
+        from ocpi.router import _PUBLISHABLE_TENANTS
+        self.assertEqual(_PUBLISHABLE_TENANTS, {"czero-tng"})

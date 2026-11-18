@@ -48,9 +48,16 @@ _PUBLISH_MAX_AGE_DAYS = int(os.getenv("OCPI_PUBLISH_MAX_AGE_DAYS", "7"))
 # to advertise. On 2026-10-07 three Proton home chargers were being published
 # to Voltality as public charge points, and 471 Perodua units were one
 # heartbeat away from joining them.
+#
+# `mini` was in this list until 2026-11-18 and published nothing: its one
+# charger is not flagged. Aqid asked for czero-tng alone, which is what the
+# dashboard already implied, and a list that admits a tenant nobody means to
+# publish is a door left open rather than a feature. The Mini PWA is
+# unaffected; this set is read only by _publishable, which only the OCPI
+# endpoints call.
 _PUBLISHABLE_TENANTS = {
     t.strip()
-    for t in os.getenv("OCPI_PUBLISHABLE_TENANTS", "czero-tng,mini").split(",")
+    for t in os.getenv("OCPI_PUBLISHABLE_TENANTS", "czero-tng").split(",")
     if t.strip()
 }
 
