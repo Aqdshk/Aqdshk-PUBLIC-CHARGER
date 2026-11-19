@@ -8807,6 +8807,108 @@ async def analytics_page():
     return FileResponse(file_path, media_type="text/html")
 
 
+def _session_revenue_sql():
+    """What a session earned, as SQL: energy at its own rate, plus idle.
+
+    `tariff_per_kwh_at_start` is the rate frozen onto the session when it
+    began; it is NULL for anything before 2026-11-12, which falls back to the
+    charger's rate today. Callers must join Charger for that fallback to
+    resolve.
+    """
+    return (
+        func.coalesce(ChargingSession.energy_consumed, 0)
+        * func.coalesce(ChargingSession.tariff_per_kwh_at_start,
+                        Charger.tariff_per_kwh, 0)
+        + func.coalesce(ChargingSession.idle_fee_amount, 0)
+    )
+
+
+def _tenant_breakdown(db: Session, month_ago: datetime) -> List[dict]:
+    """The same figures as the overview, split by fleet.
+
+    Four grouped queries rather than a pass per tenant, and deliberately not
+    the per-charger loop this endpoint already does, which costs three
+    queries for each of 503 chargers.
+
+    Only what genuinely belongs to a fleet is split. Wallet top-ups and user
+    counts are platform-wide: a customer does not belong to a tenant, so
+    apportioning their balance across fleets would be an invention.
+    """
+    chargers = {
+        row[0]: row
+        for row in db.query(
+            Charger.tenant,
+            func.count(Charger.id),
+            func.coalesce(func.sum(case((Charger.status == "online", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Charger.availability == "faulted", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Charger.is_public.is_(True), 1), else_=0)), 0),
+        ).group_by(Charger.tenant).all()
+    }
+
+    sessions = {
+        row[0]: row
+        for row in db.query(
+            Charger.tenant,
+            func.count(ChargingSession.id),
+            func.coalesce(func.sum(ChargingSession.energy_consumed), 0),
+            func.coalesce(func.sum(_session_revenue_sql()), 0),
+            func.coalesce(func.sum(case((ChargingSession.start_time >= month_ago, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((ChargingSession.start_time >= month_ago,
+                                         ChargingSession.energy_consumed), else_=0)), 0),
+            func.coalesce(func.sum(ChargingSession.idle_fee_amount), 0),
+        )
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .group_by(Charger.tenant).all()
+    }
+
+    faults = dict(
+        db.query(Charger.tenant, func.count(Fault.id))
+        .join(Charger, Charger.id == Fault.charger_id)
+        .filter(Fault.cleared == False)  # noqa: E712
+        .group_by(Charger.tenant).all()
+    )
+
+    # The registry gives a label and an order. A charger may carry a tenant
+    # key that was never registered, which is deliberate, so fall back to the
+    # key itself rather than dropping the row and losing its sessions.
+    registry = {t.key: t for t in db.query(Tenant).all()}
+
+    out = []
+    for key in set(chargers) | set(sessions):
+        c = chargers.get(key)
+        s = sessions.get(key)
+        t = registry.get(key)
+        out.append({
+            "key": key,
+            "label": (t.label if t else None) or (key or "Unassigned"),
+            "badge": t.badge if t else None,
+            "registered": t is not None,
+            "chargers": {
+                "total": int(c[1]) if c else 0,
+                "online": int(c[2]) if c else 0,
+                "faulted": int(c[3]) if c else 0,
+                "published": int(c[4]) if c else 0,
+            },
+            "sessions": {
+                "total": int(s[1]) if s else 0,
+                "this_month": int(s[4]) if s else 0,
+            },
+            "energy": {
+                "total_kwh": round(float(s[2]), 2) if s else 0.0,
+                "this_month_kwh": round(float(s[5]), 2) if s else 0.0,
+            },
+            "revenue": {
+                "total": round(float(s[3]), 2) if s else 0.0,
+                "idle": round(float(s[6]), 2) if s else 0.0,
+            },
+            "active_faults": int(faults.get(key, 0)),
+        })
+
+    order = {k: (registry[k].sort_order if k in registry else 999) for k in registry}
+    out.sort(key=lambda r: (order.get(r["key"], 999), -r["revenue"]["total"], r["label"]))
+    return out
+
+
 @app.get("/api/analytics/overview")
 async def analytics_overview(
     db: Session = Depends(get_db),
@@ -9040,10 +9142,34 @@ async def analytics_overview(
     # ── PRICING ──
     pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
     price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50
-    charging_revenue = round(total_energy * price_per_kwh, 2)
+
+    # Charging revenue used to be total_energy * price_per_kwh, and the
+    # pricing table has never had a row, so every kWh on the platform was
+    # valued at the RM0.50 fallback. DC3001 sells at RM1.40 and the Proton
+    # and Perodua fleets at RM0.10, so the figure was wrong in both
+    # directions at once, and idle fees were left out altogether. All-time it
+    # read RM1,135 against RM3,938 actually billed.
+    #
+    # _session_revenue_sql values each session at the rate it was sold at,
+    # preferring the rate frozen onto the session over the charger's rate
+    # today, so a later price change cannot rewrite history. Refunds are not
+    # deducted: there are none, and a refund belongs against the month it was
+    # issued rather than the month of the session.
+    charging_revenue = round(float(
+        db.query(func.coalesce(func.sum(_session_revenue_sql()), 0))
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .scalar() or 0
+    ), 2)
+
+    # ── PER TENANT ──
+    tenants_breakdown = _tenant_breakdown(db, month_ago)
 
     return {
         "generated_at": now.isoformat(),
+        # Per fleet, before the platform-wide figures below. Only chargers,
+        # sessions, energy, revenue and faults are split; top-ups and users
+        # have no tenant to belong to.
+        "tenants": tenants_breakdown,
         "revenue": {
             "total": round(total_revenue_all, 2),
             "this_month": round(revenue_this_month, 2),

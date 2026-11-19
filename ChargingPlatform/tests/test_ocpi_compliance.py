@@ -2667,3 +2667,109 @@ class ChargersPayloadTests(unittest.TestCase):
             self.charger.tenant = "czero-tng"
             self.db.commit()
             api.invalidate_chargers_cache()
+
+
+class TenantAnalyticsTests(unittest.TestCase):
+    """Analytics split by fleet, and the split reconciling with the total.
+
+    Charging revenue was energy times a flat RM0.50 taken from a pricing
+    table that has never had a row, so DC3001 at RM1.40 and the Proton and
+    Perodua fleets at RM0.10 were all valued the same, and idle fees were
+    left out. All-time it read RM1,135 against RM3,938 billed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        cls.db = SessionLocal()
+        cls.chargers, cls.sessions = [], []
+        start = datetime.utcnow() - timedelta(days=2)
+
+        # Two fleets at different rates, so a flat rate cannot reproduce it.
+        for cp, tenant, rate in (("TENA1", "fleet-a", 1.40), ("TENB1", "fleet-b", 0.10)):
+            c = Charger(charge_point_id=cp, tenant=tenant, tariff_per_kwh=rate,
+                        status="online", availability="available", is_public=True)
+            cls.db.add(c)
+            cls.db.commit()
+            cls.chargers.append(c)
+
+        def sess(charger, kwh, idle, frozen=None):
+            s = ChargingSession(charger_id=charger.id, transaction_id=70000 + len(cls.sessions),
+                                status="completed", start_time=start,
+                                stop_time=start + timedelta(minutes=30),
+                                energy_consumed=kwh, idle_fee_amount=idle,
+                                tariff_per_kwh_at_start=frozen)
+            cls.db.add(s)
+            cls.db.commit()
+            cls.sessions.append(s)
+
+        sess(cls.chargers[0], 10.0, 2.00)            # 10 * 1.40 + 2.00 = 16.00
+        sess(cls.chargers[0], 5.0, 0.00, 0.80)       # frozen: 5 * 0.80  =  4.00
+        sess(cls.chargers[1], 20.0, 0.00)            # 20 * 0.10         =  2.00
+
+    @classmethod
+    def tearDownClass(cls):
+        for s in cls.sessions:
+            cls.db.query(ChargingSession).filter(ChargingSession.id == s.id).delete()
+        for c in cls.chargers:
+            cls.db.query(Charger).filter(Charger.id == c.id).delete()
+        cls.db.commit()
+        cls.db.close()
+
+    def _rows(self):
+        month_ago = datetime.utcnow() - timedelta(days=30)
+        return {r["key"]: r for r in api._tenant_breakdown(self.db, month_ago)}
+
+    def test_each_fleet_is_valued_at_its_own_rate(self):
+        rows = self._rows()
+        self.assertAlmostEqual(rows["fleet-a"]["revenue"]["total"], 20.00, places=2)
+        self.assertAlmostEqual(rows["fleet-b"]["revenue"]["total"], 2.00, places=2)
+
+    def test_a_frozen_rate_beats_the_chargers_rate_today(self):
+        """The second session sold at RM0.80 while the charger says RM1.40."""
+        rows = self._rows()
+        self.assertAlmostEqual(rows["fleet-a"]["revenue"]["total"], 16.00 + 4.00, places=2)
+
+    def test_idle_is_counted_and_reported_separately(self):
+        rows = self._rows()
+        self.assertAlmostEqual(rows["fleet-a"]["revenue"]["idle"], 2.00, places=2)
+        self.assertAlmostEqual(rows["fleet-b"]["revenue"]["idle"], 0.00, places=2)
+
+    def test_a_flat_rate_would_not_reproduce_this(self):
+        """Pins the defect: 35 kWh at RM0.50 is 17.50, the old figure."""
+        rows = self._rows()
+        ours = rows["fleet-a"]["revenue"]["total"] + rows["fleet-b"]["revenue"]["total"]
+        energy = rows["fleet-a"]["energy"]["total_kwh"] + rows["fleet-b"]["energy"]["total_kwh"]
+        self.assertAlmostEqual(energy, 35.0, places=2)
+        self.assertNotAlmostEqual(ours, energy * 0.50, places=2)
+
+    def test_energy_and_session_counts_are_per_fleet(self):
+        rows = self._rows()
+        self.assertEqual(rows["fleet-a"]["sessions"]["total"], 2)
+        self.assertEqual(rows["fleet-b"]["sessions"]["total"], 1)
+        self.assertAlmostEqual(rows["fleet-a"]["energy"]["total_kwh"], 15.0, places=2)
+
+    def test_charger_counts_are_per_fleet(self):
+        rows = self._rows()
+        self.assertEqual(rows["fleet-a"]["chargers"]["total"], 1)
+        self.assertEqual(rows["fleet-a"]["chargers"]["online"], 1)
+        self.assertEqual(rows["fleet-a"]["chargers"]["published"], 1)
+
+    def test_an_unregistered_tenant_is_kept_and_flagged(self):
+        """A charger may carry a key the registry never had; losing its
+        sessions from the split would make the total stop adding up."""
+        rows = self._rows()
+        self.assertFalse(rows["fleet-a"]["registered"])
+        self.assertEqual(rows["fleet-a"]["label"], "fleet-a")
+
+    def test_the_split_adds_up_to_the_whole(self):
+        """The reconciliation the totals row shows on screen."""
+        from sqlalchemy import func as f
+        rows = list(self._rows().values())
+        split = round(sum(r["revenue"]["total"] for r in rows), 2)
+        whole = round(float(
+            self.db.query(f.coalesce(f.sum(api._session_revenue_sql()), 0))
+            .join(Charger, Charger.id == ChargingSession.charger_id)
+            .scalar() or 0
+        ), 2)
+        self.assertAlmostEqual(split, whole, places=2)

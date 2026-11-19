@@ -53,6 +53,40 @@
         .big-stat .stat-change.down { color: #ff4466; }
         .big-stat .stat-change.neutral { color: var(--text-muted); }
 
+        /* ===== Per-fleet table ===== */
+        .tenant-table {
+            width: 100%; border-collapse: collapse;
+            font-size: clamp(9px, 0.62vw, 12px);
+        }
+        .tenant-table th {
+            text-align: right; padding: clamp(5px, 0.45vw, 9px) clamp(6px, 0.5vw, 11px);
+            color: var(--text-muted); font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.6px;
+            font-size: clamp(7px, 0.46vw, 9px);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        .tenant-table td {
+            text-align: right; padding: clamp(5px, 0.45vw, 9px) clamp(6px, 0.5vw, 11px);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        .tenant-table th:first-child,
+        .tenant-table td:first-child { text-align: left; }
+        .tenant-table tbody tr:hover { background: rgba(255,255,255,.03); }
+        .tenant-table .fleet { font-weight: 700; }
+        .tenant-table .badge {
+            display: inline-block; margin-left: 6px; padding: 1px 6px;
+            border-radius: 999px; background: rgba(0,255,136,.12);
+            color: #00ff88; font-size: .85em; font-weight: 700;
+        }
+        .tenant-table .money { color: #00ff88; font-weight: 700; }
+        .tenant-table .muted { color: var(--text-muted); }
+        .tenant-table .warn  { color: #ff4466; font-weight: 700; }
+        /* The total row proves the split adds up to the figure below it. */
+        .tenant-table tfoot td {
+            border-top: 2px solid var(--border); border-bottom: none;
+            font-weight: 800;
+        }
+
         /* ===== Chart Cards — compact ===== */
         .chart-card {
             background: var(--bg-card);
@@ -211,7 +245,15 @@
 
         <div id="analyticsContent" class="dashboard-container fade-in" style="display:none;">
 
+            <!-- Per fleet first, platform totals after. Only what belongs to
+                 a fleet is split here: top-ups and users have no tenant. -->
+            <div class="section-title">🏢 By Fleet</div>
+            <div class="chart-card" style="padding:0;overflow-x:auto;">
+                <table class="tenant-table" id="tenantTable"></table>
+            </div>
+
             <!-- KPI Stats -->
+            <div class="section-title">🌐 Whole Platform</div>
             <div class="analytics-grid" id="kpiGrid"></div>
 
             <!-- Revenue & Sessions Charts -->
@@ -345,6 +387,7 @@
                 const overview = await overviewRes.json();
                 const insightsData = await insightsRes.json();
 
+                renderTenants(overview.tenants);
                 renderKPIs(overview);
                 renderCharts(overview);
                 renderFinancials(overview);
@@ -357,6 +400,55 @@
                 console.error('Error loading analytics:', err);
                 document.getElementById('loadingState').innerHTML = '<div style="text-align:center;color:#ff4466;"><p>Failed to load analytics</p><button onclick="loadData()" style="margin-top:10px;padding:8px 20px;background:#00ff88;color:#000;border:none;border-radius:8px;cursor:pointer;">Retry</button></div>';
             }
+        }
+
+        // Per-fleet breakdown. The totals row is not decoration: it adds the
+        // columns up so the split can be checked against the platform figures
+        // immediately below it.
+        function renderTenants(rows) {
+            const table = document.getElementById('tenantTable');
+            if (!rows || !rows.length) {
+                table.innerHTML = '<tbody><tr><td class="muted" style="padding:14px;">No fleets to show</td></tr></tbody>';
+                return;
+            }
+            const rm = n => 'RM ' + (n || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const num = n => (n || 0).toLocaleString('en-MY');
+            const kwh = n => (n || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const sum = f => rows.reduce((a, r) => a + f(r), 0);
+
+            const head = `<thead><tr>
+                <th>Fleet</th><th>Chargers</th><th>Online</th><th>Published</th>
+                <th>Sessions</th><th>This month</th>
+                <th>Energy kWh</th><th>Idle RM</th><th>Revenue</th><th>Faults</th>
+            </tr></thead>`;
+
+            const body = rows.map(r => `<tr>
+                <td class="fleet">${r.label}${r.badge ? `<span class="badge">${r.badge}</span>` : ''}${r.registered ? '' : '<span class="badge" style="background:rgba(255,68,102,.12);color:#ff4466;">unregistered</span>'}</td>
+                <td>${num(r.chargers.total)}</td>
+                <td class="${r.chargers.online ? '' : 'muted'}">${num(r.chargers.online)}</td>
+                <td class="${r.chargers.published ? '' : 'muted'}">${num(r.chargers.published)}</td>
+                <td>${num(r.sessions.total)}</td>
+                <td class="${r.sessions.this_month ? '' : 'muted'}">${num(r.sessions.this_month)}</td>
+                <td>${kwh(r.energy.total_kwh)}</td>
+                <td class="${r.revenue.idle ? '' : 'muted'}">${kwh(r.revenue.idle)}</td>
+                <td class="money">${rm(r.revenue.total)}</td>
+                <td class="${r.active_faults ? 'warn' : 'muted'}">${num(r.active_faults)}</td>
+            </tr>`).join('');
+
+            const foot = `<tfoot><tr>
+                <td>All fleets</td>
+                <td>${num(sum(r => r.chargers.total))}</td>
+                <td>${num(sum(r => r.chargers.online))}</td>
+                <td>${num(sum(r => r.chargers.published))}</td>
+                <td>${num(sum(r => r.sessions.total))}</td>
+                <td>${num(sum(r => r.sessions.this_month))}</td>
+                <td>${kwh(sum(r => r.energy.total_kwh))}</td>
+                <td>${kwh(sum(r => r.revenue.idle))}</td>
+                <td class="money">${rm(sum(r => r.revenue.total))}</td>
+                <td>${num(sum(r => r.active_faults))}</td>
+            </tr></tfoot>`;
+
+            table.innerHTML = head + '<tbody>' + body + '</tbody>' + foot;
         }
 
         function renderKPIs(d) {
