@@ -2773,3 +2773,81 @@ class TenantAnalyticsTests(unittest.TestCase):
             .scalar() or 0
         ), 2)
         self.assertAlmostEqual(split, whole, places=2)
+
+
+class CommandScopeTests(OcpiTestBase):
+    """A partner may only command what it is allowed to see.
+
+    Reading was already filtered: a location for an unpublished charger
+    answers 2003. Commands were not. START_SESSION naming a Perodua or
+    Proton home unit was accepted and dispatched, and STOP_SESSION took a
+    bare primary key, so any holder of the shared token could stop any
+    charge on the platform by counting upwards through small integers.
+
+    Probed against production on 2026-11-19 before the fix: both returned
+    ACCEPTED. The chargers were offline, so nothing physical happened.
+    """
+
+    def setUp(self):
+        self.db = SessionLocal()
+        self.made = []
+        self.private = Charger(charge_point_id="PRIVATEHOME1", tenant="perodua",
+                               tariff_per_kwh=0.10, status="offline",
+                               availability="available")
+        self.db.add(self.private)
+        self.db.commit()
+        self.made.append(self.private)
+        # A session on that private charger, as another fleet's customer.
+        self.theirs = ChargingSession(
+            charger_id=self.private.id, transaction_id=88001, status="active",
+            start_time=datetime.utcnow() - timedelta(minutes=10))
+        self.db.add(self.theirs)
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.query(ChargingSession).filter(
+            ChargingSession.id == self.theirs.id).delete()
+        for c in self.made:
+            self.db.query(Charger).filter(Charger.id == c.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _cmd(self, command, body):
+        body = dict(body)
+        body["response_url"] = "https://partner.test/cb"
+        return self.client.post(
+            f"/ocpi/2.2.1/commands/{command}", json=body, headers=AUTH).json()
+
+    def test_a_start_on_an_unpublished_charger_is_rejected(self):
+        r = self._cmd("START_SESSION", {
+            "location_id": "MYPLG-PRIVATEHOME1",
+            "evse_uid": "MYPLG-PRIVATEHOME1-EVSE1",
+            "token": {"uid": "PROBE"},
+        })
+        self.assertEqual(r["data"]["result"], "REJECTED")
+
+    def test_a_start_on_a_published_charger_still_works(self):
+        """The fix must not close the door on the integration itself."""
+        r = self._cmd("START_SESSION", {
+            "location_id": f"MYPLG-{CP}",
+            "evse_uid": f"MYPLG-{CP}-EVSE1",
+            "token": {"uid": "PROBE"},
+        })
+        self.assertNotEqual(r["data"]["result"], "REJECTED")
+
+    def test_another_fleets_session_cannot_be_stopped(self):
+        """By primary key, which is what the handler used to accept."""
+        r = self._cmd("STOP_SESSION", {"session_id": self.theirs.id})
+        self.assertEqual(r["data"]["result"], "ACCEPTED")
+        # OCPI answers the POST synchronously; the refusal is the async
+        # result, so assert the session was never matched.
+        self.db.refresh(self.theirs)
+        self.assertEqual(self.theirs.status, "active")
+
+    def test_a_session_id_that_is_not_a_number_is_survivable(self):
+        r = self._cmd("STOP_SESSION", {"session_id": "not-a-number"})
+        self.assertEqual(r["status_code"], 1000)
+
+    def test_a_missing_session_id_is_survivable(self):
+        r = self._cmd("STOP_SESSION", {})
+        self.assertEqual(r["status_code"], 1000)

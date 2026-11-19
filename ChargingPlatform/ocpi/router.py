@@ -1695,7 +1695,16 @@ async def post_command(
         # uid, so a start aimed at gun 2 does not silently begin on gun 1.
         connector_id = int(body.get("connector_id") or _gun_from_evse_uid(evse_uid) or 1)
         token = (body.get("token") or {}).get("uid") or "ROAMING_USER"
-        charger = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
+        # Through _publishable, not a bare lookup. Reading a location already
+        # went through it, so a partner could not see an unpublished charger,
+        # but this could still start one by name: a START_SESSION naming a
+        # Perodua or Proton home unit was accepted and dispatched. Those are
+        # other companies' fleets on private driveways.
+        charger = (
+            _publishable(db.query(Charger))
+            .filter(Charger.charge_point_id == cp_id)
+            .first()
+        )
         if not charger:
             return {
                 "status_code": 1000, "status_message": "Success",
@@ -1738,7 +1747,30 @@ async def post_command(
 
     if command == "STOP_SESSION":
         session_id = body.get("session_id")
-        sess = db.query(ChargingSession).filter(ChargingSession.id == session_id).first() if session_id else None
+        # Scoped to the caller, like every other read of a session. This took
+        # a bare primary key: session ids are small consecutive integers, so
+        # any holder of the shared token could stop any charge on the
+        # platform, including a Perodua or Proton customer mid-charge, by
+        # counting upwards.
+        #
+        # Matched on transaction_id as well as id because the Session object
+        # publishes transaction_id as its `id`, which is what a partner has
+        # in hand, while this only ever accepted the primary key. They are
+        # equal for recent sessions, so Voltality's stop flow worked by
+        # coincidence rather than by agreement.
+        sess = None
+        if session_id is not None:
+            try:
+                wanted = int(session_id)
+            except (TypeError, ValueError):
+                wanted = None
+            if wanted is not None:
+                sess = (
+                    _scope_to_caller(db.query(ChargingSession), caller)
+                    .filter((ChargingSession.transaction_id == wanted)
+                            | (ChargingSession.id == wanted))
+                    .first()
+                )
         if not sess or not sess.transaction_id:
             asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION"))
             return {
