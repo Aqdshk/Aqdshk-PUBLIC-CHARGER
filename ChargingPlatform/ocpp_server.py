@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -250,6 +251,44 @@ def _add_firmware_event(charger_id: str, status: str, firmware_version: str = ""
         firmware_events.pop(0)
 # Charge point ID format: alphanumeric, dots, underscores, colons, hyphens; 3–64 chars
 _CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
+
+# id_tags we have just asked a charger to start with, keyed by
+# (charge_point_id, id_tag) and holding the moment the pass expires.
+#
+# A charger that receives RemoteStartTransaction may still send Authorize for
+# the tag before it opens the transaction, and the answer has to be yes: we
+# issued that tag ourselves a second earlier. Without this, a roaming start
+# was accepted as a command and then refused as a card. On 2026-11-25, with
+# Voltality live, their token `dc39aef7a92s73dn2590` was blocked three
+# seconds after we asked the charger to start with it, and the car never
+# charged while the partner was told ACCEPTED.
+#
+# Short-lived on purpose. The pass covers the handshake that follows our own
+# command, not a tag anybody may present later.
+_REMOTE_START_TAGS: Dict[tuple, float] = {}
+_REMOTE_START_TTL_SECONDS = 180
+
+
+def _remember_remote_start(cp_id: str, id_tag: str) -> None:
+    """Vouch for an id_tag we are about to send to a charger."""
+    if not cp_id or not id_tag:
+        return
+    now = time.time()
+    for key, expires in list(_REMOTE_START_TAGS.items()):
+        if expires <= now:
+            _REMOTE_START_TAGS.pop(key, None)
+    _REMOTE_START_TAGS[(cp_id, id_tag)] = now + _REMOTE_START_TTL_SECONDS
+
+
+def _is_our_remote_start(cp_id: str, id_tag: str) -> bool:
+    """Whether this charger is asking about a tag we just sent it."""
+    expires = _REMOTE_START_TAGS.get((cp_id, id_tag))
+    if expires is None:
+        return False
+    if expires <= time.time():
+        _REMOTE_START_TAGS.pop((cp_id, id_tag), None)
+        return False
+    return True
 
 
 def _parse_token_map(raw_tokens: str) -> Dict[str, str]:
@@ -569,6 +608,16 @@ class ChargePoint(cp):
         try:
             # Known app-initiated id_tags (RemoteStart flow) — always accept
             if id_tag in ("APP_USER", "DASHBOARD_USER", "LOCAL_CHARGING", ""):
+                return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+
+            # A tag we handed this charger ourselves, moments ago, in a
+            # RemoteStartTransaction. A roaming partner's token is none of the
+            # shapes below, so without this it falls through to Blocked and
+            # the charge the partner asked for never begins.
+            if _is_our_remote_start(self.id, id_tag):
+                logger.info(
+                    "Authorize accepted for %s: id_tag=%r is our own remote start",
+                    self.id, id_tag)
                 return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
 
             # quick-pay / terminal-kiosk id_tag format is "PAY{txn.id}".
@@ -1537,6 +1586,9 @@ class ChargePoint(cp):
         """
         try:
             logger.info(f"Sending RemoteStartTransaction to {self.id}: connector_id={connector_id}, id_tag={id_tag}")
+            # Before the call, not after: some chargers send Authorize for the
+            # tag while this request is still in flight.
+            _remember_remote_start(self.id, id_tag)
             request = call.RemoteStartTransaction(
                 id_tag=id_tag,
                 connector_id=connector_id
