@@ -297,10 +297,19 @@ async def _attach_auth_reference(
     The wait is awaited rather than slept through: this runs inside the OCPP
     connection's event loop, and a blocking sleep here would stall every other
     charger on the process for the duration.
+
+    Ninety seconds, not ten. On 2026-11-25, Voltality's first live start on
+    DC3001 took twenty seconds from our RemoteStart to the charger's
+    StartTransaction: command at 08:08:59, charging at 08:09:04,
+    StartTransaction at 08:09:19. This gave up at 08:09:12, seven seconds
+    early, and the charge the partner had asked for ran as an anonymous
+    session they could not see or be billed for. A DC charger has to talk to
+    the car before it opens a transaction, so ten seconds was never enough
+    for real hardware; the simulator answered instantly and hid it.
     """
     from database import SessionLocal as _SL
 
-    for _ in range(10):
+    for _ in range(90):
         db = _SL()
         try:
             sess = (
