@@ -29,6 +29,7 @@
         .ss-pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:9px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; }
         .ss-pill.completed { background:rgba(0,255,136,0.12); color:#00ff88; }
         .ss-pill.active    { background:rgba(255,153,68,0.14); color:#ff9944; }
+        .ss-pill.idling    { background:rgba(255,196,0,0.16); color:#ffc400; }
         .ss-pill.cancelled { background:rgba(120,120,120,0.18); color:var(--text-muted); }
         .ss-pill.failed    { background:rgba(255,68,102,0.14); color:#ff4466; }
         .ss-count { font-size:10px; color:var(--text-muted); letter-spacing:0.5px; font-weight:500; }
@@ -324,6 +325,36 @@
             vehicle:  ['stopped from the vehicle', 'The driver ended it from the car, or the car stopped drawing power. The charger did not report a remote or local stop.'],
         };
 
+        // A charge ends in two steps. The transaction closes when the car
+        // stops drawing power, and the session is not finished until the
+        // cable comes out: the idle fee runs in between and the CDR is held
+        // until the unplug. The badge read COMPLETED from the first step, so
+        // a bay still occupied and still charging the driver looked settled.
+        function _displayStatus(s) {
+            const stopped = !!s.stop_time;
+            const unplugged = !!s.unplugged_at;
+            if (stopped && !unplugged && s.status !== 'interrupted') {
+                return {
+                    label: 'idling',
+                    cls: 'idling',
+                    hint: 'Charging has finished but the cable is still in. The idle fee runs until it is unplugged, and the session is not final yet.',
+                };
+            }
+            return {
+                label: s.status,
+                cls: s.status,
+                hint: unplugged ? 'Unplugged, session final.' : '',
+            };
+        }
+
+        function _idleNote(s) {
+            const mins = s.idle_minutes || 0;
+            const fee = Number(s.idle_fee_amount || 0);
+            if (!mins && !fee) return '';
+            const money = fee ? ` · RM${fee.toFixed(2)}` : '';
+            return `<div style="font-size:10px;margin-top:3px;color:#ffc400;">idle ${mins} min${money}</div>`;
+        }
+
         function _stopReasonNote(s) {
             const r = s.stop_reason;
             const who = _INITIATOR_TEXT[s.stop_initiator];
@@ -410,7 +441,8 @@
                     <td class="num">${energy}</td>
                     <td class="cp">${s.id_tag || '—'}</td>
                     <td>
-                        <span class="ss-pill ${s.status}">${s.status}</span>
+                        <span class="ss-pill ${_displayStatus(s).cls}" title="${_displayStatus(s).hint}">${_displayStatus(s).label}</span>
+                        ${_idleNote(s)}
                         ${_stopReasonNote(s)}
                     </td>
                 </tr>`;

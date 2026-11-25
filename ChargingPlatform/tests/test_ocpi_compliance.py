@@ -12,7 +12,9 @@ none of them can quietly regress:
   - idle was measured to stop_time, so a session stopped from the app or by a
     roaming partner billed nothing however long the car blocked the bay
 """
+import io
 import math
+import os
 import re
 import unittest
 from datetime import datetime, timedelta
@@ -3000,3 +3002,57 @@ class StopInitiatorTests(unittest.TestCase):
     def test_the_field_survives_the_response_model(self):
         """A key the model does not declare never reaches the dashboard."""
         self.assertIn("stop_initiator", api.ChargingSessionResponse.model_fields)
+
+
+class IdlingStateTests(unittest.TestCase):
+    """A charge ends in two steps and the badge only knew about the first.
+
+    The transaction closes when the car stops drawing power; the session is
+    not finished until the cable comes out. The idle fee runs in between and
+    the CDR is held until the unplug, yet the row read COMPLETED from the
+    moment the transaction closed, so a bay still occupied and still charging
+    the driver looked settled. The dashboard needs the three columns that
+    describe the gap, and the page needs to show it.
+    """
+
+    PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "templates", "sessions.html")
+
+    @classmethod
+    def setUpClass(cls):
+        with io.open(cls.PAGE, encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_the_unplug_time_survives_the_response_model(self):
+        self.assertIn("unplugged_at", api.ChargingSessionResponse.model_fields)
+
+    def test_the_accruing_idle_figures_survive_the_response_model(self):
+        for f in ("idle_minutes", "idle_fee_amount"):
+            with self.subTest(f):
+                self.assertIn(f, api.ChargingSessionResponse.model_fields)
+
+    def test_the_unplug_time_is_sent_as_local_wall_time(self):
+        """Every other timestamp on this row is MYT; a UTC one would read as
+        an unplug eight hours before the charge ended."""
+        ser = api.ChargingSessionResponse.__pydantic_decorators__.field_serializers
+        fields = set()
+        for d in ser.values():
+            fields.update(d.info.fields)
+        self.assertIn("unplugged_at", fields)
+
+    def test_the_three_columns_exist_on_the_session(self):
+        for f in ("unplugged_at", "idle_minutes", "idle_fee_amount"):
+            with self.subTest(f):
+                self.assertTrue(hasattr(ChargingSession, f))
+
+    # --- the page -------------------------------------------------------
+    def test_the_badge_is_derived_and_not_the_raw_status(self):
+        self.assertNotIn('<span class="ss-pill ${s.status}">${s.status}</span>', self.page)
+        self.assertIn("_displayStatus(s)", self.page)
+
+    def test_a_still_plugged_session_reads_as_idling(self):
+        self.assertIn("'idling'", self.page)
+        self.assertIn("s.unplugged_at", self.page)
+
+    def test_the_idling_badge_has_a_style_of_its_own(self):
+        self.assertIn(".ss-pill.idling", self.page)

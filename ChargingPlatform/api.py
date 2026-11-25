@@ -782,8 +782,16 @@ class ChargingSessionResponse(BaseModel):
     stop_initiator: Optional[str] = None
     charger_id: int
     charge_point_id: str
+    # A charge ends in two steps and the dashboard only knew about the first.
+    # The transaction closes when the car stops drawing, and the session is
+    # not finished until the cable comes out: the idle fee runs in between,
+    # and the CDR is held until the unplug. A row sitting at "completed" with
+    # no unplug is still accruing, which is the state Aqid asked to see.
+    unplugged_at: Optional[datetime] = None
+    idle_minutes: Optional[int] = None
+    idle_fee_amount: Optional[float] = None
 
-    @field_serializer("start_time", "stop_time")
+    @field_serializer("start_time", "stop_time", "unplugged_at")
     def _ser_session_dt(self, v: Optional[datetime], _info) -> Optional[str]:
         return _iso_myt_naive_local(v)
 
