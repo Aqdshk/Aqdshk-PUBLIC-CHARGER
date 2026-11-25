@@ -268,6 +268,69 @@ _CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
 _REMOTE_START_TAGS: Dict[tuple, float] = {}
 _REMOTE_START_TTL_SECONDS = 180
 
+# Transactions we have asked a charger to stop, keyed by
+# (charge_point_id, transaction_id).
+#
+# OCPP 1.6 gives a reason on StopTransaction, but DC3001's firmware answers
+# "Other" whether the driver ended the charge from the car or the charger
+# decided by itself, so the reason alone cannot say who stopped it. Whether
+# *we* asked is something only this process knows, and only while the stop
+# is in flight, so it is recorded here and read once when the charger
+# reports back.
+_REMOTE_STOP_TXNS: Dict[tuple, float] = {}
+_REMOTE_STOP_TTL_SECONDS = 300
+
+
+def _remember_remote_stop(cp_id: str, transaction_id) -> None:
+    """Note that the platform, not the driver, asked for this stop."""
+    if not cp_id or transaction_id is None:
+        return
+    now = time.time()
+    for key, expires in list(_REMOTE_STOP_TXNS.items()):
+        if expires <= now:
+            _REMOTE_STOP_TXNS.pop(key, None)
+    _REMOTE_STOP_TXNS[(cp_id, int(transaction_id))] = now + _REMOTE_STOP_TTL_SECONDS
+
+
+def _was_remote_stop(cp_id: str, transaction_id) -> bool:
+    if transaction_id is None:
+        return False
+    key = (cp_id, int(transaction_id))
+    expires = _REMOTE_STOP_TXNS.get(key)
+    if expires is None:
+        return False
+    if expires <= time.time():
+        _REMOTE_STOP_TXNS.pop(key, None)
+        return False
+    return True
+
+
+def stop_initiator(cp_id: str, transaction_id, reason: Optional[str]) -> str:
+    """Who ended the charge, from the reason plus what we know we asked for.
+
+    The reason on its own is not enough. Voltality's live test on 2026-11-25
+    ended two charges from the car and DC3001 reported "Other" for both,
+    which is also what it reports when it simply finishes. The dashboard
+    showed "reason: other" and told the operator nothing.
+
+    `Remote` and a stop we issued are the platform. `Local` is somebody at
+    the unit. `EVDisconnected` is the cable or the car. Anything else, when
+    we did not ask, is the vehicle ending its own charge, which is the case
+    that used to be invisible.
+    """
+    r = (reason or "").strip()
+    if r == "Remote" or _was_remote_stop(cp_id, transaction_id):
+        return "platform"
+    if r == "Local":
+        return "charger"
+    if r == "EVDisconnected":
+        return "vehicle"
+    if r in ("PowerLoss", "EmergencyStop", "ImmediateReset", "HardReset",
+             "SoftReset", "Reboot", "DeAuthorized", "QuotaReached",
+             "NeverStarted"):
+        return "charger"
+    return "vehicle"
+
 
 def _remember_remote_start(cp_id: str, id_tag: str) -> None:
     """Vouch for an id_tag we are about to send to a charger."""
@@ -1108,6 +1171,8 @@ class ChargePoint(cp):
                 session.status = "completed"
                 session.meter_stop = meter_stop
                 session.stop_reason = kwargs.get("reason")
+                session.stop_initiator = stop_initiator(
+                    self.id, transaction_id, kwargs.get("reason"))
 
                 # Use meter_stop for billing accuracy — OCPP spec: meter_stop is authoritative Wh at session end
                 if meter_stop is not None:
@@ -1128,6 +1193,8 @@ class ChargePoint(cp):
                         meter_stop=meter_stop,
                         energy_consumed=session.energy_consumed,
                         stop_reason=kwargs.get("reason"),
+                        stop_initiator=stop_initiator(
+                            self.id, transaction_id, kwargs.get("reason")),
                     )
 
                 # Update charger availability
@@ -1603,6 +1670,7 @@ class ChargePoint(cp):
     async def remote_stop_transaction(self, transaction_id: int):
         """Send RemoteStopTransaction to charger"""
         try:
+            _remember_remote_stop(self.id, transaction_id)
             request = call.RemoteStopTransaction(
                 transaction_id=transaction_id
             )

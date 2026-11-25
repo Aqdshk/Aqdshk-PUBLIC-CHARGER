@@ -2939,3 +2939,64 @@ class MultiPartnerTokenTests(unittest.TestCase):
         got = asyncio.new_event_loop().run_until_complete(self._fire(self.first.id))
         self.assertEqual(got, auth_header("token-aaa"))
         self.assertNotEqual(got, auth_header("token-bbb"))
+
+
+class StopInitiatorTests(unittest.TestCase):
+    """Who ended the charge, which the charger's reason cannot say.
+
+    Voltality's live test on 2026-11-25 ended two charges from the car and
+    DC3001 reported "Other" for both, the same word it uses when it finishes
+    by itself. The dashboard could only print "reason: other".
+    """
+
+    CP = "STOPTEST1"
+
+    def setUp(self):
+        import ocpp_server as oc
+        self.oc = oc
+        oc._REMOTE_STOP_TXNS.clear()
+
+    def tearDown(self):
+        self.oc._REMOTE_STOP_TXNS.clear()
+
+    def test_a_remote_reason_is_the_platform(self):
+        self.assertEqual(self.oc.stop_initiator(self.CP, 1, "Remote"), "platform")
+
+    def test_other_after_our_own_stop_is_the_platform(self):
+        """Some firmware answers Other even for a stop we asked for."""
+        self.oc._remember_remote_stop(self.CP, 7)
+        self.assertEqual(self.oc.stop_initiator(self.CP, 7, "Other"), "platform")
+
+    def test_other_with_no_stop_from_us_is_the_vehicle(self):
+        """The case that was invisible: the driver ended it from the car."""
+        self.assertEqual(self.oc.stop_initiator(self.CP, 8, "Other"), "vehicle")
+
+    def test_no_reason_at_all_with_no_stop_from_us_is_the_vehicle(self):
+        self.assertEqual(self.oc.stop_initiator(self.CP, 9, None), "vehicle")
+
+    def test_local_is_the_charge_point(self):
+        self.assertEqual(self.oc.stop_initiator(self.CP, 2, "Local"), "charger")
+
+    def test_ev_disconnected_is_the_vehicle(self):
+        self.assertEqual(self.oc.stop_initiator(self.CP, 3, "EVDisconnected"), "vehicle")
+
+    def test_a_fault_is_the_charge_point(self):
+        for r in ("PowerLoss", "EmergencyStop", "ImmediateReset", "NeverStarted"):
+            with self.subTest(r):
+                self.assertEqual(self.oc.stop_initiator(self.CP, 4, r), "charger")
+
+    def test_our_stop_does_not_vouch_for_another_charger(self):
+        self.oc._remember_remote_stop(self.CP, 11)
+        self.assertEqual(self.oc.stop_initiator("OTHERCP", 11, "Other"), "vehicle")
+
+    def test_our_stop_does_not_vouch_for_another_transaction(self):
+        self.oc._remember_remote_stop(self.CP, 12)
+        self.assertEqual(self.oc.stop_initiator(self.CP, 13, "Other"), "vehicle")
+
+    def test_an_expired_note_no_longer_vouches(self):
+        self.oc._REMOTE_STOP_TXNS[(self.CP, 14)] = 0
+        self.assertEqual(self.oc.stop_initiator(self.CP, 14, "Other"), "vehicle")
+
+    def test_the_field_survives_the_response_model(self):
+        """A key the model does not declare never reaches the dashboard."""
+        self.assertIn("stop_initiator", api.ChargingSessionResponse.model_fields)

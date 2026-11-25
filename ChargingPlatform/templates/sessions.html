@@ -311,8 +311,28 @@
             Other:           ['reason: other', 'The charger reported "Other" — commonly a normal end of charge on this firmware.'],
         };
 
+        // Who ended the charge, decided on the server at StopTransaction
+        // where it is still known whether we asked for the stop. The
+        // charger's own reason cannot tell: DC3001 answers "Other" both when
+        // the driver ends the charge from the car and when it finishes by
+        // itself, which is why this used to read "reason: other" and say
+        // nothing. Older sessions carry no initiator and fall back to the
+        // reason alone.
+        const _INITIATOR_TEXT = {
+            platform: ['stopped from platform', 'A remote stop was sent from PlagSini or a roaming partner.'],
+            charger:  ['stopped at the charge point', 'Ended at the unit itself, or by the charge point for its own reasons.'],
+            vehicle:  ['stopped from the vehicle', 'The driver ended it from the car, or the car stopped drawing power. The charger did not report a remote or local stop.'],
+        };
+
         function _stopReasonNote(s) {
             const r = s.stop_reason;
+            const who = _INITIATOR_TEXT[s.stop_initiator];
+            if (who) {
+                const extra = r ? ` Charger reported: ${r}.` : '';
+                const warn2 = (r === 'PowerLoss' || r === 'EmergencyStop');
+                const col = warn2 ? 'var(--warning, #ffa500)' : 'var(--text-muted, #8b949e)';
+                return `<div title="${who[1]}${extra}" style="font-size:10px;margin-top:3px;color:${col};cursor:help;">${who[0]}</div>`;
+            }
             if (!r) return '';
             const known = _STOP_REASON_TEXT[r];
             const label = known ? known[0] : r;

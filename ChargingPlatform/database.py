@@ -622,6 +622,13 @@ class ChargingSession(Base):
     meter_start = Column(Integer, nullable=True)   # Wh at session start
     meter_stop = Column(Integer, nullable=True)    # Wh at session end (preferred over last MeterValues)
     stop_reason = Column(String(50), nullable=True)  # Local, Remote, EmergencyStop, PowerLoss, etc.
+    # Who ended the charge: platform, charger or vehicle. The reason
+    # above is what the charger said, and DC3001 answers "Other" both
+    # when the driver stops from the car and when it finishes by itself.
+    # Whether we asked for the stop is known only in the process that
+    # asked, and only while it is in flight, so it is decided at
+    # StopTransaction by ocpp_server.stop_initiator and kept here.
+    stop_initiator = Column(String(16), nullable=True)
     status = Column(String(50), default="active")  # active, completed, stopped
     # Pre-paid quota (quick-pay flow): kWh purchased = paid_amount / tariff.
     # When energy delivered hits this, OCPP server auto-fires RemoteStopTransaction

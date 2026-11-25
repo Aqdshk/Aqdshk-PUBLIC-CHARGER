@@ -23,7 +23,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from urllib.parse import quote
@@ -38,6 +38,7 @@ from database import (
     AuditLog,
     Charger, ChargerConnectionEvent, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
+    OcpiPartner,
     OTPVerification, PartnerAPIKey, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
     Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, Tenant, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
@@ -773,6 +774,12 @@ class ChargingSessionResponse(BaseModel):
     # finished charge from one the vehicle cut short — three DC3001 sessions on
     # 17 August all read COMPLETED when only the last had actually finished.
     stop_reason: Optional[str] = None
+    # Who ended it: platform, charger or vehicle. The reason above is
+    # the charger's own word for it, and DC3001 says "Other" both when
+    # the driver stops from the car and when it finishes by itself.
+    # Declared here because the route carries a response_model, which
+    # silently drops any key the model does not name.
+    stop_initiator: Optional[str] = None
     charger_id: int
     charge_point_id: str
 
@@ -1762,6 +1769,7 @@ async def session_timeline(
         "charge_point_id": charger.charge_point_id if charger else None,
         "status": sess.status,
         "stop_reason": sess.stop_reason,
+        "stop_initiator": sess.stop_initiator,
         "times": {
             "start": sess.start_time.isoformat() if sess.start_time else None,
             "stop": sess.stop_time.isoformat() if sess.stop_time else None,
@@ -3420,6 +3428,7 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                         "energy_kwh_limit": float(session.energy_kwh_limit) if session.energy_kwh_limit else None,
                         "auto_stopped": bool(session.auto_stopped),
                         "stop_reason": session.stop_reason,
+                        "stop_initiator": session.stop_initiator,
                         "meter_start_wh": session.meter_start,
                         "meter_stop_wh": session.meter_stop,
                     }
@@ -6883,6 +6892,137 @@ async def get_invoice_summary(
         "net_profit": float(round(total_revenue - total_maintenance_cost, 2)),
         "charger_breakdown": charger_breakdown
     }
+
+
+@app.get("/api/invoice/partner-sessions")
+async def get_partner_invoice_sessions(
+    party_id: Optional[str] = Query(None, description="e.g. VLT. Omit for every roaming partner."),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    format: str = Query("json", pattern="^(json|csv)$"),
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Settlement lines for a roaming partner, as Voltality asked for them.
+
+    The existing /api/invoice/sessions cannot serve this. It bills every
+    session on the platform at one flat rate read from an empty pricing
+    table, carries no location, no idle breakdown, and no way to select one
+    partner. Jia Hui asked for start, end, charger, location, kWh, a cost
+    breakdown separating energy from idling, and a stable session id.
+
+    Two things make this reconcile with what the partner already holds:
+
+      * Only settled sessions appear, the same predicate that releases a
+        CDR, so a line here matches a CDR they received. A session still
+        parked, or an interrupted one still inside its hold, is not billed.
+      * Money is the rate the session was sold at, preferring the rate
+        frozen onto it, so re-running last month's invoice after a price
+        change returns last month's figures.
+
+    The identifier is `transaction_id`, which is what the OCPI Session and
+    CDR publish as their `id`. The old export numbered rows S0001 upward,
+    which matches nothing on their side.
+    """
+    def _parse(value, end=False):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            dt = datetime.strptime(value, "%Y-%m-%d")
+            return dt.replace(hour=23, minute=59, second=59) if end else dt
+
+    start_dt, end_dt = _parse(start_date), _parse(end_date, end=True)
+
+    from ocpi.router import _cdr_settled_sql
+
+    q = (
+        db.query(ChargingSession, Charger, OcpiPartner)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .join(OcpiPartner, OcpiPartner.id == ChargingSession.ocpi_partner_id)
+        .filter(_cdr_settled_sql())
+    )
+    if party_id:
+        q = q.filter(OcpiPartner.party_id == party_id.strip().upper())
+    if start_dt:
+        q = q.filter(ChargingSession.start_time >= start_dt)
+    if end_dt:
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows = []
+    for s, c, p in q.order_by(ChargingSession.start_time).all():
+        rate = s.tariff_per_kwh_at_start
+        if rate is None:
+            rate = c.tariff_per_kwh
+        rate = float(rate or 0)
+        kwh = float(s.energy_consumed or 0)
+        energy_cost = round(kwh * rate, 2)
+        idle_cost = round(float(s.idle_fee_amount or 0), 2)
+        address = ", ".join(x for x in (
+            c.location,
+            c.city or os.getenv("OCPI_LOCATION_CITY", "").strip() or None,
+            c.postal_code or os.getenv("OCPI_LOCATION_POSTAL", "").strip() or None,
+        ) if x)
+        rows.append({
+            "session_id": str(s.transaction_id),
+            "partner": "%s/%s" % (p.country_code, p.party_id),
+            "start_time": s.start_time.isoformat() if s.start_time else None,
+            "end_time": (s.unplugged_at or s.stop_time).isoformat()
+                        if (s.unplugged_at or s.stop_time) else None,
+            "charger": c.charge_point_id,
+            "location": address,
+            "energy_kwh": round(kwh, 3),
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+            "currency": "MYR",
+        })
+
+    if format == "json":
+        return {
+            "party_id": party_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "count": len(rows),
+            "total_energy_kwh": round(sum(r["energy_kwh"] for r in rows), 3),
+            "total_energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+            "total_idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+            "total": round(sum(r["total"] for r in rows), 2),
+            "sessions": rows,
+        }
+
+    import csv as _csv
+    import io as _io
+
+    buf = _io.StringIO()
+    cols = ["session_id", "partner", "start_time", "end_time", "charger",
+            "location", "energy_kwh", "rate_per_kwh", "energy_cost",
+            "idle_minutes", "idle_cost", "total", "currency"]
+    w = _csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    # A totals line, so the figure on the invoice is in the file the partner
+    # reconciles against rather than only in the covering email.
+    w.writerow({
+        "session_id": "TOTAL",
+        "energy_kwh": round(sum(r["energy_kwh"] for r in rows), 3),
+        "energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+        "idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+        "total": round(sum(r["total"] for r in rows), 2),
+        "currency": "MYR",
+    })
+    name = "PlagSini_settlement_%s_%s.csv" % (
+        (party_id or "all").upper(), (start_date or "all"))
+    # BOM so Excel opens it as UTF-8 rather than mangling the address.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s"' % name},
+    )
 
 
 @app.get("/api/invoice/sessions")
