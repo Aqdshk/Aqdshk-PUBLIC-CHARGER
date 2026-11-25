@@ -89,6 +89,15 @@
     // Public accessor for page scripts
     window.currentTenant = currentValue;
 
+    // A page that offers its own tenant control (the invoice report has one
+    // in its filter bar, because a report is scoped before it is generated)
+    // must change the same state this switcher owns. Without a setter the
+    // page would have to write localStorage itself, which updates no button
+    // and fires no event, leaving the sidebar showing a scope the report is
+    // not using.
+    window.setTenant = function (v) { setTenant(v); };
+    window.tenantList = function () { return TENANTS.slice(); };
+
     function setTenant(v) {
         try { localStorage.setItem(KEY, v); } catch (e) {}
         updateButton(v);

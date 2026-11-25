@@ -18,6 +18,7 @@ import os
 import re
 import unittest
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -3056,3 +3057,314 @@ class IdlingStateTests(unittest.TestCase):
 
     def test_the_idling_badge_has_a_style_of_its_own(self):
         self.assertIn(".ss-pill.idling", self.page)
+
+
+class InvoiceTenantScopeTests(unittest.TestCase):
+    """One report cannot cover five fleets.
+
+    The invoice page mixed Perodua, HICOM, PROTON, Mini and CZero TNG into a
+    single set of totals, so there was nothing to send to any of them. It
+    also priced the whole platform at one rate read from an empty pricing
+    table, which fell back to RM0.50/kWh however much a charger actually
+    charges, and counted no idle income at all.
+
+    These tests run against the endpoints rather than the helpers, because
+    the page reads the endpoints and a helper that is right on its own has
+    already let a wrong figure through to a printed report once.
+    """
+
+    A = "INVTENANTA1"      # tenant alpha, RM1.40/kWh
+    B = "INVTENANTB1"      # tenant beta,  RM0.80/kWh
+    TA = "inv-test-alpha"
+    TB = "inv-test-beta"
+    DAY = datetime(2026, 7, 15, 10, 0, 0)
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+
+        cls.ca = Charger(charge_point_id=cls.A, tenant=cls.TA, tariff_per_kwh=1.40,
+                         location="Alpha Mall", city="Shah Alam", postal_code="40000",
+                         status="offline", availability="available")
+        cls.cb = Charger(charge_point_id=cls.B, tenant=cls.TB, tariff_per_kwh=0.80,
+                         location="Beta Plaza", city="Klang", postal_code="41000",
+                         status="offline", availability="available")
+        cls.db.add_all([cls.ca, cls.cb])
+        cls.db.commit()
+
+        # Alpha: 10 kWh at the rate frozen on the session (1.40), unplugged an
+        # hour after the charge stopped, RM3.00 of idle collected.
+        cls.sa = ChargingSession(
+            charger_id=cls.ca.id, transaction_id=990001, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            unplugged_at=cls.DAY + timedelta(hours=2),
+            energy_consumed=10.0, tariff_per_kwh_at_start=1.40,
+            idle_minutes=60, idle_fee_amount=Decimal("3.00"),
+        )
+        # Beta: 5 kWh, no frozen rate, so it falls back to its charger's 0.80.
+        cls.sb = ChargingSession(
+            charger_id=cls.cb.id, transaction_id=990002, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            energy_consumed=5.0, tariff_per_kwh_at_start=None,
+            idle_minutes=0, idle_fee_amount=Decimal("0"),
+        )
+        cls.db.add_all([cls.sa, cls.sb])
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(ChargingSession).filter(
+            ChargingSession.transaction_id.in_([990001, 990002])).delete(
+            synchronize_session=False)
+        cls.db.query(Charger).filter(
+            Charger.id.in_([cls.ca.id, cls.cb.id])).delete(synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def _summary(self, **kw):
+        kw.setdefault("start_date", "2026-07-01")
+        kw.setdefault("end_date", "2026-07-31")
+        r = self.client.get("/api/invoice/summary", params=kw)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def _sessions(self, **kw):
+        kw.setdefault("start_date", "2026-07-01")
+        kw.setdefault("end_date", "2026-07-31")
+        r = self.client.get("/api/invoice/sessions", params=kw)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    # --- scoping --------------------------------------------------------
+    def test_a_tenant_report_counts_only_that_tenant(self):
+        self.assertEqual(self._summary(tenant=self.TA)["sessions"]["total"], 1)
+        self.assertEqual(self._summary(tenant=self.TB)["sessions"]["total"], 1)
+
+    def test_a_tenant_report_shows_only_that_tenants_chargers(self):
+        self.assertEqual(list(self._summary(tenant=self.TA)["charger_breakdown"]), [self.A])
+        self.assertEqual(list(self._summary(tenant=self.TB)["charger_breakdown"]), [self.B])
+
+    def test_the_session_lines_are_scoped_too(self):
+        """The totals and the lines beneath them must agree, or the report
+        prints a figure the rows do not add up to."""
+        rows = self._sessions(tenant=self.TA)
+        self.assertEqual([r["charge_point_id"] for r in rows], [self.A])
+
+    def test_all_is_the_combined_view(self):
+        for t in (None, "all", ""):
+            with self.subTest(t):
+                kw = {} if t is None else {"tenant": t}
+                ids = {r["charge_point_id"] for r in self._sessions(**kw)}
+                self.assertTrue({self.A, self.B} <= ids)
+
+    def test_an_unknown_tenant_reports_nothing_rather_than_everything(self):
+        self.assertEqual(self._summary(tenant="no-such-fleet")["sessions"]["total"], 0)
+
+    def test_the_scope_is_echoed_back(self):
+        self.assertEqual(self._summary(tenant=self.TA)["scope"]["tenant"], self.TA)
+        self.assertEqual(self._summary()["scope"]["tenant"], "all")
+
+    # --- money ----------------------------------------------------------
+    def test_a_session_is_billed_at_its_own_rate_not_a_flat_guess(self):
+        """10 kWh at 1.40 is 14.00. The old report said 5.00 for every
+        charger on the platform."""
+        s = self._summary(tenant=self.TA)
+        self.assertEqual(s["revenue"]["energy"], 14.00)
+
+    def test_a_session_from_before_the_freeze_falls_back_to_its_charger(self):
+        s = self._summary(tenant=self.TB)
+        self.assertEqual(s["revenue"]["energy"], 4.00)   # 5 kWh x 0.80
+
+    def test_idle_income_is_counted(self):
+        s = self._summary(tenant=self.TA)
+        self.assertEqual(s["revenue"]["idle"], 3.00)
+        self.assertEqual(s["revenue"]["total"], 17.00)
+
+    def test_the_rate_card_is_what_the_period_actually_sold_at(self):
+        self.assertEqual(self._summary(tenant=self.TA)["energy"]["price_per_kwh"], 1.40)
+        self.assertEqual(self._summary(tenant=self.TB)["energy"]["price_per_kwh"], 0.80)
+
+    def test_the_two_fleets_do_not_share_a_rate(self):
+        """Proof the flat rate is gone: one number cannot be right for both."""
+        a = self._summary(tenant=self.TA)["energy"]["price_per_kwh"]
+        b = self._summary(tenant=self.TB)["energy"]["price_per_kwh"]
+        self.assertNotEqual(a, b)
+
+    def test_the_line_total_is_energy_plus_idling(self):
+        row = self._sessions(tenant=self.TA)[0]
+        self.assertEqual(row["energy_cost"], 14.00)
+        self.assertEqual(row["idle_cost"], 3.00)
+        self.assertEqual(row["amount"], 17.00)
+
+    def test_the_breakdown_adds_up_to_the_headline(self):
+        s = self._summary(tenant=self.TA)
+        d = s["charger_breakdown"][self.A]
+        self.assertEqual(d["revenue"], s["revenue"]["total"])
+        self.assertEqual(round(d["energy_cost"] + d["idle_cost"], 2), d["revenue"])
+
+    # --- the fields the partner's finance team asked for ----------------
+    def test_a_line_carries_everything_finance_asked_for(self):
+        row = self._sessions(tenant=self.TA)[0]
+        for f in ("start_time", "end_time", "charge_point_id", "location",
+                  "energy_kwh", "energy_cost", "idle_cost", "transaction_id"):
+            with self.subTest(f):
+                self.assertIsNotNone(row.get(f), f)
+
+    def test_the_identifier_is_the_one_the_partner_holds(self):
+        """transaction_id is what the OCPI Session and CDR publish as `id`.
+        The old export numbered rows S0001 upward, which matches nothing."""
+        self.assertEqual(self._sessions(tenant=self.TA)[0]["transaction_id"], 990001)
+
+    def test_the_location_is_a_line_an_invoice_can_print(self):
+        self.assertEqual(self._sessions(tenant=self.TA)[0]["location"],
+                         "Alpha Mall, Shah Alam, 40000")
+
+    def test_a_session_ends_when_the_cable_comes_out(self):
+        """The idle fee runs until the unplug, so an end time taken from
+        stop_time would not account for the amount on the same line."""
+        row = self._sessions(tenant=self.TA)[0]
+        self.assertEqual(row["end_time"], (self.DAY + timedelta(hours=2)).isoformat())
+        self.assertNotEqual(row["end_time"], row["stop_time"])
+
+    def test_a_session_never_unplugged_still_reports_an_end(self):
+        row = self._sessions(tenant=self.TB)[0]
+        self.assertEqual(row["end_time"], (self.DAY + timedelta(hours=1)).isoformat())
+
+    # --- the period -----------------------------------------------------
+    def test_the_last_day_of_the_period_is_the_whole_day(self):
+        """A charge at 10am on the closing date belongs in the month. Read as
+        midnight, the end date dropped everything charged that day."""
+        s = self._summary(tenant=self.TA, start_date="2026-07-15", end_date="2026-07-15")
+        self.assertEqual(s["sessions"]["total"], 1)
+
+
+class InvoiceMaintenanceScopeTests(unittest.TestCase):
+    """A fleet's net profit is its own revenue less its own repairs.
+
+    Maintenance was never scoped, so a tenant report subtracted every repair
+    on the platform, including the other 473 chargers'.
+    """
+
+    CP = "INVMAINT1"
+    TENANT = "inv-test-maint"
+    DAY = datetime(2026, 7, 15, 10, 0, 0)
+
+    @classmethod
+    def setUpClass(cls):
+        from database import MaintenanceRecord
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+        cls.charger = Charger(charge_point_id=cls.CP, tenant=cls.TENANT,
+                              tariff_per_kwh=1.00, status="offline",
+                              availability="available")
+        cls.db.add(cls.charger)
+        cls.db.commit()
+        cls.rec = MaintenanceRecord(
+            charger_id=cls.charger.id, maintenance_type="repair",
+            work_performed="test", cost=Decimal("250.00"), date_reported=cls.DAY)
+        cls.db.add(cls.rec)
+        cls.db.commit()
+        cls.rec_id = cls.rec.id
+
+    @classmethod
+    def tearDownClass(cls):
+        from database import MaintenanceRecord
+        cls.db.query(MaintenanceRecord).filter(
+            MaintenanceRecord.id == cls.rec_id).delete(synchronize_session=False)
+        cls.db.query(Charger).filter(
+            Charger.id == cls.charger.id).delete(synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def _summary(self, **kw):
+        kw.setdefault("start_date", "2026-07-01")
+        kw.setdefault("end_date", "2026-07-31")
+        r = self.client.get("/api/invoice/summary", params=kw)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_a_fleet_is_charged_its_own_repairs(self):
+        self.assertEqual(self._summary(tenant=self.TENANT)["maintenance"]["total_cost"], 250.00)
+
+    def test_another_fleet_is_not_charged_them(self):
+        s = self._summary(tenant="inv-test-someone-else")
+        self.assertEqual(s["maintenance"]["total_cost"], 0.0)
+        self.assertEqual(s["maintenance"]["total_records"], 0)
+
+    def test_net_profit_subtracts_only_what_is_in_scope(self):
+        s = self._summary(tenant=self.TENANT)
+        self.assertEqual(s["net_profit"],
+                         round(s["revenue"]["total"] - s["maintenance"]["total_cost"], 2))
+
+
+class InvoicePageTests(unittest.TestCase):
+    """The page has to ask for the scope and show the split.
+
+    The report is generated in the browser from these two endpoints; a
+    correct endpoint reached by a page that never passes `tenant` produces
+    the same mixed report as before.
+    """
+
+    PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "templates", "invoice.html")
+
+    @classmethod
+    def setUpClass(cls):
+        with io.open(cls.PAGE, encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_the_page_scopes_its_requests(self):
+        self.assertIn("tenant=${encodeURIComponent(tn)}", self.page)
+
+    def test_the_page_offers_the_scope_in_its_filter_bar(self):
+        self.assertIn('id="filterTenant"', self.page)
+
+    def test_the_page_and_the_sidebar_share_one_scope(self):
+        """Two controls that can disagree would let someone export a fleet's
+        report under another fleet's name."""
+        self.assertIn("window.setTenant", self.page)
+        self.assertIn("tenantChange", self.page)
+
+    def test_the_export_no_longer_invents_a_rate(self):
+        self.assertNotIn("const up=1.20", self.page)
+        self.assertNotIn("up.toFixed(2)", self.page)
+
+    def test_the_export_carries_what_finance_asked_for(self):
+        for col in ("Start Time", "End Time", "Location", "Energy Cost (RM)",
+                    "Idling Cost (RM)", "Session ID"):
+            with self.subTest(col):
+                self.assertIn(col, self.page)
+
+    def test_the_export_identifies_a_session_by_its_real_id(self):
+        self.assertIn("s.transaction_id", self.page)
+        self.assertNotIn("S${String(i+1).padStart(4,'0')}", self.page)
+
+    def test_the_month_buttons_use_calendar_days_not_utc_instants(self):
+        """Malaysia is eight hours ahead of UTC, so toISOString() on local
+        midnight returns the previous day. "This Month" asked for 31 Oct to
+        29 Nov: it billed a day belonging to October and dropped the last day
+        of November."""
+        self.assertNotIn("toISOString().split('T')[0]", self.page)
+        self.assertIn("const ymd =", self.page)
+
+    def test_the_report_states_the_scope_it_was_generated_for(self):
+        """A report that does not name its fleet can be sent to the wrong
+        one."""
+        self.assertIn('id="reportTenant"', self.page)
+
+    def test_the_export_quotes_a_field_that_contains_a_comma(self):
+        """An address is one field with two commas in it. Unquoted, it split
+        into three columns and shifted every figure on the row."""
+        self.assertIn("function csvCell", self.page)

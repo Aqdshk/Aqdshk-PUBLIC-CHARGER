@@ -114,6 +114,7 @@
         <div class="dashboard-container fade-in">
             <!-- Filters -->
             <div class="inv-filter no-print">
+                <div><label>Tenant</label><select id="filterTenant"><option value="all">All Tenants</option></select></div>
                 <div><label>From</label><input type="date" id="startDate"></div>
                 <div><label>To</label><input type="date" id="endDate"></div>
                 <div><label>Charger</label><select id="filterCharger"><option value="">All</option></select></div>
@@ -132,7 +133,8 @@
                         </div>
                         <div class="inv-info">
                         <strong>Generated</strong> <span id="reportDate">-</span><br>
-                        <strong>Period</strong> <span id="reportPeriod">-</span>
+                        <strong>Period</strong> <span id="reportPeriod">-</span><br>
+                        <strong>Tenant</strong> <span id="reportTenant">-</span>
                     </div>
                 </div>
 
@@ -140,7 +142,9 @@
                         <div class="inv-card"><div class="inv-icon">📋</div><div class="inv-val" id="totalSessions">-</div><div class="inv-lbl">Sessions</div></div>
                         <div class="inv-card"><div class="inv-icon">⚡</div><div class="inv-val" id="totalEnergy">-</div><div class="inv-lbl">kWh</div></div>
                         <div class="inv-card"><div class="inv-icon">⏱️</div><div class="inv-val" id="totalHours">-</div><div class="inv-lbl">Hours</div></div>
-                        <div class="inv-card"><div class="inv-icon">💵</div><div class="inv-val" id="pricePerKwh">-</div><div class="inv-lbl">RM/kWh</div></div>
+                        <div class="inv-card"><div class="inv-icon">💵</div><div class="inv-val" id="pricePerKwh">-</div><div class="inv-lbl">Avg RM/kWh</div></div>
+                        <div class="inv-card"><div class="inv-icon">🔋</div><div class="inv-val" id="energyRevenue">-</div><div class="inv-lbl">Energy RM</div></div>
+                        <div class="inv-card warn"><div class="inv-icon">🅿️</div><div class="inv-val" id="idleRevenue">-</div><div class="inv-lbl">Idling RM</div></div>
                         <div class="inv-card hl"><div class="inv-icon">💰</div><div class="inv-val" id="totalRevenue">-</div><div class="inv-lbl">Revenue</div></div>
                         <div class="inv-card warn"><div class="inv-icon">🔧</div><div class="inv-val" id="maintenanceCost">-</div><div class="inv-lbl">Cost</div></div>
                         <div class="inv-card hl"><div class="inv-icon">📈</div><div class="inv-val" id="netProfit">-</div><div class="inv-lbl">Net Profit</div></div>
@@ -149,11 +153,11 @@
                     <div class="tbl-grid">
                         <div class="card" style="margin-bottom:0;">
                             <div class="card-header"><span class="card-title"><span>🔌</span> By Charger</span></div>
-                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>ID</th><th class="text-right">#</th><th class="text-right">kWh</th><th class="text-right">Hrs</th><th class="text-right">RM</th></tr></thead><tbody id="chargerBreakdown"><tr><td colspan="5" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>ID</th><th class="text-right">#</th><th class="text-right">kWh</th><th class="text-right">Hrs</th><th class="text-right">Idle</th><th class="text-right">RM</th></tr></thead><tbody id="chargerBreakdown"><tr><td colspan="6" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
                         </div>
                         <div class="card" style="margin-bottom:0;">
                             <div class="card-header"><span class="card-title"><span>📋</span> Session Details</span></div>
-                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>TXN</th><th>Charger</th><th>Time</th><th>Dur</th><th class="text-right">kWh</th><th class="text-right">RM</th><th>Status</th></tr></thead><tbody id="sessionDetails"><tr><td colspan="7" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>TXN</th><th>Charger</th><th>Time</th><th>Dur</th><th class="text-right">kWh</th><th class="text-right">Energy</th><th class="text-right">Idle</th><th class="text-right">RM</th><th>Status</th></tr></thead><tbody id="sessionDetails"><tr><td colspan="9" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
                         </div>
                     </div>
                 </div>
@@ -171,14 +175,88 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
-        document.addEventListener('DOMContentLoaded', () => { loadChargers(); setThisMonth(); });
+        document.addEventListener('DOMContentLoaded', () => { initTenant(); loadChargers(); setThisMonth(); });
 
-        async function loadChargers() {
-            try { const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || ''; const cs = await(await fetch(`${API_BASE}/chargers`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json(); const s=document.getElementById('filterCharger'); cs.forEach(c=>{s.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;}); } catch(e){}
+        // A report is scoped before it is generated, so the scope belongs in
+        // the filter bar beside the dates rather than only in the sidebar.
+        // Both drive the same state: picking a tenant here moves the sidebar
+        // switcher too, and moving the switcher re-generates the report.
+        function tenantValue() {
+            const el = document.getElementById('filterTenant');
+            return (el && el.value) || 'all';
         }
 
-        function setThisMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth(),1); const l=new Date(n.getFullYear(),n.getMonth()+1,0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
-        function setLastMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const l=new Date(n.getFullYear(),n.getMonth(),0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
+        function tenantLabel(v) {
+            const el = document.getElementById('filterTenant');
+            if (!el) return v;
+            for (const o of el.options) if (o.value === v) return o.textContent;
+            return v;
+        }
+
+        function initTenant() {
+            const el = document.getElementById('filterTenant');
+            const paint = () => {
+                const rows = (typeof window.tenantList === 'function') ? window.tenantList() : [];
+                const want = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                if (rows.length) {
+                    el.innerHTML = rows.map(t =>
+                        `<option value="${t.value}">${t.label}</option>`).join('');
+                }
+                el.value = want;
+                if (el.value !== want) el.value = 'all';
+            };
+            paint();
+            // The list arrives from /api/tenants a moment after boot, so repaint
+            // when it lands rather than leaving the single fallback option.
+            setTimeout(paint, 1200);
+
+            el.addEventListener('change', () => {
+                if (typeof window.setTenant === 'function') window.setTenant(el.value);
+                loadChargers();
+                loadReport();
+            });
+            window.addEventListener('tenantChange', (e) => {
+                const v = (e.detail && e.detail.tenant) || 'all';
+                if (el.value === v) return;
+                paint();
+                el.value = v;
+                loadChargers();
+                loadReport();
+            });
+        }
+
+        async function loadChargers() {
+            const sel = document.getElementById('filterCharger');
+            const keep = sel.value;
+            try {
+                const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                // Scope the charger list too: a report for one fleet should not
+                // offer another fleet's chargers in its own filter.
+                const t = tenantValue();
+                const url = `${API_BASE}/chargers` + (t && t !== 'all' ? `?tenant=${encodeURIComponent(t)}` : '');
+                const cs = await(await fetch(url, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
+                sel.innerHTML = '<option value="">All</option>';
+                cs.forEach(c=>{sel.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;});
+                if (keep && [...sel.options].some(o=>o.value===keep)) sel.value = keep;
+            } catch(e){}
+        }
+
+        // toISOString() converts to UTC, and Malaysia is eight hours ahead of
+        // it. Local midnight on the 1st became 16:00 on the last day of the
+        // previous month, so "This Month" asked for 31 Oct to 29 Nov: it
+        // billed a day belonging to October and dropped the last day of
+        // November. The dates here are calendar days, not instants.
+        const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        function setMonth(offset) {
+            const n=new Date();
+            const f=new Date(n.getFullYear(),n.getMonth()+offset,1);
+            const l=new Date(n.getFullYear(),n.getMonth()+offset+1,0);
+            document.getElementById('startDate').value=ymd(f);
+            document.getElementById('endDate').value=ymd(l);
+            loadReport();
+        }
+        function setThisMonth() { setMonth(0); }
+        function setLastMonth() { setMonth(-1); }
 
         let reportData = { breakdown:{}, sessions:[] };
         const authHeaders = () => {
@@ -188,15 +266,20 @@
         
         async function loadReport() {
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
+            const tn=tenantValue();
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
             document.getElementById('reportPeriod').textContent = `${sd||'-'} ~ ${ed||'-'}`;
+            document.getElementById('reportTenant').textContent = tenantLabel(tn);
             const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
+            if(tn && tn!=='all') p.push(`tenant=${encodeURIComponent(tn)}`);
             const qs = p.length ? '?'+p.join('&') : '';
             try {
                 const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`, { headers: authHeaders() })).json();
                 document.getElementById('totalSessions').textContent = sum.sessions.total;
                 document.getElementById('totalEnergy').textContent = sum.energy.total_kwh.toFixed(1);
                 document.getElementById('totalRevenue').textContent = sum.revenue.total.toFixed(2);
+                document.getElementById('energyRevenue').textContent = (sum.revenue.energy ?? 0).toFixed(2);
+                document.getElementById('idleRevenue').textContent = (sum.revenue.idle ?? 0).toFixed(2);
                 document.getElementById('maintenanceCost').textContent = sum.maintenance.total_cost.toFixed(2);
                 document.getElementById('totalHours').textContent = sum.duration.total_hours.toFixed(1);
                 document.getElementById('pricePerKwh').textContent = sum.energy.price_per_kwh.toFixed(2);
@@ -204,43 +287,101 @@
 
                 const bb = document.getElementById('chargerBreakdown');
                 const bd = sum.charger_breakdown; reportData.breakdown = bd;
-                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="5" class="empty-state">No data</td></tr>'; }
+                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="6" class="empty-state">No data</td></tr>'; }
                 else {
-                    let ts=0,te=0,td=0,tr=0;
-                    let h = Object.entries(bd).map(([id,d])=>{ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue; return `<tr><td class="text-blue">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
-                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
+                    let ts=0,te=0,td=0,tr=0,ti=0;
+                    let h = Object.entries(bd).map(([id,d])=>{const idl=d.idle_cost||0;ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue;ti+=idl; return `<tr><td class="text-blue" title="${d.location||''}">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-orange">${idl.toFixed(2)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${ti.toFixed(2)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
                     bb.innerHTML = h;
                 }
 
                 const sessions = await(await fetch(`${API_BASE}/invoice/sessions${qs}`, { headers: authHeaders() })).json();
                 reportData.sessions = sessions;
                 const sb = document.getElementById('sessionDetails');
-                if (!sessions.length) { sb.innerHTML = '<tr><td colspan="7" class="empty-state">No sessions</td></tr>'; }
+                if (!sessions.length) { sb.innerHTML = '<tr><td colspan="9" class="empty-state">No sessions</td></tr>'; }
                 else {
-                    let ta=0;
-                    let h = sessions.map(s=>{ta+=s.amount; const st=s.start_time?new Date(s.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const dur=s.duration_minutes>0?`${Math.floor(s.duration_minutes/60)}h${Math.round(s.duration_minutes%60)}m`:'-'; const sc=s.status==='completed'?'text-green':s.status==='active'?'text-orange':''; return `<tr><td>#${s.transaction_id}</td><td class="text-blue">${s.charge_point_id}</td><td>${st}</td><td>${dur}</td><td class="text-right">${s.energy_kwh.toFixed(1)}</td><td class="text-right text-green">${s.amount.toFixed(2)}</td><td class="${sc}">${s.status.substring(0,4).toUpperCase()}</td></tr>`;}).join('');
-                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${ta.toFixed(2)}</strong></td><td></td></tr>`;
+                    let ta=0,tE=0,tI=0;
+                    let h = sessions.map(s=>{const ec=s.energy_cost||0, ic=s.idle_cost||0; ta+=s.amount; tE+=ec; tI+=ic; const st=s.start_time?new Date(s.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const dur=s.duration_minutes>0?`${Math.floor(s.duration_minutes/60)}h${Math.round(s.duration_minutes%60)}m`:'-'; const sc=s.status==='completed'?'text-green':s.status==='active'?'text-orange':''; const idl=ic?`${ic.toFixed(2)}`:'-'; return `<tr><td>#${s.transaction_id}</td><td class="text-blue" title="${s.location||''}">${s.charge_point_id}</td><td>${st}</td><td>${dur}</td><td class="text-right">${s.energy_kwh.toFixed(1)}</td><td class="text-right">${ec.toFixed(2)}</td><td class="text-right text-orange" title="${s.idle_minutes||0} min">${idl}</td><td class="text-right text-green">${s.amount.toFixed(2)}</td><td class="${sc}">${s.status.substring(0,4).toUpperCase()}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${tE.toFixed(2)}</strong></td><td class="text-right"><strong>${tI.toFixed(2)}</strong></td><td class="text-right"><strong>${ta.toFixed(2)}</strong></td><td></td></tr>`;
                     sb.innerHTML = h;
                 }
             } catch(e){ console.error('Error:',e); }
         }
         
+        // What a finance team asked a charging record to show: start, end,
+        // charger, location, kWh, the cost split into energy and idling, and
+        // an identifier that means something to the party being invoiced.
+        //
+        // The old export invented all of it. Every row was billed at a
+        // hardcoded RM1.20/kWh, which matched neither the chargers' own rates
+        // nor the figures printed above it on the same page; idling was not
+        // billed at all; the end time read a field the payload does not carry,
+        // so every row said "-"; and the session identifier was a row counter,
+        // S0001 upward, which corresponds to nothing either side holds.
+        function csvCell(v) {
+            const t = (v === null || v === undefined) ? '' : String(v);
+            return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+        }
+
         function exportCSV() {
             if (!reportData.sessions.length) { alert('No data'); return; }
             const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
+            const tn=tenantValue();
             const now=new Date(), invDate=now.toLocaleDateString('en-GB');
             const invNo=`INV-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`;
-            const fmt=d=>new Date(d).toLocaleDateString('en-GB');
-            let te=0,ta=0,td=0; reportData.sessions.forEach(s=>{te+=s.energy_kwh;ta+=s.amount;td+=s.duration_minutes;});
-            const up=1.20, sub=te*up;
-            let csv=`PLAG SINI SDN. BHD.\nEV Charging Platform\n\nInvoice No,: ${invNo}\nInvoice Date,: ${invDate}\nBilling Period,: ${fmt(sd)} - ${fmt(ed)}\n\n`;
-            csv+=`Total Sessions,: ${reportData.sessions.length}\nTotal Energy,: ${te.toFixed(2)} kWh\nTotal Time,: ${(td/60).toFixed(2)} hours\n\n`;
-            csv+='Session ID,Start Time,End Time,Duration (min),Energy (kWh),Unit Price (RM),Amount (RM)\n';
-            reportData.sessions.forEach((s,i)=>{const sid=`S${String(i+1).padStart(4,'0')}`; const st=s.start_time?new Date(s.start_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; const et=s.end_time?new Date(s.end_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; csv+=`${sid},${st},${et},${s.duration_minutes},${s.energy_kwh.toFixed(2)},${up.toFixed(2)},${(s.energy_kwh*up).toFixed(2)}\n`;});
-            csv+=`\nTOTAL AMOUNT,: RM ${sub.toFixed(2)}\n`;
-            if(Object.keys(reportData.breakdown).length){csv+='\nCharger ID,Sessions,Energy (kWh),Duration (hrs),Revenue (RM)\n'; Object.entries(reportData.breakdown).forEach(([id,d])=>{csv+=`${id},${d.sessions},${d.energy_kwh.toFixed(2)},${(d.duration_minutes/60).toFixed(2)},${d.revenue.toFixed(2)}\n`;});}
-            csv+='\nThank you for using Plag Sini.\n';
-            const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`PlagSini_${invNo}.csv`; a.click(); URL.revokeObjectURL(url);
+            const fmt=d=>d?new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+            const rows=[...reportData.sessions].sort((a,b)=>new Date(a.start_time||0)-new Date(b.start_time||0));
+
+            let te=0,tE=0,tI=0,ta=0;
+            rows.forEach(s=>{te+=s.energy_kwh||0;tE+=s.energy_cost||0;tI+=s.idle_cost||0;ta+=s.amount||0;});
+
+            const L=[];
+            L.push('PLAG SINI SDN. BHD.');
+            L.push('EV Charging Session Record');
+            L.push('');
+            L.push(['Document No',invNo].map(csvCell).join(','));
+            L.push(['Generated',invDate].map(csvCell).join(','));
+            L.push(['Billing Period',`${sd||'-'} to ${ed||'-'}`].map(csvCell).join(','));
+            L.push(['Tenant',tenantLabel(tn)].map(csvCell).join(','));
+            L.push(['Sessions',rows.length].map(csvCell).join(','));
+            L.push('');
+            L.push(['Session ID','Start Time','End Time','Charger','Location',
+                    'Energy (kWh)','Rate (RM/kWh)','Energy Cost (RM)',
+                    'Idle (min)','Idling Cost (RM)','Total (RM)','Currency','Status']
+                   .map(csvCell).join(','));
+            rows.forEach(s=>{
+                L.push([
+                    s.transaction_id, fmt(s.start_time), fmt(s.end_time),
+                    s.charge_point_id, s.location || '',
+                    (s.energy_kwh||0).toFixed(2), (s.price_per_kwh||0).toFixed(2),
+                    (s.energy_cost||0).toFixed(2), s.idle_minutes||0,
+                    (s.idle_cost||0).toFixed(2), (s.amount||0).toFixed(2),
+                    s.currency||'MYR', s.status,
+                ].map(csvCell).join(','));
+            });
+            // The invoiced figure belongs in the file being reconciled, not
+            // only in the covering email.
+            L.push(['TOTAL','','','','',te.toFixed(2),'',tE.toFixed(2),'',
+                    tI.toFixed(2),ta.toFixed(2),'MYR',''].map(csvCell).join(','));
+
+            if (Object.keys(reportData.breakdown).length) {
+                L.push('');
+                L.push(['Charger','Location','Sessions','Energy (kWh)','Duration (hrs)',
+                        'Energy Cost (RM)','Idling Cost (RM)','Revenue (RM)']
+                       .map(csvCell).join(','));
+                Object.entries(reportData.breakdown).forEach(([id,d])=>{
+                    L.push([id, d.location||'', d.sessions, d.energy_kwh.toFixed(2),
+                            (d.duration_minutes/60).toFixed(2),
+                            (d.energy_cost||0).toFixed(2), (d.idle_cost||0).toFixed(2),
+                            d.revenue.toFixed(2)].map(csvCell).join(','));
+                });
+            }
+
+            const name=`PlagSini_${tn==='all'?'all-tenants':tn}_${sd||'all'}_${invNo}.csv`;
+            // BOM so Excel opens it as UTF-8 instead of mangling the address.
+            const blob=new Blob(['\ufeff'+L.join('\n')+'\n'],{type:'text/csv;charset=utf-8;'});
+            const url=URL.createObjectURL(blob); const a=document.createElement('a');
+            a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
         }
     </script>
 </body>

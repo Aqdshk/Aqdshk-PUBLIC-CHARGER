@@ -6778,127 +6778,206 @@ async def invoice_page():
         raise HTTPException(status_code=500, detail=f"Error loading invoice page: {str(e)}")
 
 
+def _invoice_window(start_date, end_date):
+    """The reporting period, as two naive datetimes.
+
+    A bare date as the end of a period means the whole of that day. The
+    end-of-day widening used to sit in a `except ValueError` branch that
+    `fromisoformat` stopped reaching in Python 3.11, where a plain
+    "2026-07-15" parses happily as midnight. So the closing date silently
+    dropped everything charged on it, which on a month-end report is the
+    whole of the last day. The shape of the string decides it now, not which
+    parser happened to raise.
+    """
+    def one(value, end=False):
+        value = (value or "").strip()
+        if not value:
+            return None
+        bare_date = len(value) == 10 and "T" not in value
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            dt = datetime.strptime(value[:10], "%Y-%m-%d")
+            bare_date = True
+        if end and bare_date:
+            return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt
+
+    return one(start_date), one(end_date, end=True)
+
+
+def _charger_address(c) -> str:
+    """One line a finance team can put on an invoice.
+
+    City and postcode fall back to the platform's own, which is where every
+    charger sat before those columns existed.
+    """
+    return ", ".join(x for x in (
+        c.location,
+        c.city or os.getenv("OCPI_LOCATION_CITY", "").strip() or None,
+        c.postal_code or os.getenv("OCPI_LOCATION_POSTAL", "").strip() or None,
+    ) if x)
+
+
+def _session_money(s, c) -> tuple:
+    """What one session is worth: (kWh, rate, energy cost, idle cost).
+
+    The rate is the one frozen onto the session when it started, so
+    re-running last month's report after a price change returns last
+    month's figures. Sessions that ran before 2026-11-12 carry no frozen
+    rate and fall back to what their charger charges today.
+    """
+    kwh = float(s.energy_consumed or 0)
+    rate = s.tariff_per_kwh_at_start
+    if rate is None:
+        rate = c.tariff_per_kwh
+    rate = float(rate or 0)
+    return kwh, rate, round(kwh * rate, 2), round(float(s.idle_fee_amount or 0), 2)
+
+
 @app.get("/api/invoice/summary")
 async def get_invoice_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
+    tenant: Optional[str] = Query(
+        None,
+        description="Fleet operator key, e.g. czero-tng. Omit or pass 'all' for every fleet.",
+    ),
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get invoice summary with totals (admin/staff only)"""
-    # Parse dates
-    start_dt = None
-    end_dt = None
-    if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        except:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        except:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            end_dt = end_dt.replace(hour=23, minute=59, second=59)
-    
-    # Build query
-    query = db.query(ChargingSession)
-    
+    """Report totals, scoped to one fleet.
+
+    Two faults here reached the printed report.
+
+    The money was a guess. Every session was billed at a single rate read
+    from the pricing table, which is empty, so the page fell back to
+    RM0.50/kWh for all 503 chargers whatever they actually charge, and the
+    idle fee was not counted at all. A session is now billed at the rate
+    frozen onto it when it started, falling back to its charger's rate for
+    anything that ran before 2026-11-12, plus the idle fee it collected.
+
+    And one report covered every fleet at once, which cannot be sent to any
+    of them. `tenant` scopes the sessions, the per-charger breakdown and the
+    maintenance cost together, so a fleet's net profit is that fleet's
+    revenue less that fleet's repairs rather than the platform's.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    tenant_key = (tenant or "").strip().lower()
+    scoped = bool(tenant_key) and tenant_key != "all"
+
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    if scoped:
+        q = q.filter(Charger.tenant == tenant_key)
     if charger_id:
-        charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-        if charger:
-            query = query.filter(ChargingSession.charger_id == charger.id)
-    
+        q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
-        query = query.filter(ChargingSession.start_time >= start_dt)
+        q = q.filter(ChargingSession.start_time >= start_dt)
     if end_dt:
-        query = query.filter(ChargingSession.start_time <= end_dt)
-    
-    sessions = query.all()
-    
-    # Calculate totals
-    total_sessions = len(sessions)
-    completed_sessions = len([s for s in sessions if s.status == 'completed'])
-    active_sessions = len([s for s in sessions if s.status == 'active'])
-    total_energy = float(sum(s.energy_consumed or 0 for s in sessions))
-    
-    # Get pricing (use default if not set)
-    pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
-    price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50  # Default RM 0.50/kWh
-    
-    total_revenue = total_energy * price_per_kwh
-    
-    # Calculate total duration
-    total_duration_minutes = 0
-    for s in sessions:
-        if s.start_time and s.stop_time:
-            duration = (s.stop_time - s.start_time).total_seconds() / 60
-            total_duration_minutes += duration
-    
-    # Get charger breakdown
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows = q.all()
+
+    total_sessions = len(rows)
+    completed_sessions = active_sessions = 0
+    total_energy = energy_cost = idle_cost = total_duration_minutes = 0.0
     charger_breakdown = {}
-    for s in sessions:
-        charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
-        if charger:
-            cp_id = charger.charge_point_id
-            if cp_id not in charger_breakdown:
-                charger_breakdown[cp_id] = {
-                    "sessions": 0,
-                    "energy_kwh": 0,
-                    "revenue": 0,
-                    "duration_minutes": 0
-                }
-            charger_breakdown[cp_id]["sessions"] += 1
-            charger_breakdown[cp_id]["energy_kwh"] += s.energy_consumed or 0
-            charger_breakdown[cp_id]["revenue"] += (s.energy_consumed or 0) * price_per_kwh
-            if s.start_time and s.stop_time:
-                charger_breakdown[cp_id]["duration_minutes"] += (s.stop_time - s.start_time).total_seconds() / 60
-    
-    # Round values and ensure float (not Decimal)
-    for cp_id in charger_breakdown:
-        charger_breakdown[cp_id]["energy_kwh"] = float(round(charger_breakdown[cp_id]["energy_kwh"], 2))
-        charger_breakdown[cp_id]["revenue"] = float(round(charger_breakdown[cp_id]["revenue"], 2))
-        charger_breakdown[cp_id]["duration_minutes"] = float(round(charger_breakdown[cp_id]["duration_minutes"], 1))
-    
-    # Get maintenance costs in period
+
+    for s, c in rows:
+        if s.status == "completed":
+            completed_sessions += 1
+        elif s.status == "active":
+            active_sessions += 1
+
+        kwh, rate, e_cost, i_cost = _session_money(s, c)
+        total_energy += kwh
+        energy_cost += e_cost
+        idle_cost += i_cost
+
+        minutes = 0.0
+        if s.start_time and s.stop_time:
+            minutes = (s.stop_time - s.start_time).total_seconds() / 60
+        total_duration_minutes += minutes
+
+        d = charger_breakdown.setdefault(c.charge_point_id, {
+            "sessions": 0, "energy_kwh": 0.0, "revenue": 0.0,
+            "energy_cost": 0.0, "idle_cost": 0.0, "duration_minutes": 0.0,
+            "location": _charger_address(c), "tenant": c.tenant,
+        })
+        d["sessions"] += 1
+        d["energy_kwh"] += kwh
+        d["energy_cost"] += e_cost
+        d["idle_cost"] += i_cost
+        d["revenue"] += e_cost + i_cost
+        d["duration_minutes"] += minutes
+
+    for d in charger_breakdown.values():
+        for k in ("energy_kwh", "revenue", "energy_cost", "idle_cost"):
+            d[k] = float(round(d[k], 2))
+        d["duration_minutes"] = float(round(d["duration_minutes"], 1))
+
+    total_revenue = energy_cost + idle_cost
+    # A single RM/kWh is no longer a setting; it is what this period actually
+    # sold at across however many rates the chargers in scope carry.
+    blended = (energy_cost / total_energy) if total_energy else 0.0
+
     maintenance_query = db.query(MaintenanceRecord)
+    if scoped or charger_id:
+        maintenance_query = maintenance_query.join(
+            Charger, Charger.id == MaintenanceRecord.charger_id)
+        if scoped:
+            maintenance_query = maintenance_query.filter(Charger.tenant == tenant_key)
+        if charger_id:
+            maintenance_query = maintenance_query.filter(
+                Charger.charge_point_id == charger_id)
     if start_dt:
-        maintenance_query = maintenance_query.filter(MaintenanceRecord.date_reported >= start_dt)
+        maintenance_query = maintenance_query.filter(
+            MaintenanceRecord.date_reported >= start_dt)
     if end_dt:
-        maintenance_query = maintenance_query.filter(MaintenanceRecord.date_reported <= end_dt)
-    
+        maintenance_query = maintenance_query.filter(
+            MaintenanceRecord.date_reported <= end_dt)
+
     maintenance_records = maintenance_query.all()
     total_maintenance_cost = float(sum(float(m.cost or 0) for m in maintenance_records))
-    
+
     return {
         "period": {
             "start": start_date or "All time",
-            "end": end_date or "Present"
+            "end": end_date or "Present",
+        },
+        "scope": {
+            "tenant": tenant_key if scoped else "all",
+            "charger_id": charger_id or None,
         },
         "sessions": {
             "total": total_sessions,
             "completed": completed_sessions,
-            "active": active_sessions
+            "active": active_sessions,
         },
         "energy": {
             "total_kwh": float(round(total_energy, 2)),
-            "price_per_kwh": float(price_per_kwh)
+            "price_per_kwh": float(round(blended, 4)),
         },
         "revenue": {
             "total": float(round(total_revenue, 2)),
-            "currency": "MYR"
+            "energy": float(round(energy_cost, 2)),
+            "idle": float(round(idle_cost, 2)),
+            "currency": "MYR",
         },
         "duration": {
             "total_minutes": round(total_duration_minutes, 1),
-            "total_hours": round(total_duration_minutes / 60, 2)
+            "total_hours": round(total_duration_minutes / 60, 2),
         },
         "maintenance": {
             "total_records": len(maintenance_records),
-            "total_cost": float(round(total_maintenance_cost, 2))
+            "total_cost": float(round(total_maintenance_cost, 2)),
         },
         "net_profit": float(round(total_revenue - total_maintenance_cost, 2)),
-        "charger_breakdown": charger_breakdown
+        "charger_breakdown": charger_breakdown,
     }
 
 
@@ -6932,16 +7011,7 @@ async def get_partner_invoice_sessions(
     CDR publish as their `id`. The old export numbered rows S0001 upward,
     which matches nothing on their side.
     """
-    def _parse(value, end=False):
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            dt = datetime.strptime(value, "%Y-%m-%d")
-            return dt.replace(hour=23, minute=59, second=59) if end else dt
-
-    start_dt, end_dt = _parse(start_date), _parse(end_date, end=True)
+    start_dt, end_dt = _invoice_window(start_date, end_date)
 
     from ocpi.router import _cdr_settled_sql
 
@@ -6960,18 +7030,8 @@ async def get_partner_invoice_sessions(
 
     rows = []
     for s, c, p in q.order_by(ChargingSession.start_time).all():
-        rate = s.tariff_per_kwh_at_start
-        if rate is None:
-            rate = c.tariff_per_kwh
-        rate = float(rate or 0)
-        kwh = float(s.energy_consumed or 0)
-        energy_cost = round(kwh * rate, 2)
-        idle_cost = round(float(s.idle_fee_amount or 0), 2)
-        address = ", ".join(x for x in (
-            c.location,
-            c.city or os.getenv("OCPI_LOCATION_CITY", "").strip() or None,
-            c.postal_code or os.getenv("OCPI_LOCATION_POSTAL", "").strip() or None,
-        ) if x)
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        address = _charger_address(c)
         rows.append({
             "session_id": str(s.transaction_id),
             "partner": "%s/%s" % (p.country_code, p.party_id),
@@ -7038,68 +7098,77 @@ async def get_invoice_sessions(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
+    tenant: Optional[str] = Query(
+        None,
+        description="Fleet operator key, e.g. czero-tng. Omit or pass 'all' for every fleet.",
+    ),
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get detailed session list for invoice (admin/staff only)"""
-    # Parse dates
-    start_dt = None
-    end_dt = None
-    if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        except:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        except:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            end_dt = end_dt.replace(hour=23, minute=59, second=59)
-    
-    # Build query
-    query = db.query(ChargingSession)
-    
+    """The session lines behind the report, scoped to one fleet.
+
+    These rows are what the page exports, so they carry what Voltality's
+    finance side asked for a charging record to show: start, end, charger,
+    location, kWh, the cost split into energy and idling, and a session
+    identifier that means something to the party being invoiced.
+
+    `transaction_id` is that identifier. It is what the OCPI Session and CDR
+    publish as their `id`, so a line here can be matched against a record
+    the partner already holds. The old export numbered its rows S0001 upward
+    and billed them at a hardcoded RM1.20, neither of which corresponded to
+    anything.
+
+    A session ends when the cable comes out, not when the car stopped
+    drawing power: the idle fee runs in between, so an end time taken from
+    `stop_time` would not account for the amount on the same line.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    tenant_key = (tenant or "").strip().lower()
+
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    if tenant_key and tenant_key != "all":
+        q = q.filter(Charger.tenant == tenant_key)
     if charger_id:
-        charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-        if charger:
-            query = query.filter(ChargingSession.charger_id == charger.id)
-    
+        q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
-        query = query.filter(ChargingSession.start_time >= start_dt)
+        q = q.filter(ChargingSession.start_time >= start_dt)
     if end_dt:
-        query = query.filter(ChargingSession.start_time <= end_dt)
-    
-    sessions = query.order_by(desc(ChargingSession.start_time)).all()
-    
-    # Get pricing
-    pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
-    price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50
-    
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
     result = []
-    for s in sessions:
-        charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
-        
-        duration_minutes = 0
+    for s, c in q.order_by(desc(ChargingSession.start_time)).all():
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        ended = s.unplugged_at or s.stop_time
+
+        duration_minutes = 0.0
         if s.start_time and s.stop_time:
             duration_minutes = (s.stop_time - s.start_time).total_seconds() / 60
-        
-        amount = float(s.energy_consumed or 0) * price_per_kwh
-        
+
         result.append({
             "id": s.id,
             "transaction_id": s.transaction_id,
-            "charge_point_id": charger.charge_point_id if charger else "Unknown",
+            "charge_point_id": c.charge_point_id,
+            "tenant": c.tenant,
+            "location": _charger_address(c),
             "start_time": s.start_time.isoformat() if s.start_time else None,
             "stop_time": s.stop_time.isoformat() if s.stop_time else None,
+            "unplugged_at": s.unplugged_at.isoformat() if s.unplugged_at else None,
+            "end_time": ended.isoformat() if ended else None,
             "duration_minutes": round(duration_minutes, 1),
-            "energy_kwh": float(round(s.energy_consumed or 0, 2)),
-            "price_per_kwh": float(price_per_kwh),
-            "amount": float(round(amount, 2)),
+            "energy_kwh": float(round(kwh, 2)),
+            "price_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "amount": float(round(energy_cost + idle_cost, 2)),
+            "currency": "MYR",
             "status": s.status,
-            "user_id": s.user_id
+            "user_id": s.user_id,
         })
-    
+
     return result
 
 
