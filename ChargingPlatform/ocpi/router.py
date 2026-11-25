@@ -1589,18 +1589,32 @@ async def get_tariffs(
 COMMAND_TYPES = {"START_SESSION", "STOP_SESSION", "UNLOCK_CONNECTOR", "RESERVE_NOW", "CANCEL_RESERVATION"}
 
 
-def _outbound_token() -> Optional[str]:
-    """The token a partner gave us for calling them.
+def _outbound_token(partner_id: Optional[int] = None) -> Optional[str]:
+    """The token to present when calling a partner back.
 
-    Kept in ocpi_partners by the credentials handshake. Only one partner is
-    registered in practice, so the newest row wins; when several exist this
-    should be selected per destination instead.
+    Pass the id of the partner that sent the command. This used to take the
+    newest row outright, which was fine while one partner existed and wrong
+    the moment a second did: Voltality registered their production system as
+    SG/VLT on 2026-11-25 alongside the SG/VOL UAT row, and every callback,
+    including the ones answering UAT, would have gone out carrying the
+    production token. That is the same 401 they spent a month reporting.
+
+    Falling back to the newest row when the caller is unknown keeps the
+    shared-token path working, which is how they drove the whole UAT.
     """
     from database import SessionLocal as _SL
 
     db = _SL()
     try:
-        row = db.query(OcpiPartner).order_by(OcpiPartner.id.desc()).first()
+        row = None
+        if partner_id is not None:
+            row = db.query(OcpiPartner).filter(OcpiPartner.id == partner_id).first()
+        if row is None:
+            row = db.query(OcpiPartner).order_by(OcpiPartner.id.desc()).first()
+            if partner_id is not None and row is not None:
+                logger.warning(
+                    "[ocpi-commands] partner %s not found, falling back to %s/%s",
+                    partner_id, row.country_code, row.party_id)
         return row.token if row else None
     except Exception as e:
         logger.warning("[ocpi-commands] could not read partner token: %s", e)
@@ -1609,8 +1623,15 @@ def _outbound_token() -> Optional[str]:
         db.close()
 
 
-async def _post_command_result(response_url: str, result: str, message: Optional[str] = None) -> None:
-    """Fire-and-forget POST of async CommandResult back to the eMSP."""
+async def _post_command_result(response_url: str, result: str,
+                               message: Optional[str] = None,
+                               partner_id: Optional[int] = None) -> None:
+    """Fire-and-forget POST of async CommandResult back to the eMSP.
+
+    partner_id is the partner that sent the command, so the reply carries
+    the token that partner issued us. Two of them exist since Voltality
+    registered production beside UAT.
+    """
     import asyncio
     import httpx
     try:
@@ -1621,7 +1642,7 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         # commands ran here and they were never told the outcome.
         from .push import auth_header
 
-        token = _outbound_token() or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
+        token = _outbound_token(partner_id) or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
         headers = {"Content-Type": "application/json"}
         if token:
             # Base64, per OCPI 2.2.1. Sending it raw is itself a 401 on
@@ -1678,6 +1699,11 @@ async def post_command(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # Who asked, so the callback carries the token that partner issued us
+    # rather than whichever row happens to be newest. None on the shared
+    # token, which falls back to the newest partner as it always did.
+    _caller_id = caller.id if caller is not None else None
+
     response_url = body.get("response_url")
     if not response_url:
         return {
@@ -1713,7 +1739,8 @@ async def post_command(
             }
         cp = get_active_charge_point(cp_id)
         if cp is None:
-            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline",
+                                                       partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1734,9 +1761,10 @@ async def post_command(
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
                 if accepted and (auth_ref or partner_id is not None):
                     await _attach_auth_reference(charger.id, auth_ref, partner_id)
-                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED",
+                                            partner_id=_caller_id)
             except Exception as e:
-                await _post_command_result(response_url, "FAILED", str(e))
+                await _post_command_result(response_url, "FAILED", str(e), partner_id=_caller_id)
 
         asyncio.create_task(_dispatch_start())
         return {
@@ -1772,7 +1800,7 @@ async def post_command(
                     .first()
                 )
         if not sess or not sess.transaction_id:
-            asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION"))
+            asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION", partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1781,7 +1809,8 @@ async def post_command(
         charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
         cp = get_active_charge_point(charger.charge_point_id) if charger else None
         if cp is None:
-            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline",
+                                                       partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1792,9 +1821,10 @@ async def post_command(
             try:
                 resp = await cp.remote_stop_transaction(transaction_id=int(sess.transaction_id))
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
-                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED",
+                                            partner_id=_caller_id)
             except Exception as e:
-                await _post_command_result(response_url, "FAILED", str(e))
+                await _post_command_result(response_url, "FAILED", str(e), partner_id=_caller_id)
 
         asyncio.create_task(_dispatch_stop())
         return {
@@ -1806,7 +1836,7 @@ async def post_command(
     # UNLOCK_CONNECTOR / RESERVE_NOW / CANCEL_RESERVATION — surface as NOT_SUPPORTED
     # until the underlying OCPP plumbing is added. Returning a structured response
     # is required by the spec even for unsupported commands.
-    asyncio.create_task(_post_command_result(response_url, "NOT_SUPPORTED"))
+    asyncio.create_task(_post_command_result(response_url, "NOT_SUPPORTED", partner_id=_caller_id))
     return {
         "status_code": 1000, "status_message": "Success",
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -2006,7 +2006,7 @@ class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
         real_client = httpx.AsyncClient
         real_token = router._outbound_token
         httpx.AsyncClient = _FakeClient
-        router._outbound_token = lambda: self.TOKEN
+        router._outbound_token = lambda partner_id=None: self.TOKEN
         try:
             await router._post_command_result(
                 "https://api-uat.example.io/ocpi/emsp/2.2.1/commands/START_SESSION/1",
@@ -2053,7 +2053,7 @@ class OutboundAuthTests(unittest.IsolatedAsyncioTestCase):
         real_token = router._outbound_token
         real_env = os.environ.pop("OCPI_OUTBOUND_TOKEN", None)
         httpx.AsyncClient = _FakeClient
-        router._outbound_token = lambda: None
+        router._outbound_token = lambda partner_id=None: None
         try:
             await router._post_command_result("https://example.test/cb", "ACCEPTED")
         finally:
@@ -2172,7 +2172,7 @@ class CallbackOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         real_client, real_token = httpx.AsyncClient, router._outbound_token
         httpx.AsyncClient = _Client
-        router._outbound_token = lambda: "tok"
+        router._outbound_token = lambda partner_id=None: "tok"
         try:
             with self.assertLogs("ocpi.router", level=logging.INFO) as caught:
                 await router._post_command_result("https://partner.test/cb", "ACCEPTED")
@@ -2851,3 +2851,91 @@ class CommandScopeTests(OcpiTestBase):
     def test_a_missing_session_id_is_survivable(self):
         r = self._cmd("STOP_SESSION", {})
         self.assertEqual(r["status_code"], 1000)
+
+
+class MultiPartnerTokenTests(unittest.TestCase):
+    """With two partners registered, reply to the one that asked.
+
+    `_outbound_token` took the newest row outright, which was correct while
+    a single partner existed. Voltality registered production as SG/VLT on
+    2026-11-25 beside the SG/VOL UAT row, so every callback, including the
+    ones answering UAT, would have carried the production token. That is
+    the same 401 they spent a month reporting, arriving by a new route on
+    go-live day.
+    """
+
+    def setUp(self):
+        Base.metadata.create_all(bind=engine)
+        self.db = SessionLocal()
+        from database import OcpiPartner
+        self.made = []
+        for cc, pid, tok in (("SG", "TSTA", "token-aaa"), ("SG", "TSTB", "token-bbb")):
+            p = OcpiPartner(country_code=cc, party_id=pid, token=tok,
+                            versions_url="https://%s.test/versions" % pid.lower())
+            self.db.add(p)
+            self.db.commit()
+            self.made.append(p)
+        self.first, self.second = self.made
+
+    def tearDown(self):
+        from database import OcpiPartner
+        for p in self.made:
+            self.db.query(OcpiPartner).filter(OcpiPartner.id == p.id).delete()
+        self.db.commit()
+        self.db.close()
+
+    def _token(self, partner_id=None):
+        import importlib
+        return importlib.import_module("ocpi.router")._outbound_token(partner_id)
+
+    def test_the_older_partner_gets_its_own_token(self):
+        """The case that broke: not the newest row."""
+        self.assertEqual(self._token(self.first.id), "token-aaa")
+
+    def test_the_newer_partner_gets_its_own_token(self):
+        self.assertEqual(self._token(self.second.id), "token-bbb")
+
+    def test_an_unknown_caller_falls_back_to_the_newest(self):
+        """The shared token identifies nobody, and drove the whole UAT."""
+        self.assertEqual(self._token(None), "token-bbb")
+
+    def test_a_partner_id_that_no_longer_exists_falls_back(self):
+        missing = max(p.id for p in self.made) + 10_000
+        self.assertEqual(self._token(missing), "token-bbb")
+
+    async def _fire(self, partner_id):
+        import importlib
+        router = importlib.import_module("ocpi.router")
+        sent = {}
+
+        class _Client:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None, headers=None):
+                sent["headers"] = headers or {}
+                return _FakeResponse(200)
+
+        import httpx
+        real = httpx.AsyncClient
+        httpx.AsyncClient = _Client
+        try:
+            await router._post_command_result(
+                "https://partner.test/cb", "ACCEPTED", partner_id=partner_id)
+        finally:
+            httpx.AsyncClient = real
+        return sent["headers"].get("Authorization")
+
+    def test_the_callback_carries_the_asking_partners_token(self):
+        import asyncio
+
+        from ocpi.push import auth_header
+        got = asyncio.new_event_loop().run_until_complete(self._fire(self.first.id))
+        self.assertEqual(got, auth_header("token-aaa"))
+        self.assertNotEqual(got, auth_header("token-bbb"))
