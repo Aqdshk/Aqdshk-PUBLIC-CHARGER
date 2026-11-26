@@ -194,12 +194,6 @@
         <div class="modal-backdrop" id="editChargerModal" onclick="if(event.target===this)closeEditCharger()">
             <div class="modal-box">
                 <h3>✏️ Edit charger — <span id="ecId">—</span></h3>
-                <label>Station name</label>
-                <input type="text" id="ecName" placeholder="e.g. PlagSini Shah Alam HQ">
-                <div style="font-size:10px;color:var(--text-muted);margin:-4px 0 8px;">
-                    What a driver sees in a roaming partner's app, so put on the
-                    charger's decal whatever you type here.
-                </div>
                 <label>Location label</label>
                 <input type="text" id="ecLocation" placeholder="e.g. Carpark B · Slot 12">
                 <label>City</label>
@@ -909,7 +903,6 @@
             if (!c) { alert('Charger not found in cached list. Refresh and try again.'); return; }
             _editingCpId = cpId;
             document.getElementById('ecId').textContent = cpId;
-            document.getElementById('ecName').value = c.name || '';
             document.getElementById('ecLocation').value = c.location || '';
             document.getElementById('ecCity').value = c.city || '';
             document.getElementById('ecPostal').value = c.postal_code || '';
@@ -1007,7 +1000,6 @@
             // Always sent, unlike the fields above: emptying the box is how
             // you hand a charger back to the platform-wide default, and a
             // blank that is never sent could not express that.
-            body.name = document.getElementById('ecName').value.trim();
             body.city = document.getElementById('ecCity').value.trim();
             body.postal_code = document.getElementById('ecPostal').value.trim();
             if (lat !== '') body.latitude = parseFloat(lat);
