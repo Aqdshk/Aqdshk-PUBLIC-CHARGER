@@ -12,6 +12,7 @@ none of them can quietly regress:
   - idle was measured to stop_time, so a session stopped from the app or by a
     roaming partner billed nothing however long the car blocked the bay
 """
+import glob
 import io
 import math
 import os
@@ -4344,3 +4345,75 @@ class ChargerPageDeleteTests(unittest.TestCase):
         """The server explains why a charger with history cannot go. A page
         that swallowed that and said "failed" would send someone hunting."""
         self.assertIn("r.detail", self.page)
+
+
+class DashboardLookTests(unittest.TestCase):
+    """The dashboard was audited against the unslop signs list.
+
+    These are the three tells that had spread across every page: emoji
+    standing in for icons, uppercase wide-tracked labels at 9px, and a
+    neon accent with coloured glows. Each one comes back the moment
+    somebody copies an old block, so each is pinned here.
+    """
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = {}
+        for path in glob.glob(os.path.join(cls.ROOT, "templates", "*.html")):
+            with io.open(path, encoding="utf-8") as fh:
+                cls.pages[os.path.basename(path)] = fh.read()
+        with io.open(os.path.join(cls.ROOT, "static", "styles.css"),
+                     encoding="utf-8") as fh:
+            cls.css = fh.read()
+
+    EMOJI = re.compile(r"[🌀-🫿☀-➿⬀-⯿]")
+
+    def test_no_emoji_stands_in_for_a_nav_icon(self):
+        """An emoji renders in the system's own colour and weight, so the
+        sidebar had seventeen colours competing with the one accent."""
+        for name, html in sorted(self.pages.items()):
+            with self.subTest(name):
+                bad = re.findall(r'nav-item-icon">(?!<svg)[^<]', html)
+                self.assertEqual(bad, [], "%s still has an emoji nav icon" % name)
+
+    def test_the_dashboard_carries_no_emoji_at_all(self):
+        self.assertEqual(self.EMOJI.findall(self.pages["dashboard.html"]), [])
+
+    def test_no_uppercase_tracked_labels(self):
+        """text-transform: uppercase with letter-spacing on a 9px label is
+        the loudest tell on the list, and 9px is unreadable anyway."""
+        self.assertNotIn("text-transform: uppercase", self.css)
+        self.assertNotIn("text-transform:uppercase", self.css)
+        self.assertNotIn("text-transform: uppercase", self.pages["dashboard.html"])
+
+    def test_the_accent_is_not_neon(self):
+        """#00e676 and #00ff88 put the loudest colour on the chrome and
+        left nothing louder for the content.
+
+        Comments are stripped first: the commit that removed them explains
+        what they were, and a test that fails on its own explanation would
+        push the next person to delete the explanation."""
+        css = re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)
+        for gone in ("#00e676", "#00ff88"):
+            with self.subTest(gone):
+                self.assertNotIn(gone, css)
+
+    def test_borders_are_hairlines(self):
+        self.assertIn("--border: rgba(", self.css)
+
+    def test_nothing_glows_or_pulses(self):
+        """signs.md: coloured glows, and looping motion such as a breathing
+        dot. A pulsing dot on a healthy system is an alarm that means
+        nothing."""
+        page = self.pages["dashboard.html"]
+        self.assertNotIn("animation: pulse", page)
+        self.assertNotIn("box-shadow: 0 0 8px", page)
+        self.assertNotIn("rgba(0,230,118,.25)", self.css)
+
+    def test_hover_does_not_lift_a_card(self):
+        self.assertNotIn("transform: translateY(-1px); box-shadow", self.css)
+
+    def test_transitions_name_their_properties(self):
+        self.assertNotIn("transition: all var(--transition)", self.css)
