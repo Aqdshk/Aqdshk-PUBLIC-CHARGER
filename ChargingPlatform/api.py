@@ -717,8 +717,21 @@ class ChargerStatus(BaseModel):
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None
     number_of_connectors: Optional[int] = None
-    # Physical / location info
+    # Physical / location info.
+    #
+    # city, postal_code and name are declared here because the route carries
+    # response_model=List[ChargerStatus] and FastAPI drops any key the model
+    # does not name. Leaving them out did real damage rather than merely
+    # hiding something: the Edit dialog populated city and postcode from this
+    # payload, got nothing, and its save sends those two fields unconditionally
+    # so that clearing a box can clear the value. Opening Edit and saving any
+    # unrelated change therefore wiped the charger's city and postcode, and
+    # that address is what a roaming partner publishes to its drivers.
     location: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
+    # What a driver sees as the station's name in a partner's app.
+    name: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
@@ -1232,6 +1245,11 @@ async def get_chargers(
             "active_transactions": active_txn_by_conn or None,
             "number_of_connectors": charger.number_of_connectors,
             "location": charger.location,
+            # The Edit dialog fills these from here and sends them back
+            # unconditionally, so omitting them made saving wipe them.
+            "city": charger.city,
+            "postal_code": charger.postal_code,
+            "name": charger.name,
             "latitude": charger.latitude,
             "longitude": charger.longitude,
             "connector_type": eff_connector,
@@ -1570,6 +1588,10 @@ class UpdateChargerInfoRequest(BaseModel):
     # an UPDATE against the database, so a charger could never be moved between
     # tenants from the dashboard.
     tenant: Optional[str] = None
+    # The station's display name, which is what a driver sees in a roaming
+    # partner's app. Always sent by the dashboard, so emptying the box clears
+    # it rather than leaving the old name in place.
+    name: Optional[str] = None
     # Required to move a charger into or out of a fleet that is being invoiced
     # against a live contract. Not a formality: the move decides which fleet
     # earns from this charger from now on, and the caller has to say it means
@@ -1722,6 +1744,8 @@ async def update_charger_info(
         raise HTTPException(status_code=404, detail="Charger not found")
     if req.location is not None:
         charger.location = req.location
+    if req.name is not None:
+        charger.name = req.name.strip() or None
     if req.city is not None:
         charger.city = req.city.strip() or None
     if req.postal_code is not None:
@@ -1777,6 +1801,7 @@ async def update_charger_info(
     return {
         "success": True,
         "charge_point_id": charge_point_id,
+        "name": charger.name,
         "location": charger.location,
         "city": charger.city,
         "postal_code": charger.postal_code,

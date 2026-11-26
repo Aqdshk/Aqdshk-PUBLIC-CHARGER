@@ -2659,6 +2659,33 @@ class ChargersPayloadTests(unittest.TestCase):
         from ocpi.router import publishes
         self.assertEqual(self._row()["roaming_published"], publishes(self.charger))
 
+    def test_the_address_fields_survive_the_response_model(self):
+        """The Edit dialog fills these from this payload and its save sends
+        them unconditionally, so that clearing a box clears the value. With
+        them missing from the model the dialog showed blanks and saving any
+        unrelated change wiped the charger's city and postcode, which is the
+        address a roaming partner publishes to its drivers."""
+        row = self._row()
+        for f in ("city", "postal_code", "name"):
+            with self.subTest(f):
+                self.assertIn(f, row)
+
+    def test_the_address_reaches_the_dialog_intact(self):
+        self.charger.city = "Shah Alam"
+        self.charger.postal_code = "40200"
+        self.charger.name = "Test Station"
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        try:
+            row = self._row()
+            self.assertEqual(row["city"], "Shah Alam")
+            self.assertEqual(row["postal_code"], "40200")
+            self.assertEqual(row["name"], "Test Station")
+        finally:
+            self.charger.city = self.charger.postal_code = self.charger.name = None
+            self.db.commit()
+            api.invalidate_chargers_cache()
+
     def test_a_withheld_tenant_is_reported_as_not_published(self):
         self.charger.tenant = "perodua"
         self.db.commit()
@@ -3658,6 +3685,58 @@ class BillingLockTests(unittest.TestCase):
         self.assertIs(r.json()["billing_locked"], True)
         self.client.patch("/api/tenants/%s" % self.OPEN,
                           json={"billing_locked": False})
+
+
+class StationNameTests(unittest.TestCase):
+    """A driver finds a charger in a partner's app by its name. There was no
+    way to set one, so every station published to Touch 'n Go had none."""
+
+    CP = "STATIONNAME1"
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] =             lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+        cls.charger = Charger(charge_point_id=cls.CP, tenant="czero-tng",
+                              status="offline", availability="available")
+        cls.db.add(cls.charger)
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(Charger).filter(
+            Charger.id == cls.charger.id).delete(synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def _patch(self, **body):
+        return self.client.patch("/api/admin/chargers/%s/info" % self.CP, json=body)
+
+    def test_a_name_can_be_set(self):
+        r = self._patch(name="PlagSini Shah Alam HQ")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.refresh(self.charger)
+        self.assertEqual(self.charger.name, "PlagSini Shah Alam HQ")
+
+    def test_an_empty_name_clears_it(self):
+        self._patch(name="Something")
+        self._patch(name="   ")
+        self.db.refresh(self.charger)
+        self.assertIsNone(self.charger.name)
+
+    def test_the_page_offers_the_field(self):
+        page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "templates", "chargers.html")
+        with io.open(page, encoding="utf-8") as fh:
+            html = fh.read()
+        self.assertIn('id="ecName"', html)
+        self.assertIn("body.name = document.getElementById('ecName')", html)
+        self.assertIn("document.getElementById('ecName').value = c.name", html)
 
 
 class ChargerPageLockTests(unittest.TestCase):
