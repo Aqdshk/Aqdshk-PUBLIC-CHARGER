@@ -140,8 +140,7 @@
         <div class="dashboard-container fade-in">
             <!-- Filters -->
             <div class="inv-filter no-print">
-                <div><label>Tenant</label><select id="filterTenant"><option value="all">All Tenants</option></select></div>
-                <div><label>Roaming partner</label><select id="filterPartner"><option value="">— none (tenant report) —</option></select></div>
+                <div><label>Report for</label><select id="filterScope" style="min-width:230px;"><option value="all">All tenants (combined)</option></select></div>
                 <div><label>From</label><input type="date" id="startDate"></div>
                 <div><label>To</label><input type="date" id="endDate"></div>
                 <div><label>Charger</label><select id="filterCharger"><option value="">All</option></select></div>
@@ -205,85 +204,137 @@
         sidebarOverlay.addEventListener('click', closeSidebar);
 
         document.addEventListener('DOMContentLoaded', () => {
-            initTenant(); loadPartners(); loadChargers(); setThisMonth();
+            initScope().then(() => { loadChargers(); setThisMonth(); });
         });
 
-        // Two different populations, and sending the wrong one is how an
-        // invoice stops matching the other side's records. A partner
-        // settlement is only the charges that partner sent us, and only
-        // those whose CDR we released. A tenant report is every charge on
-        // that fleet's chargers, walk-ins included, which the partner has
-        // never seen and cannot reconcile.
-        function partnerValue() {
-            const el = document.getElementById('filterPartner');
-            return (el && el.value) || '';
+        // One control, because two could disagree. A tenant dropdown and a
+        // partner dropdown sat side by side and the partner silently won,
+        // so the page could read "HICOM Public Charging" while showing
+        // Voltality's figures. There is nothing to reconcile now: a report
+        // is for one thing, and the list says what the thing is.
+        //
+        // The two kinds are not interchangeable. A fleet report is every
+        // charge on that tenant's chargers, walk-ins and app users
+        // included. A roaming settlement is only the charges one partner
+        // sent us, and only those whose CDR we released, which is what
+        // their own records can be matched against.
+        function scopeEl() { return document.getElementById('filterScope'); }
+
+        function scopeKind() {
+            const v = scopeEl().value || 'all';
+            if (v.startsWith('partner:')) return 'partner';
+            if (v.startsWith('tenant:')) return 'tenant';
+            return 'all';
         }
 
-        async function loadPartners() {
-            const el = document.getElementById('filterPartner');
+        function scopeKey() {
+            const v = scopeEl().value || 'all';
+            const i = v.indexOf(':');
+            return i < 0 ? '' : v.slice(i + 1);
+        }
+
+        function scopeText() {
+            const o = scopeEl().selectedOptions[0];
+            return o ? o.textContent.trim() : 'All tenants';
+        }
+
+        function partnerIsTest() {
+            return scopeEl().selectedOptions[0]?.dataset.env === 'test';
+        }
+
+        // The sidebar switcher scopes the whole dashboard. It still drives
+        // this page while the report is a fleet one, and is left alone for a
+        // partner settlement, which is not a fleet and has no tenant to show.
+        function syncSidebar() {
+            if (typeof window.setTenant !== 'function') return;
+            const kind = scopeKind();
+            if (kind === 'partner') return;
+            const want = kind === 'tenant' ? scopeKey() : 'all';
+            if (window.currentTenant() !== want) window.setTenant(want);
+        }
+
+        let _scopeBuilt = { tenants: false, partners: false };
+
+        async function buildScope() {
+            const el = scopeEl();
+            const keep = el.value;
+
+            const tenants = (typeof window.tenantList === 'function')
+                ? window.tenantList().filter(t => t.value !== 'all') : [];
+            let partners = [];
             try {
-                const rows = await (await fetch(`${API_BASE}/invoice/partners`,
-                    { headers: authHeaders() })).json();
-                // A partner registers its test and live sides as two parties
-                // under one business name. Showing "Voltality" twice is how
-                // someone invoices the simulator.
-                (rows || []).forEach(p => {
+                partners = await (await fetch(`${API_BASE}/invoice/partners`,
+                    { headers: authHeaders() })).json() || [];
+            } catch (e) { partners = []; }
+            _scopeBuilt = { tenants: tenants.length > 0, partners: partners.length > 0 };
+
+            el.innerHTML = '';
+            const all = document.createElement('option');
+            all.value = 'all';
+            all.textContent = 'All tenants (combined)';
+            el.appendChild(all);
+
+            if (tenants.length) {
+                const g = document.createElement('optgroup');
+                g.label = 'Fleet report  ·  internal P&L';
+                tenants.forEach(t => {
                     const o = document.createElement('option');
-                    o.value = p.party_id;
-                    o.dataset.env = p.environment || 'production';
-                    const tag = o.dataset.env === 'test' ? 'TEST / UAT' : 'LIVE';
-                    o.textContent = `${p.name} — ${tag} (${p.code})`;
-                    el.appendChild(o);
+                    o.value = 'tenant:' + t.value;
+                    o.textContent = t.label;
+                    g.appendChild(o);
                 });
-            } catch (e) {}
-            el.addEventListener('change', () => { loadReport(); });
+                el.appendChild(g);
+            }
+
+            if (partners.length) {
+                const g = document.createElement('optgroup');
+                g.label = 'Roaming settlement  ·  invoice a partner';
+                partners.forEach(pt => {
+                    const o = document.createElement('option');
+                    o.value = 'partner:' + pt.party_id;
+                    o.dataset.env = pt.environment || 'production';
+                    const tag = o.dataset.env === 'test' ? 'TEST / UAT' : 'LIVE';
+                    o.textContent = `${pt.name} — ${tag} (${pt.code})`;
+                    g.appendChild(o);
+                });
+                el.appendChild(g);
+            }
+
+            // Keep what was selected; otherwise follow the sidebar's tenant.
+            if (keep && [...el.options].some(o => o.value === keep)) {
+                el.value = keep;
+            } else {
+                const t = (typeof window.currentTenant === 'function')
+                    ? window.currentTenant() : 'all';
+                el.value = (t && t !== 'all' &&
+                            [...el.options].some(o => o.value === 'tenant:' + t))
+                    ? 'tenant:' + t : 'all';
+            }
         }
 
-        // A report is scoped before it is generated, so the scope belongs in
-        // the filter bar beside the dates rather than only in the sidebar.
-        // Both drive the same state: picking a tenant here moves the sidebar
-        // switcher too, and moving the switcher re-generates the report.
-        function tenantValue() {
-            const el = document.getElementById('filterTenant');
-            return (el && el.value) || 'all';
-        }
+        async function initScope() {
+            await buildScope();
+            // The tenant list arrives from /api/tenants a moment after boot,
+            // so rebuild when it lands rather than leaving only the partners.
+            if (!_scopeBuilt.tenants) setTimeout(buildScope, 1200);
 
-        function tenantLabel(v) {
-            const el = document.getElementById('filterTenant');
-            if (!el) return v;
-            for (const o of el.options) if (o.value === v) return o.textContent;
-            return v;
-        }
-
-        function initTenant() {
-            const el = document.getElementById('filterTenant');
-            const paint = () => {
-                const rows = (typeof window.tenantList === 'function') ? window.tenantList() : [];
-                const want = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
-                if (rows.length) {
-                    el.innerHTML = rows.map(t =>
-                        `<option value="${t.value}">${t.label}</option>`).join('');
-                }
-                el.value = want;
-                if (el.value !== want) el.value = 'all';
-            };
-            paint();
-            // The list arrives from /api/tenants a moment after boot, so repaint
-            // when it lands rather than leaving the single fallback option.
-            setTimeout(paint, 1200);
-
-            el.addEventListener('change', () => {
-                if (typeof window.setTenant === 'function') window.setTenant(el.value);
+            scopeEl().addEventListener('change', () => {
+                syncSidebar();
                 loadChargers();
                 loadReport();
             });
             window.addEventListener('tenantChange', (e) => {
+                if (scopeKind() === 'partner') return;   // not a fleet view
                 const v = (e.detail && e.detail.tenant) || 'all';
-                if (el.value === v) return;
-                paint();
-                el.value = v;
-                loadChargers();
-                loadReport();
+                const want = v === 'all' ? 'all' : 'tenant:' + v;
+                if (scopeEl().value === want) return;
+                buildScope().then(() => {
+                    if ([...scopeEl().options].some(o => o.value === want)) {
+                        scopeEl().value = want;
+                    }
+                    loadChargers();
+                    loadReport();
+                });
             });
         }
 
@@ -292,10 +343,11 @@
             const keep = sel.value;
             try {
                 const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
-                // Scope the charger list too: a report for one fleet should not
-                // offer another fleet's chargers in its own filter.
-                const t = tenantValue();
-                const url = `${API_BASE}/chargers` + (t && t !== 'all' ? `?tenant=${encodeURIComponent(t)}` : '');
+                // A fleet report should not offer another fleet's chargers.
+                // A settlement can touch any charger the partner used, so it
+                // is not narrowed.
+                const t = scopeKind() === 'tenant' ? scopeKey() : '';
+                const url = `${API_BASE}/chargers` + (t ? `?tenant=${encodeURIComponent(t)}` : '');
                 const cs = await(await fetch(url, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
                 sel.innerHTML = '<option value="">All</option>';
                 cs.forEach(c=>{sel.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;});
@@ -333,38 +385,24 @@
             const sd = document.getElementById('startDate').value;
             const ed = document.getElementById('endDate').value;
             const ci = document.getElementById('filterCharger').value;
-            const pt = partnerValue();
-            const tn = tenantValue();
             if (sd) p.push(`start_date=${sd}`);
             if (ed) p.push(`end_date=${ed}`);
             if (ci) p.push(`charger_id=${ci}`);
-            if (pt) p.push(`party_id=${encodeURIComponent(pt)}`);
-            else if (tn && tn !== 'all') p.push(`tenant=${encodeURIComponent(tn)}`);
+            if (scopeKind() === 'partner') p.push(`party_id=${encodeURIComponent(scopeKey())}`);
+            else if (scopeKind() === 'tenant') p.push(`tenant=${encodeURIComponent(scopeKey())}`);
             return p.join('&');
-        }
-
-        function scopeText() {
-            const pt = partnerValue();
-            if (!pt) return tenantLabel(tenantValue());
-            const el = document.getElementById('filterPartner');
-            return [...el.options].find(o => o.value === pt)?.textContent || pt;
-        }
-
-        function partnerIsTest() {
-            const el = document.getElementById('filterPartner');
-            return el.selectedOptions[0]?.dataset.env === 'test';
         }
 
         function showScopeNote() {
             const el = document.getElementById('scopeNote');
-            if (partnerValue() && partnerIsTest()) {
+            if (scopeKind() === 'partner' && partnerIsTest()) {
                 el.style.display = 'block';
                 el.style.background = 'rgba(255,68,102,.10)';
                 el.style.color = '#ff4466';
                 el.textContent = 'Test environment. These charges came from the '
                     + 'partner\'s UAT side, not from paying drivers. Do not invoice '
                     + 'from this. Pick the LIVE party instead.';
-            } else if (partnerValue()) {
+            } else if (scopeKind() === 'partner') {
                 el.style.display = 'block';
                 el.style.background = 'rgba(0,230,118,.08)';
                 el.style.color = 'var(--accent,#22c55e)';
@@ -375,9 +413,12 @@
                 el.style.display = 'block';
                 el.style.background = 'rgba(255,167,38,.08)';
                 el.style.color = 'var(--orange,#ffa726)';
-                el.textContent = 'Fleet report. Every charge on this tenant\'s chargers, '
-                    + 'including walk-ins and app users a roaming partner never saw. '
-                    + 'For internal P&L, not for invoicing a partner.';
+                el.textContent = (scopeKind() === 'all'
+                    ? 'All fleets combined. '
+                    : 'Fleet report. ')
+                    + 'Every charge on these chargers, including walk-ins and app '
+                    + 'users a roaming partner never saw. For internal P&L, not for '
+                    + 'invoicing a partner.';
             }
         }
 
@@ -387,12 +428,8 @@
             document.getElementById('reportPeriod').textContent = `${sd||'-'} ~ ${ed||'-'}`;
             document.getElementById('reportTenant').textContent = scopeText();
             showScopeNote();
-            if (partnerValue()) return loadPartnerReport();
-            const ci=document.getElementById('filterCharger').value;
-            const tn=tenantValue();
-            const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
-            if(tn && tn!=='all') p.push(`tenant=${encodeURIComponent(tn)}`);
-            const qs = p.length ? '?'+p.join('&') : '';
+            if (scopeKind() === 'partner') return loadPartnerReport();
+            const qs = '?' + scopeParams();
             try {
                 const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`, { headers: authHeaders() })).json();
                 document.getElementById('totalSessions').textContent = sum.sessions.total;

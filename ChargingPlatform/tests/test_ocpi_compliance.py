@@ -3326,10 +3326,13 @@ class InvoicePageTests(unittest.TestCase):
             cls.page = fh.read()
 
     def test_the_page_scopes_its_requests(self):
-        self.assertIn("tenant=${encodeURIComponent(tn)}", self.page)
+        self.assertIn("tenant=${encodeURIComponent(scopeKey())}", self.page)
 
     def test_the_page_offers_the_scope_in_its_filter_bar(self):
-        self.assertIn('id="filterTenant"', self.page)
+        """The tenant and partner pickers became one control; what matters
+        is still that the scope is chosen here, beside the dates."""
+        self.assertIn('id="filterScope"', self.page)
+        self.assertIn("Report for", self.page)
 
     def test_the_page_and_the_sidebar_share_one_scope(self):
         """Two controls that can disagree would let someone export a fleet's
@@ -3998,7 +4001,23 @@ class InvoicePagePartnerTests(unittest.TestCase):
             cls.page = fh.read()
 
     def test_the_page_offers_a_roaming_partner(self):
-        self.assertIn('id="filterPartner"', self.page)
+        self.assertIn("partner:", self.page)
+        self.assertIn("Roaming settlement", self.page)
+
+    def test_the_scope_is_one_control(self):
+        """A tenant dropdown and a partner dropdown sat side by side and the
+        partner silently won, so the page could read "HICOM Public Charging"
+        while showing Voltality's figures. One control cannot do that."""
+        self.assertIn('id="filterScope"', self.page)
+        for gone in ('id="filterTenant"', 'id="filterPartner"',
+                     "function tenantValue", "function partnerValue"):
+            with self.subTest(gone):
+                self.assertNotIn(gone, self.page)
+
+    def test_the_two_kinds_are_grouped_and_labelled(self):
+        self.assertIn("internal P&L", self.page)
+        self.assertIn("invoice a partner", self.page)
+        self.assertIn("All tenants (combined)", self.page)
 
     def test_the_page_scopes_by_party(self):
         self.assertIn("party_id=", self.page)
@@ -4014,13 +4033,19 @@ class InvoicePagePartnerTests(unittest.TestCase):
             with self.subTest(gone):
                 self.assertNotIn(gone, self.page)
 
+    def test_a_partner_scope_does_not_move_the_sidebar(self):
+        """A settlement is not a fleet, so it has no tenant to scope the
+        rest of the dashboard to; changing it as a side effect of opening
+        an invoice would re-scope every other page."""
+        self.assertIn("if (kind === 'partner') return;", self.page)
+
     def test_a_partners_live_side_is_told_apart_from_its_test_side(self):
         """Voltality is SG/VOL on api-uat.voltnet.io and SG/VLT on
         api.voltnet.io, both carrying the business name "Voltality". A
         picker showing it twice invites someone to invoice the simulator."""
         self.assertIn("TEST / UAT", self.page)
         self.assertIn("LIVE", self.page)
-        self.assertIn("p.environment", self.page)
+        self.assertIn("pt.environment", self.page)
 
     def test_picking_a_test_party_is_objected_to(self):
         # The sentence is concatenated across source lines, so match the
