@@ -230,6 +230,9 @@ def build_xlsx(meta: dict, rows: list, breakdown: Optional[list] = None) -> byte
                 "kwh": f_tot_kwh, "money": f_tot_money}
 
     def sheet_header(ws, title, first_col_width):
+        # first_col_width is COLUMNS[n][3]. Index 2 is the PDF heading, and
+        # passing that string here raised on xlsxwriter 3.3 while an older
+        # version accepted it, which is why this reached production.
         """Logo, company and the document's own details, above the table."""
         ws.set_row(0, 46)
         if LOGO_PATH.exists():
@@ -263,7 +266,7 @@ def build_xlsx(meta: dict, rows: list, breakdown: Optional[list] = None) -> byte
     ws.set_landscape()
     ws.fit_to_pages(1, 0)
     ws.repeat_rows(0)
-    top = sheet_header(ws, "Sessions", COLUMNS[0][2])
+    top = sheet_header(ws, "Sessions", COLUMNS[0][3])
 
     for ci, (_key, head, _ph, width, _w, _kind) in enumerate(COLUMNS):
         ws.set_column(ci, ci, width)
@@ -303,7 +306,7 @@ def build_xlsx(meta: dict, rows: list, breakdown: Optional[list] = None) -> byte
         ws2 = wb.add_worksheet("By Charger")
         ws2.set_paper(9)
         ws2.fit_to_pages(1, 0)
-        top2 = sheet_header(ws2, "By Charger", BREAKDOWN_COLUMNS[0][2])
+        top2 = sheet_header(ws2, "By Charger", BREAKDOWN_COLUMNS[0][3])
         for ci, (_k, head, _ph, width, _w, _kind) in enumerate(BREAKDOWN_COLUMNS):
             ws2.set_column(ci, ci, width)
             ws2.write(top2, ci, head, f_head)

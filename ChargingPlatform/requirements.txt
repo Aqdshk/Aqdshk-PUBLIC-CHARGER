@@ -18,5 +18,8 @@ pywebpush>=2.0.0
 # Invoice export. A CSV cannot carry a logo, a column width or a page
 # layout, so the file a partner's finance team receives is built here
 # as a workbook and as a PDF instead.
-xlsxwriter>=3.2.0
+# Floor raised to the version this is tested against: 3.2 coerced a
+# string column width that 3.3 rejects, so an older local install
+# passed a test the container then failed.
+xlsxwriter>=3.3.4
 fpdf2>=2.8.1
