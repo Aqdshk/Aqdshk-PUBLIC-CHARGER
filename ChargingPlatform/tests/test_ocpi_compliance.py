@@ -3867,6 +3867,31 @@ class InvoiceExportTests(unittest.TestCase):
         self.assertIn("SG/XPT", codes)
         self.assertIn("SG/XPO", codes)
 
+    def test_the_picker_separates_a_live_party_from_a_test_one(self):
+        """Read off the host each side handshook from, because the business
+        name is identical on both."""
+        self.assertEqual(api._partner_environment("https://api.voltnet.io/v"),
+                         "production")
+        self.assertEqual(api._partner_environment("https://api-uat.voltnet.io/v"),
+                         "test")
+        for url, env in (
+            ("https://staging.example.com/v", "test"),
+            ("https://partner.dev.example.com/v", "test"),
+            ("https://qa-ocpi.foo.my/v", "test"),
+            ("https://ocpi.realco.com/v", "production"),
+            # "devon" is not "dev": the match is on whole labels, or a list
+            # of real partners would start being called test environments.
+            ("https://devon.example.com/v", "production"),
+            (None, "production"),
+        ):
+            with self.subTest(url):
+                self.assertEqual(api._partner_environment(url), env)
+
+    def test_the_live_party_is_offered_first(self):
+        rows = self.client.get("/api/invoice/partners").json()
+        envs = [r["environment"] for r in rows]
+        self.assertEqual(envs, sorted(envs, key=lambda e: e != "production"))
+
     def test_the_picker_names_them(self):
         rows = self.client.get("/api/invoice/partners").json()
         row = next(r for r in rows if r["code"] == "SG/XPT")
@@ -3988,6 +4013,26 @@ class InvoicePagePartnerTests(unittest.TestCase):
         for gone in ("function exportCSV", "function csvCell", "const up=1.20"):
             with self.subTest(gone):
                 self.assertNotIn(gone, self.page)
+
+    def test_a_partners_live_side_is_told_apart_from_its_test_side(self):
+        """Voltality is SG/VOL on api-uat.voltnet.io and SG/VLT on
+        api.voltnet.io, both carrying the business name "Voltality". A
+        picker showing it twice invites someone to invoice the simulator."""
+        self.assertIn("TEST / UAT", self.page)
+        self.assertIn("LIVE", self.page)
+        self.assertIn("p.environment", self.page)
+
+    def test_picking_a_test_party_is_objected_to(self):
+        # The sentence is concatenated across source lines, so match the
+        # part that carries the warning rather than the whole of it.
+        self.assertIn("Do not invoice", self.page)
+        self.assertIn("Test environment", self.page)
+
+    def test_the_formats_are_one_menu(self):
+        """Three bare buttons said nothing about how they differ, and the
+        difference between a CSV and a workbook is the whole question."""
+        self.assertIn('id="exportMenu"', self.page)
+        self.assertIn("toggleExportMenu", self.page)
 
     def test_the_page_offers_all_three_formats(self):
         for fmt in ("'csv'", "'xlsx'", "'pdf'"):

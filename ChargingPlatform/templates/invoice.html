@@ -56,6 +56,17 @@
             .tbl-grid { grid-template-columns:1fr; }
         }
         @media(max-width:1200px){ .tbl-grid{grid-template-columns:1fr;} }
+        .exp-wrap { position:relative; display:inline-block; }
+        .exp-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:50; min-width:250px;
+                    background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md);
+                    box-shadow:0 10px 30px rgba(0,0,0,.35); padding:4px; display:none; }
+        .exp-menu.open { display:block; }
+        .exp-item { display:block; width:100%; text-align:left; background:none; border:0; cursor:pointer;
+                    padding:8px 10px; border-radius:var(--radius-sm); color:var(--text-primary); }
+        .exp-item:hover { background:rgba(0,230,118,.08); }
+        .exp-item strong { display:block; font-size:12px; font-weight:700; }
+        .exp-item span { display:block; font-size:10px; color:var(--text-muted); margin-top:2px; line-height:1.35; }
+        .exp-item[disabled] { opacity:.5; cursor:default; }
         @media(max-width:500px){ .inv-filter{flex-direction:column;align-items:stretch;} }
     </style>
 </head>
@@ -106,9 +117,23 @@
                 <h1 class="page-title"><span>📄</span> Invoice & Reports</h1>
             </div>
             <div class="header-right">
-                <button class="btn btn-secondary btn-small" onclick="downloadExport('csv')">📄 CSV</button>
-                <button class="btn btn-secondary btn-small" onclick="downloadExport('xlsx')">📊 Excel</button>
-                <button class="btn btn-primary btn-small" onclick="downloadExport('pdf')">🧾 Invoice PDF</button>
+                <div class="exp-wrap">
+                    <button class="btn btn-primary btn-small" id="exportBtn" onclick="toggleExportMenu(event)">📤 Export ▾</button>
+                    <div class="exp-menu" id="exportMenu">
+                        <button class="exp-item" onclick="downloadExport('pdf')">
+                            <strong>🧾 Invoice PDF</strong>
+                            <span>Ready to send. Letterhead, charges, total in words, session list attached.</span>
+                        </button>
+                        <button class="exp-item" onclick="downloadExport('xlsx')">
+                            <strong>📊 Excel workbook</strong>
+                            <span>To open and reconcile. Logo, sized columns, filters, a By Charger sheet.</span>
+                        </button>
+                        <button class="exp-item" onclick="downloadExport('csv')">
+                            <strong>📄 CSV</strong>
+                            <span>Plain text, for importing into another system. No logo or formatting: a CSV cannot carry either.</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -199,10 +224,15 @@
             try {
                 const rows = await (await fetch(`${API_BASE}/invoice/partners`,
                     { headers: authHeaders() })).json();
+                // A partner registers its test and live sides as two parties
+                // under one business name. Showing "Voltality" twice is how
+                // someone invoices the simulator.
                 (rows || []).forEach(p => {
                     const o = document.createElement('option');
                     o.value = p.party_id;
-                    o.textContent = `${p.name} (${p.code})`;
+                    o.dataset.env = p.environment || 'production';
+                    const tag = o.dataset.env === 'test' ? 'TEST / UAT' : 'LIVE';
+                    o.textContent = `${p.name} — ${tag} (${p.code})`;
                     el.appendChild(o);
                 });
             } catch (e) {}
@@ -320,9 +350,21 @@
             return [...el.options].find(o => o.value === pt)?.textContent || pt;
         }
 
+        function partnerIsTest() {
+            const el = document.getElementById('filterPartner');
+            return el.selectedOptions[0]?.dataset.env === 'test';
+        }
+
         function showScopeNote() {
             const el = document.getElementById('scopeNote');
-            if (partnerValue()) {
+            if (partnerValue() && partnerIsTest()) {
+                el.style.display = 'block';
+                el.style.background = 'rgba(255,68,102,.10)';
+                el.style.color = '#ff4466';
+                el.textContent = 'Test environment. These charges came from the '
+                    + 'partner\'s UAT side, not from paying drivers. Do not invoice '
+                    + 'from this. Pick the LIVE party instead.';
+            } else if (partnerValue()) {
                 el.style.display = 'block';
                 el.style.background = 'rgba(0,230,118,.08)';
                 el.style.color = 'var(--accent,#22c55e)';
@@ -445,9 +487,19 @@
         // The download goes through fetch because the endpoint authenticates
         // on a header: a plain link would arrive without the staff token and
         // come back 401 instead of a file.
+        function toggleExportMenu(ev) {
+            ev.stopPropagation();
+            document.getElementById('exportMenu').classList.toggle('open');
+        }
+        document.addEventListener('click', (e) => {
+            const m = document.getElementById('exportMenu');
+            if (m && !e.target.closest('.exp-wrap')) m.classList.remove('open');
+        });
+
         async function downloadExport(fmt) {
+            document.getElementById('exportMenu').classList.remove('open');
             const url = `${API_BASE}/invoice/export?format=${fmt}&` + scopeParams();
-            const btns = document.querySelectorAll('.header-right .btn');
+            const btns = document.querySelectorAll('.header-right .btn, .exp-item');
             btns.forEach(b => b.disabled = true);
             try {
                 const res = await fetch(url, { headers: authHeaders() });

@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from sqlalchemy import and_, case, desc, func, or_, text
@@ -7029,6 +7029,25 @@ async def get_invoice_summary(
     }
 
 
+# A partner registers its test and its live side as two separate OCPI
+# parties, and both carry the same business name: Voltality is SG/VOL on
+# api-uat.voltnet.io and SG/VLT on api.voltnet.io. A picker showing
+# "Voltality" twice is an invitation to invoice the simulator, so the
+# environment is read off the host it handshook from.
+_TEST_HOST_LABELS = ("uat", "test", "staging", "stage", "sandbox", "sbx",
+                     "dev", "demo", "qa", "preprod", "localhost")
+
+
+def _partner_environment(versions_url: Optional[str]) -> str:
+    host = (urlparse(versions_url or "").hostname or "").lower()
+    labels = host.split(".")
+    for label in labels:
+        for part in label.replace("_", "-").split("-"):
+            if part in _TEST_HOST_LABELS:
+                return "test"
+    return "production"
+
+
 @app.get("/api/invoice/partners")
 async def list_invoice_partners(
     db: Session = Depends(get_db),
@@ -7051,14 +7070,21 @@ async def list_invoice_partners(
     for p, n in rows:
         if not n:
             continue
+        env = _partner_environment(p.versions_url)
         out.append({
             "party_id": p.party_id,
             "country_code": p.country_code,
             "code": "%s/%s" % (p.country_code, p.party_id),
             "name": p.business_name or ("%s/%s" % (p.country_code, p.party_id)),
+            "environment": env,
+            "host": urlparse(p.versions_url or "").hostname or "",
+            "registered_at": p.registered_at.isoformat() if p.registered_at else None,
             "sessions": int(n),
         })
-    out.sort(key=lambda r: -r["sessions"])
+    # Production first. A partner registers its test and live sides as two
+    # separate parties, both carrying the same business name, and the one
+    # that must never be invoiced should not be the one at the top of a list.
+    out.sort(key=lambda r: (r["environment"] != "production", -r["sessions"]))
     return out
 
 
