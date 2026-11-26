@@ -253,20 +253,33 @@
             if (window.currentTenant() !== want) window.setTenant(want);
         }
 
-        let _scopeBuilt = { tenants: false, partners: false };
-
         async function buildScope() {
             const el = scopeEl();
             const keep = el.value;
 
-            const tenants = (typeof window.tenantList === 'function')
-                ? window.tenantList().filter(t => t.value !== 'all') : [];
+            // Asked for directly rather than read from the sidebar switcher.
+            // That switcher starts with a hardcoded pair, czero-tng and
+            // perodua, and replaces it once /api/tenants answers. Reading it
+            // at boot got the placeholder, and a guard that rebuilt only
+            // when the list looked empty saw two entries and left it there,
+            // so HICOM, PROTON and Mini never appeared at all.
+            let tenants = [];
             let partners = [];
             try {
-                partners = await (await fetch(`${API_BASE}/invoice/partners`,
-                    { headers: authHeaders() })).json() || [];
-            } catch (e) { partners = []; }
-            _scopeBuilt = { tenants: tenants.length > 0, partners: partners.length > 0 };
+                const [t, p] = await Promise.all([
+                    fetch(`${API_BASE}/tenants`, { headers: authHeaders() })
+                        .then(r => r.ok ? r.json() : []),
+                    fetch(`${API_BASE}/invoice/partners`, { headers: authHeaders() })
+                        .then(r => r.ok ? r.json() : []),
+                ]);
+                tenants = (t || []).map(x => ({ value: x.key, label: x.label }));
+                partners = p || [];
+            } catch (e) {
+                // Only if the request itself failed. Better the switcher's
+                // two than an empty list with no way to scope anything.
+                tenants = (typeof window.tenantList === 'function')
+                    ? window.tenantList().filter(x => x.value !== 'all') : [];
+            }
 
             el.innerHTML = '';
             const all = document.createElement('option');
@@ -314,9 +327,6 @@
 
         async function initScope() {
             await buildScope();
-            // The tenant list arrives from /api/tenants a moment after boot,
-            // so rebuild when it lands rather than leaving only the partners.
-            if (!_scopeBuilt.tenants) setTimeout(buildScope, 1200);
 
             scopeEl().addEventListener('change', () => {
                 syncSidebar();

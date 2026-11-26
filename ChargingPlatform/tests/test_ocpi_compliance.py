@@ -4014,6 +4014,19 @@ class InvoicePagePartnerTests(unittest.TestCase):
             with self.subTest(gone):
                 self.assertNotIn(gone, self.page)
 
+    def test_the_fleet_list_comes_from_the_registry(self):
+        """static/tenant.js starts with a hardcoded czero-tng and perodua
+        and replaces them once /api/tenants answers. Reading the switcher
+        at boot got the placeholder, so HICOM, PROTON and Mini were missing
+        from the picker although all three have hundreds of sessions."""
+        self.assertIn("fetch(`${API_BASE}/tenants`", self.page)
+
+    def test_the_switcher_is_only_the_fallback(self):
+        """Used if the request itself fails, not as the normal path."""
+        i = self.page.index("window.tenantList")
+        before = self.page[max(0, i - 400):i]
+        self.assertIn("catch", before)
+
     def test_the_two_kinds_are_grouped_and_labelled(self):
         self.assertIn("internal P&L", self.page)
         self.assertIn("invoice a partner", self.page)
