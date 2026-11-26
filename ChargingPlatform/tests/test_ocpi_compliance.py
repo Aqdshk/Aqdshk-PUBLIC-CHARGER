@@ -3368,3 +3368,300 @@ class InvoicePageTests(unittest.TestCase):
         """An address is one field with two commas in it. Unquoted, it split
         into three columns and shifted every figure on the row."""
         self.assertIn("function csvCell", self.page)
+
+
+class SessionTenantFreezeTests(unittest.TestCase):
+    """A charger move must not rewrite an invoice that was already sent.
+
+    The rate was frozen onto a session; the owner was not. A report filtered
+    by tenant resolved `chargers.tenant` as it stands today, so moving a
+    charger between fleets carried every one of its past sessions with it,
+    and re-running last month's invoice returned different money.
+    """
+
+    CP = "FREEZETEST1"
+    FROM = "freeze-test-from"
+    TO = "freeze-test-to"
+    DAY = datetime(2026, 8, 10, 9, 0, 0)
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+        cls.charger = Charger(charge_point_id=cls.CP, tenant=cls.FROM,
+                              tariff_per_kwh=1.40, status="offline",
+                              availability="available")
+        cls.db.add(cls.charger)
+        cls.db.commit()
+        cls.session = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=991001, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            energy_consumed=10.0, idle_minutes=0, idle_fee_amount=Decimal("0"),
+        )
+        cls.db.add(cls.session)
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(ChargingSession).filter(
+            ChargingSession.transaction_id == 991001).delete(synchronize_session=False)
+        cls.db.query(Charger).filter(
+            Charger.id == cls.charger.id).delete(synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def setUp(self):
+        self.charger.tenant = self.FROM
+        self.db.commit()
+        api.invalidate_chargers_cache()
+
+    def _count(self, tenant):
+        r = self.client.get("/api/invoice/summary", params={
+            "start_date": "2026-08-01", "end_date": "2026-08-31", "tenant": tenant})
+        self.assertEqual(r.status_code, 200, r.text)
+        j = r.json()
+        return j["sessions"]["total"], j["revenue"]["total"]
+
+    def test_the_session_records_the_fleet_it_ran_under(self):
+        """Stamped by a mapper event, because sessions are created from six
+        places across two OCPP stacks, the API and the edge sync."""
+        self.db.refresh(self.session)
+        self.assertEqual(self.session.tenant_at_start, self.FROM)
+
+    def test_a_caller_that_states_the_rate_still_gets_an_owner(self):
+        """The price freeze returns early when a caller sets the rate itself.
+        The tenant is decided separately so it is stamped regardless."""
+        s = ChargingSession(
+            charger_id=self.charger.id, transaction_id=991002, status="completed",
+            start_time=self.DAY, energy_consumed=1.0,
+            tariff_per_kwh_at_start=9.99,
+        )
+        self.db.add(s)
+        self.db.commit()
+        try:
+            self.assertEqual(s.tenant_at_start, self.FROM)
+            self.assertEqual(float(s.tariff_per_kwh_at_start), 9.99)
+        finally:
+            self.db.delete(s)
+            self.db.commit()
+
+    def test_an_explicit_tenant_is_left_alone(self):
+        s = ChargingSession(
+            charger_id=self.charger.id, transaction_id=991003, status="completed",
+            start_time=self.DAY, energy_consumed=1.0, tenant_at_start="stated",
+        )
+        self.db.add(s)
+        self.db.commit()
+        try:
+            self.assertEqual(s.tenant_at_start, "stated")
+        finally:
+            self.db.delete(s)
+            self.db.commit()
+
+    def test_moving_the_charger_does_not_move_the_history(self):
+        """The whole point. Before this, both of these assertions were the
+        other way round."""
+        self.assertEqual(self._count(self.FROM), (1, 14.0))
+        self.assertEqual(self._count(self.TO), (0, 0.0))
+
+        self.charger.tenant = self.TO
+        self.db.commit()
+        api.invalidate_chargers_cache()
+
+        self.assertEqual(self._count(self.FROM), (1, 14.0))
+        self.assertEqual(self._count(self.TO), (0, 0.0))
+
+    def test_a_new_charge_belongs_to_the_new_fleet(self):
+        """Freezing history must not freeze the future: a charge that runs
+        after the move is the new fleet's."""
+        self.charger.tenant = self.TO
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        s = ChargingSession(
+            charger_id=self.charger.id, transaction_id=991004, status="completed",
+            start_time=self.DAY, stop_time=self.DAY + timedelta(hours=1),
+            energy_consumed=10.0, idle_minutes=0, idle_fee_amount=Decimal("0"),
+        )
+        self.db.add(s)
+        self.db.commit()
+        try:
+            self.assertEqual(s.tenant_at_start, self.TO)
+            self.assertEqual(self._count(self.FROM), (1, 14.0))
+            self.assertEqual(self._count(self.TO), (1, 14.0))
+        finally:
+            self.db.delete(s)
+            self.db.commit()
+
+    def test_the_line_names_the_fleet_that_earned_it(self):
+        self.charger.tenant = self.TO
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        r = self.client.get("/api/invoice/sessions", params={
+            "start_date": "2026-08-01", "end_date": "2026-08-31",
+            "tenant": self.FROM})
+        rows = r.json()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["tenant"], self.FROM)
+
+    def test_analytics_and_the_invoice_agree(self):
+        """Two pages that split revenue by fleet cannot use different rules,
+        or the operator has to decide which one to believe."""
+        self.charger.tenant = self.TO
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        rows = api._tenant_breakdown(self.db, self.DAY - timedelta(days=1))
+        by = {r["key"]: r for r in rows}
+        self.assertIn(self.FROM, by)
+        self.assertEqual(by[self.FROM]["sessions"]["total"], 1)
+        self.assertEqual(by[self.FROM]["chargers"]["total"], 0)
+
+
+class BillingLockTests(unittest.TestCase):
+    """A fleet under a live contract does not gain or lose chargers quietly.
+
+    This guards future earnings, not past invoices: what a past invoice said
+    is already settled by the tenant frozen on each session.
+    """
+
+    CP = "LOCKTEST1"
+    LOCKED = "lock-test-billed"
+    OPEN = "lock-test-open"
+
+    @classmethod
+    def setUpClass(cls):
+        from database import Tenant
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+        cls.db.add_all([
+            Tenant(key=cls.LOCKED, label="Billed Fleet", is_active=True,
+                   billing_locked=True),
+            Tenant(key=cls.OPEN, label="Open Fleet", is_active=True,
+                   billing_locked=False),
+        ])
+        cls.charger = Charger(charge_point_id=cls.CP, tenant=cls.LOCKED,
+                              tariff_per_kwh=1.0, status="offline",
+                              availability="available")
+        cls.db.add(cls.charger)
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        from database import Tenant
+        cls.db.query(Charger).filter(
+            Charger.id == cls.charger.id).delete(synchronize_session=False)
+        cls.db.query(Tenant).filter(
+            Tenant.key.in_([cls.LOCKED, cls.OPEN])).delete(synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def setUp(self):
+        self.charger.tenant = self.LOCKED
+        self.db.commit()
+        api.invalidate_chargers_cache()
+
+    def _patch(self, **body):
+        return self.client.patch(
+            "/api/admin/chargers/%s/info" % self.CP, json=body)
+
+    def test_moving_out_of_a_billed_fleet_is_refused(self):
+        r = self._patch(tenant=self.OPEN)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.db.refresh(self.charger)
+        self.assertEqual(self.charger.tenant, self.LOCKED)
+
+    def test_the_refusal_says_what_would_change(self):
+        detail = self._patch(tenant=self.OPEN).json()["detail"]
+        self.assertIn(self.LOCKED, detail)
+        self.assertIn(self.CP, detail)
+        self.assertIn("confirm_tenant_change", detail)
+
+    def test_the_refusal_says_past_invoices_are_safe(self):
+        """An operator who is told only "refused" will force it without
+        understanding what is and is not at risk."""
+        self.assertIn("already issued", self._patch(tenant=self.OPEN).json()["detail"])
+
+    def test_moving_into_a_billed_fleet_is_refused_too(self):
+        self.charger.tenant = self.OPEN
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        self.assertEqual(self._patch(tenant=self.LOCKED).status_code, 409)
+
+    def test_an_explicit_confirmation_goes_through(self):
+        r = self._patch(tenant=self.OPEN, confirm_tenant_change=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.refresh(self.charger)
+        self.assertEqual(self.charger.tenant, self.OPEN)
+
+    def test_an_unbilled_fleet_needs_no_confirmation(self):
+        self.charger.tenant = self.OPEN
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        from database import Tenant
+        third = Tenant(key="lock-test-third", label="Third", is_active=True)
+        self.db.add(third)
+        self.db.commit()
+        try:
+            self.assertEqual(self._patch(tenant="lock-test-third").status_code, 200)
+        finally:
+            self.db.query(Tenant).filter(
+                Tenant.key == "lock-test-third").delete(synchronize_session=False)
+            self.db.commit()
+
+    def test_other_edits_to_a_billed_charger_are_untouched(self):
+        """The lock is about which fleet earns, not about freezing the
+        charger's details."""
+        r = self._patch(location="Somewhere else")
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_resaving_the_same_tenant_is_not_a_move(self):
+        self.assertEqual(self._patch(tenant=self.LOCKED).status_code, 200)
+
+    def test_the_flag_reaches_the_dashboard(self):
+        """A key the response model does not declare never leaves the
+        server, so the lock would be invisible in the picker."""
+        self.assertIn("billing_locked", api.TenantResponse.model_fields)
+        rows = self.client.get("/api/tenants").json()
+        row = next(t for t in rows if t["key"] == self.LOCKED)
+        self.assertIs(row["billing_locked"], True)
+
+    def test_the_lock_can_be_set_from_the_dashboard(self):
+        r = self.client.patch("/api/tenants/%s" % self.OPEN,
+                              json={"billing_locked": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIs(r.json()["billing_locked"], True)
+        self.client.patch("/api/tenants/%s" % self.OPEN,
+                          json={"billing_locked": False})
+
+
+class ChargerPageLockTests(unittest.TestCase):
+    """The page has to carry the operator's decision, or the guard is just
+    an error nobody can get past."""
+
+    PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "templates", "chargers.html")
+
+    @classmethod
+    def setUpClass(cls):
+        with io.open(cls.PAGE, encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_the_page_handles_the_refusal(self):
+        self.assertIn("res.status === 409", self.page)
+
+    def test_the_page_sends_the_confirmation_on_retry(self):
+        self.assertIn("body.confirm_tenant_change = true", self.page)
+
+    def test_a_billed_fleet_is_marked_in_the_picker(self):
+        self.assertIn("t.billing_locked", self.page)

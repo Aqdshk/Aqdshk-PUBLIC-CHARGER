@@ -677,6 +677,13 @@ class ChargingSession(Base):
     #
     # Null on every row written before this existed, and the readers fall back
     # to the charger for those, which is exactly what they did before.
+    # Which fleet the charge belonged to when it ran. The rate was already
+    # frozen onto the session; the owner was not, so a report filtered by
+    # tenant read `chargers.tenant` as it stands today and every past session
+    # of a charger followed it to its new fleet. Re-running last month's
+    # invoice after a move returned different money. An invoice that has been
+    # sent has to be reproducible.
+    tenant_at_start             = Column(String(50), nullable=True, index=True)
     tariff_per_kwh_at_start     = Column(Numeric(8, 4), nullable=True)
     idle_fee_enabled_at_start   = Column(Boolean, nullable=True)
     idle_fee_per_min_at_start   = Column(Numeric(6, 2), nullable=True)
@@ -792,6 +799,14 @@ class Tenant(Base):
     hint = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     sort_order = Column(Integer, default=100, nullable=False)
+    # A fleet that is being invoiced against a live contract. Moving a charger
+    # into or out of one is refused unless the caller says outright that it
+    # means to, because the move changes which fleet earns from that charger
+    # from then on. It cannot change what a past invoice said: that is what
+    # charging_sessions.tenant_at_start is for, and this flag is the second
+    # guard rather than the one doing the work.
+    billing_locked = Column(Boolean, default=False, nullable=False,
+                            server_default="0")
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -1324,22 +1339,33 @@ def _stamp_session_prices(mapper, connection, target):
     of the snapshot is that it does not reach back into a session that has
     already started. A caller that has set a value itself is left alone, which
     is what lets a test or a correction state the rates explicitly.
+
+    The tenant is frozen here for the same reason and is decided separately,
+    so a caller that states the rates explicitly still gets an owner stamped
+    on the row.
     """
-    if target.charger_id is None or target.tariff_per_kwh_at_start is not None:
+    if target.charger_id is None:
+        return
+    want_prices = target.tariff_per_kwh_at_start is None
+    want_tenant = target.tenant_at_start is None
+    if not (want_prices or want_tenant):
         return
     row = connection.execute(
         text(
             "SELECT tariff_per_kwh, idle_fee_enabled, idle_fee_per_min, "
-            "idle_grace_minutes FROM chargers WHERE id = :cid"
+            "idle_grace_minutes, tenant FROM chargers WHERE id = :cid"
         ),
         {"cid": target.charger_id},
     ).first()
     if row is None:
         return
-    target.tariff_per_kwh_at_start = row[0]
-    target.idle_fee_enabled_at_start = bool(row[1])
-    target.idle_fee_per_min_at_start = row[2]
-    target.idle_grace_minutes_at_start = row[3]
+    if want_prices:
+        target.tariff_per_kwh_at_start = row[0]
+        target.idle_fee_enabled_at_start = bool(row[1])
+        target.idle_fee_per_min_at_start = row[2]
+        target.idle_grace_minutes_at_start = row[3]
+    if want_tenant:
+        target.tenant_at_start = row[4]
 
 
 # What a roaming partner can actually see about a charger. Heartbeats are

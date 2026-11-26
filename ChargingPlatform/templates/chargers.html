@@ -978,7 +978,11 @@
             _tenantOptions.forEach(t => {
                 const o = document.createElement('option');
                 o.value = t.key;
-                o.textContent = t.label + (t.key === current ? ' (current)' : '');
+                // A fleet being invoiced against a live contract is marked, so
+                // the warning on save is not the first anyone hears of it.
+                o.textContent = t.label
+                    + (t.key === current ? ' (current)' : '')
+                    + (t.billing_locked ? ' 🔒 billed' : '');
                 sel.appendChild(o);
             });
         }
@@ -1009,11 +1013,24 @@
             const msg = document.getElementById('ecMsg');
             msg.textContent = 'Saving…';
             try {
-                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/info`, {
+                const send = () => fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/info`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
                     body: JSON.stringify(body),
                 });
+                let res = await send();
+                // 409 means one side of the move is a fleet under a live
+                // billing contract. The server states what changes; the
+                // operator decides, and the retry carries that decision.
+                if (res.status === 409) {
+                    const why = (await res.clone().json().catch(() => ({}))).detail || '';
+                    if (!confirm(why + '\n\nMove it anyway?')) {
+                        msg.innerHTML = '<span style="color:var(--text-muted);">Tenant left unchanged.</span>';
+                        return;
+                    }
+                    body.confirm_tenant_change = true;
+                    res = await send();
+                }
                 const r = await res.json();
                 if (r.success) {
                     // Pricing has its own endpoint, so it is a second call and

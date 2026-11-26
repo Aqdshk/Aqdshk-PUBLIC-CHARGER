@@ -1406,6 +1406,9 @@ class TenantResponse(BaseModel):
     hint: Optional[str] = None
     is_active: bool = True
     sort_order: int = 100
+    # A fleet invoiced against a live contract. Chargers do not move into or
+    # out of one by accident.
+    billing_locked: bool = False
     # How many chargers currently point at this key. Shown in the UI so an
     # operator can see what a tenant actually holds before removing it.
     charger_count: int = 0
@@ -1418,6 +1421,7 @@ class TenantWriteRequest(BaseModel):
     hint: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    billing_locked: Optional[bool] = None
 
 
 _TENANT_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,49}$")
@@ -1476,6 +1480,7 @@ async def create_tenant(
         hint=(req.hint or "").strip()[:255] or None,
         is_active=True if req.is_active is None else req.is_active,
         sort_order=req.sort_order if req.sort_order is not None else 100,
+        billing_locked=bool(req.billing_locked),
     )
     db.add(t)
     db.commit()
@@ -1514,6 +1519,8 @@ async def update_tenant(
         t.sort_order = req.sort_order
     if req.is_active is not None:
         t.is_active = req.is_active
+    if req.billing_locked is not None:
+        t.billing_locked = bool(req.billing_locked)
     db.commit()
     db.refresh(t)
     out = TenantResponse.model_validate(t)
@@ -1563,6 +1570,12 @@ class UpdateChargerInfoRequest(BaseModel):
     # an UPDATE against the database, so a charger could never be moved between
     # tenants from the dashboard.
     tenant: Optional[str] = None
+    # Required to move a charger into or out of a fleet that is being invoiced
+    # against a live contract. Not a formality: the move decides which fleet
+    # earns from this charger from now on, and the caller has to say it means
+    # it. It cannot affect an invoice already issued, because a session
+    # records the fleet it ran under.
+    confirm_tenant_change: bool = False
     # "cellular", "wifi" or "ethernet" to state how the charger connects, or
     # "auto" to go back to what the charger itself reports.
     connectivity: Optional[str] = None
@@ -1600,6 +1613,29 @@ async def update_charger_info(
         known = db.query(Tenant).filter(Tenant.key == key, Tenant.is_active == True).first()
         if not known:
             raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
+        if key != charger.tenant and not req.confirm_tenant_change:
+            # Either side of the move can object: taking a charger out of a
+            # billed fleet reduces what it earns from here on, and putting one
+            # in adds to what that fleet is invoiced for.
+            locked = [
+                t.key for t in db.query(Tenant).filter(
+                    Tenant.key.in_([charger.tenant, key]),
+                    Tenant.billing_locked == True,  # noqa: E712
+                ).all()
+            ]
+            if locked:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "%s is invoiced against a live contract. Moving %s "
+                        "from '%s' to '%s' changes which fleet earns from it "
+                        "from now on. Invoices already issued are unaffected: "
+                        "every session records the fleet it ran under. Send "
+                        "confirm_tenant_change to proceed."
+                        % (" and ".join(sorted(locked)), charge_point_id,
+                           charger.tenant, key)
+                    ),
+                )
         charger.tenant = key
     if req.connectivity is not None:
         value = req.connectivity.strip().lower()
@@ -6806,6 +6842,17 @@ def _invoice_window(start_date, end_date):
     return one(start_date), one(end_date, end=True)
 
 
+def _session_tenant_sql():
+    """Which fleet a charge belonged to, as SQL.
+
+    The session's own stamp wins. `chargers.tenant` is only the fallback, for
+    a row written between the deploy and the migration; reading it first is
+    what made a charger move rewrite history, because every past session
+    followed the charger to its new fleet.
+    """
+    return func.coalesce(ChargingSession.tenant_at_start, Charger.tenant)
+
+
 def _charger_address(c) -> str:
     """One line a finance team can put on an invoice.
 
@@ -6872,7 +6919,7 @@ async def get_invoice_summary(
         .join(Charger, Charger.id == ChargingSession.charger_id)
     )
     if scoped:
-        q = q.filter(Charger.tenant == tenant_key)
+        q = q.filter(_session_tenant_sql() == tenant_key)
     if charger_id:
         q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
@@ -6906,7 +6953,8 @@ async def get_invoice_summary(
         d = charger_breakdown.setdefault(c.charge_point_id, {
             "sessions": 0, "energy_kwh": 0.0, "revenue": 0.0,
             "energy_cost": 0.0, "idle_cost": 0.0, "duration_minutes": 0.0,
-            "location": _charger_address(c), "tenant": c.tenant,
+            "location": _charger_address(c),
+            "tenant": s.tenant_at_start or c.tenant,
         })
         d["sessions"] += 1
         d["energy_kwh"] += kwh
@@ -7130,7 +7178,7 @@ async def get_invoice_sessions(
         .join(Charger, Charger.id == ChargingSession.charger_id)
     )
     if tenant_key and tenant_key != "all":
-        q = q.filter(Charger.tenant == tenant_key)
+        q = q.filter(_session_tenant_sql() == tenant_key)
     if charger_id:
         q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
@@ -7151,7 +7199,7 @@ async def get_invoice_sessions(
             "id": s.id,
             "transaction_id": s.transaction_id,
             "charge_point_id": c.charge_point_id,
-            "tenant": c.tenant,
+            "tenant": s.tenant_at_start or c.tenant,
             "location": _charger_address(c),
             "start_time": s.start_time.isoformat() if s.start_time else None,
             "stop_time": s.stop_time.isoformat() if s.stop_time else None,
@@ -9065,7 +9113,7 @@ def _tenant_breakdown(db: Session, month_ago: datetime) -> List[dict]:
     sessions = {
         row[0]: row
         for row in db.query(
-            Charger.tenant,
+            _session_tenant_sql(),
             func.count(ChargingSession.id),
             func.coalesce(func.sum(ChargingSession.energy_consumed), 0),
             func.coalesce(func.sum(_session_revenue_sql()), 0),
@@ -9075,7 +9123,7 @@ def _tenant_breakdown(db: Session, month_ago: datetime) -> List[dict]:
             func.coalesce(func.sum(ChargingSession.idle_fee_amount), 0),
         )
         .join(Charger, Charger.id == ChargingSession.charger_id)
-        .group_by(Charger.tenant).all()
+        .group_by(_session_tenant_sql()).all()
     }
 
     faults = dict(
