@@ -773,6 +773,11 @@ class OcpiPartner(Base):
     token_inbound = Column(String(256), nullable=True)  # secret: never log in full
     registered_at = Column(DateTime, nullable=True)
     last_updated = Column(DateTime, nullable=True)
+    # Where the settlement invoice is addressed. The credentials handshake
+    # gives us a business name and nothing else, and a name on its own is not
+    # an invoice a finance team can file. Newlines separate the lines as they
+    # should print.
+    billing_address = Column(String(512), nullable=True)
 
     __table_args__ = (UniqueConstraint("country_code", "party_id", name="uq_ocpi_partner"),)
 

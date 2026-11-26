@@ -3882,6 +3882,51 @@ class InvoiceExportTests(unittest.TestCase):
         self.assertEqual(meta["scope_label"], "Roaming partner")
         self.assertEqual(meta["scope_value"], "SG/XPT")
 
+    def test_the_invoice_carries_the_partners_address(self):
+        """A name on its own is not an invoice a finance team can file.
+        The credentials handshake gives us only a business name, so the
+        address is kept on the partner row."""
+        self.partner.billing_address = (
+            "60 Paya Lebar Road, #05-08" + chr(10) + "Singapore 409051")
+        self.db.commit()
+        try:
+            bill_to = self._get(format="json", party_id="XPT").json()["meta"]["bill_to"]
+            self.assertIn("Export Test Pte Ltd", bill_to)
+            self.assertIn("60 Paya Lebar Road", bill_to)
+            self.assertIn("Singapore 409051", bill_to)
+            # The address prints under the name, not beside it.
+            self.assertLess(bill_to.index("Export Test"), bill_to.index("60 Paya"))
+        finally:
+            self.partner.billing_address = None
+            self.db.commit()
+
+    def test_a_partner_without_an_address_still_invoices(self):
+        """Every invoice looked like this until today; none of them should
+        start failing because a column was added."""
+        self.partner.billing_address = None
+        self.db.commit()
+        self.assertEqual(
+            self._get(format="json", party_id="XPT").json()["meta"]["bill_to"],
+            "Export Test Pte Ltd")
+
+    def test_the_address_reaches_the_printed_invoice(self):
+        self.partner.billing_address = (
+            "60 Paya Lebar Road, #05-08" + chr(10) + "Singapore 409051")
+        self.db.commit()
+        try:
+            r = self._get(format="pdf", party_id="XPT")
+            try:
+                import fitz
+            except ImportError:
+                self.skipTest("pymupdf not installed")
+            doc = fitz.open(stream=r.content, filetype="pdf")
+            text = doc[0].get_text()
+            self.assertIn("60 Paya Lebar Road", text)
+            self.assertIn("Singapore 409051", text)
+        finally:
+            self.partner.billing_address = None
+            self.db.commit()
+
     def test_the_money_on_the_line(self):
         t = self._get(format="json", party_id="XPT").json()["totals"]
         self.assertEqual(t["energy_cost"], 14.00)   # 10 kWh x 1.40

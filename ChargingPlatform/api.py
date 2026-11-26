@@ -7268,6 +7268,9 @@ def _export_rows(db: Session, start_dt, end_dt, tenant=None, party_id=None,
         q = q.filter(_cdr_settled_sql())
         bill_to = partner.business_name or "%s / %s" % (partner.country_code,
                                                         partner.party_id)
+        # The address goes under the name, as it prints on the invoice.
+        if getattr(partner, "billing_address", None):
+            bill_to = bill_to + "\n" + partner.billing_address.strip()
         scope_label = "Roaming partner"
         scope_value = "%s/%s" % (partner.country_code, partner.party_id)
     else:
