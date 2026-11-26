@@ -3342,13 +3342,17 @@ class InvoicePageTests(unittest.TestCase):
         self.assertNotIn("up.toFixed(2)", self.page)
 
     def test_the_export_carries_what_finance_asked_for(self):
+        """The columns moved to the server when the workbook and the PDF
+        arrived, so this asks the definition the three formats share rather
+        than the page, which no longer builds a file."""
+        import invoice_export
+        heads = {c[1] for c in invoice_export.COLUMNS}
         for col in ("Start Time", "End Time", "Location", "Energy Cost (RM)",
                     "Idling Cost (RM)", "Session ID"):
             with self.subTest(col):
-                self.assertIn(col, self.page)
+                self.assertIn(col, heads)
 
     def test_the_export_identifies_a_session_by_its_real_id(self):
-        self.assertIn("s.transaction_id", self.page)
         self.assertNotIn("S${String(i+1).padStart(4,'0')}", self.page)
 
     def test_the_month_buttons_use_calendar_days_not_utc_instants(self):
@@ -3365,9 +3369,17 @@ class InvoicePageTests(unittest.TestCase):
         self.assertIn('id="reportTenant"', self.page)
 
     def test_the_export_quotes_a_field_that_contains_a_comma(self):
-        """An address is one field with two commas in it. Unquoted, it split
-        into three columns and shifted every figure on the row."""
-        self.assertIn("function csvCell", self.page)
+        """An address is one field with two commas in it. Unquoted it split
+        into three columns and shifted every figure on the row. The server
+        writes it with the csv module now, rather than a hand-rolled
+        escaper in the page."""
+        import csv as _csv
+        import io as _io
+        buf = _io.StringIO()
+        _csv.writer(buf).writerow(["2, Jalan Gergaji 15/14, Shah Alam", 1.5])
+        line = buf.getvalue().strip()
+        self.assertTrue(line.startswith('"2, Jalan'), line)
+        self.assertEqual(len(next(_csv.reader(_io.StringIO(line)))), 2)
 
 
 class SessionTenantFreezeTests(unittest.TestCase):
@@ -3665,3 +3677,325 @@ class ChargerPageLockTests(unittest.TestCase):
 
     def test_a_billed_fleet_is_marked_in_the_picker(self):
         self.assertIn("t.billing_locked", self.page)
+
+
+class AmountInWordsTests(unittest.TestCase):
+    """An invoice states its total in words so it cannot be altered after
+    the fact. A wrong one is worse than none."""
+
+    def test_the_cases_an_invoice_actually_hits(self):
+        from invoice_export import amount_in_words
+        cases = {
+            0: "RINGGIT MALAYSIA ZERO ONLY",
+            1: "RINGGIT MALAYSIA ONE ONLY",
+            13.94: "RINGGIT MALAYSIA THIRTEEN AND NINETY-FOUR SEN ONLY",
+            100: "RINGGIT MALAYSIA ONE HUNDRED ONLY",
+            435.07: "RINGGIT MALAYSIA FOUR HUNDRED AND THIRTY-FIVE AND SEVEN SEN ONLY",
+            1000: "RINGGIT MALAYSIA ONE THOUSAND ONLY",
+            12345.6: "RINGGIT MALAYSIA TWELVE THOUSAND THREE HUNDRED AND FORTY-FIVE AND SIXTY SEN ONLY",
+        }
+        for amount, words in cases.items():
+            with self.subTest(amount):
+                self.assertEqual(amount_in_words(amount), words)
+
+    def test_the_sen_are_not_lost_to_floating_point(self):
+        from invoice_export import amount_in_words
+        self.assertIn("TEN SEN", amount_in_words(0.10))
+        self.assertIn("ONE SEN", amount_in_words(2.01))
+
+
+class PdfColumnWidthTests(unittest.TestCase):
+    """The column weights were hand-written and summed to 1.06, which pushed
+    the last column off the page and silently truncated every total on it."""
+
+    def test_the_table_fits_the_page_exactly(self):
+        from invoice_export import _pdf_widths
+        for page in (180.0, 273.0):
+            with self.subTest(page):
+                self.assertAlmostEqual(sum(_pdf_widths(page)), page, places=6)
+
+    def test_every_column_has_a_short_heading_for_the_pdf(self):
+        """A heading wider than its column ran into its neighbour and the
+        header row read as one word."""
+        from invoice_export import BREAKDOWN_COLUMNS, COLUMNS
+        for col in list(COLUMNS) + list(BREAKDOWN_COLUMNS):
+            with self.subTest(col[0]):
+                self.assertEqual(len(col), 6)
+                self.assertTrue(col[2])
+                self.assertLessEqual(len(col[2]), len(col[1]))
+
+
+class InvoiceExportTests(unittest.TestCase):
+    """The file a partner's finance team receives.
+
+    A CSV cannot carry a logo, a column width or a page layout, so the
+    workbook and the PDF are built on the server. Both are generated here
+    for real and inspected, because a format that raises on a long address
+    or writes a logo nobody can see is not caught by checking a status code.
+    """
+
+    CP = "EXPORTTEST1"
+    TENANT = "export-test"
+    DAY = datetime(2026, 9, 12, 8, 0, 0)
+
+    @classmethod
+    def setUpClass(cls):
+        from database import OcpiPartner
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+
+        cls.partner = OcpiPartner(
+            country_code="SG", party_id="XPT", business_name="Export Test Pte Ltd",
+            versions_url="https://example.invalid/versions", token="x")
+        cls.other = OcpiPartner(
+            country_code="SG", party_id="XPO", business_name="Other Partner",
+            versions_url="https://example.invalid/versions", token="x")
+        cls.charger = Charger(
+            charge_point_id=cls.CP, tenant=cls.TENANT, tariff_per_kwh=1.40,
+            location="Test Mall", city="Shah Alam", postal_code="40200",
+            status="offline", availability="available")
+        cls.db.add_all([cls.partner, cls.other, cls.charger])
+        cls.db.commit()
+
+        # Settled: unplugged and not interrupted, which is what releases the
+        # CDR the partner holds.
+        cls.settled = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=992001, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            unplugged_at=cls.DAY + timedelta(hours=2), energy_consumed=10.0,
+            tariff_per_kwh_at_start=1.40, idle_minutes=30,
+            idle_fee_amount=Decimal("6.00"), ocpi_partner_id=cls.partner.id)
+        # Still plugged in: the CDR is held, so it is not on the invoice.
+        cls.held = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=992002, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            unplugged_at=None, energy_consumed=4.0,
+            tariff_per_kwh_at_start=1.40, ocpi_partner_id=cls.partner.id)
+        # Another partner's charge, on the same charger.
+        cls.theirs = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=992003, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            unplugged_at=cls.DAY + timedelta(hours=2), energy_consumed=7.0,
+            tariff_per_kwh_at_start=1.40, ocpi_partner_id=cls.other.id)
+        # A walk-in. Belongs to the fleet report and to no partner.
+        cls.walkin = ChargingSession(
+            charger_id=cls.charger.id, transaction_id=992004, status="completed",
+            start_time=cls.DAY, stop_time=cls.DAY + timedelta(hours=1),
+            unplugged_at=cls.DAY + timedelta(hours=2), energy_consumed=3.0,
+            tariff_per_kwh_at_start=1.40)
+        cls.db.add_all([cls.settled, cls.held, cls.theirs, cls.walkin])
+        cls.db.commit()
+        api.invalidate_chargers_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        from database import OcpiPartner
+        cls.db.query(ChargingSession).filter(
+            ChargingSession.transaction_id.between(992001, 992004)).delete(
+            synchronize_session=False)
+        cls.db.query(Charger).filter(
+            Charger.id == cls.charger.id).delete(synchronize_session=False)
+        cls.db.query(OcpiPartner).filter(
+            OcpiPartner.party_id.in_(["XPT", "XPO"])).delete(
+            synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    P = {"start_date": "2026-09-01", "end_date": "2026-09-30"}
+
+    def _get(self, **kw):
+        q = dict(self.P); q.update(kw)
+        r = self.client.get("/api/invoice/export", params=q)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r
+
+    # --- who is on the invoice ------------------------------------------
+    def test_a_settlement_holds_only_that_partners_charges(self):
+        rows = self._get(format="json", party_id="XPT").json()["sessions"]
+        self.assertEqual([r["session_id"] for r in rows], ["992001"])
+
+    def test_a_held_cdr_is_not_invoiced(self):
+        """The cable is still in. The partner has no record to match it
+        against, and the amount is not final."""
+        ids = [r["session_id"]
+               for r in self._get(format="json", party_id="XPT").json()["sessions"]]
+        self.assertNotIn("992002", ids)
+
+    def test_a_walk_in_is_not_on_a_partner_invoice(self):
+        ids = [r["session_id"]
+               for r in self._get(format="json", party_id="XPT").json()["sessions"]]
+        self.assertNotIn("992004", ids)
+
+    def test_the_fleet_report_holds_all_of_them(self):
+        """The two populations differ, which is the whole reason the page
+        has to say which one it is showing."""
+        ids = {r["session_id"]
+               for r in self._get(format="json", tenant=self.TENANT).json()["sessions"]}
+        self.assertEqual(ids, {"992001", "992002", "992003", "992004"})
+
+    def test_an_unknown_partner_is_an_error_not_an_empty_invoice(self):
+        r = self.client.get("/api/invoice/export",
+                            params=dict(self.P, format="json", party_id="ZZZ"))
+        self.assertEqual(r.status_code, 404)
+
+    def test_the_partner_wins_over_the_tenant(self):
+        rows = self._get(format="json", party_id="XPT",
+                         tenant="something-else").json()["sessions"]
+        self.assertEqual(len(rows), 1)
+
+    def test_the_invoice_is_billed_to_the_partner(self):
+        meta = self._get(format="json", party_id="XPT").json()["meta"]
+        self.assertEqual(meta["bill_to"], "Export Test Pte Ltd")
+        self.assertEqual(meta["scope_label"], "Roaming partner")
+        self.assertEqual(meta["scope_value"], "SG/XPT")
+
+    def test_the_money_on_the_line(self):
+        t = self._get(format="json", party_id="XPT").json()["totals"]
+        self.assertEqual(t["energy_cost"], 14.00)   # 10 kWh x 1.40
+        self.assertEqual(t["idle_cost"], 6.00)
+        self.assertEqual(t["total"], 20.00)
+
+    # --- the partner picker ---------------------------------------------
+    def test_the_picker_lists_partners_that_have_sent_charges(self):
+        rows = self.client.get("/api/invoice/partners").json()
+        codes = {r["code"] for r in rows}
+        self.assertIn("SG/XPT", codes)
+        self.assertIn("SG/XPO", codes)
+
+    def test_the_picker_names_them(self):
+        rows = self.client.get("/api/invoice/partners").json()
+        row = next(r for r in rows if r["code"] == "SG/XPT")
+        self.assertEqual(row["name"], "Export Test Pte Ltd")
+        self.assertEqual(row["party_id"], "XPT")
+
+    # --- the files --------------------------------------------------------
+    def test_the_workbook_is_a_workbook(self):
+        r = self._get(format="xlsx", party_id="XPT")
+        self.assertIn("spreadsheetml", r.headers["content-type"])
+        self.assertTrue(r.content.startswith(b"PK"))
+        self.assertIn(".xlsx", r.headers["content-disposition"])
+
+    def test_the_workbook_carries_the_logo_and_the_sheets(self):
+        import zipfile
+        r = self._get(format="xlsx", party_id="XPT")
+        names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+        self.assertTrue(any(n.startswith("xl/media/") for n in names),
+                        "no image embedded: %s" % names)
+        self.assertGreaterEqual(
+            len([n for n in names if n.startswith("xl/worksheets/sheet")]), 2)
+
+    def test_the_pdf_is_a_pdf(self):
+        r = self._get(format="pdf", party_id="XPT")
+        self.assertEqual(r.headers["content-type"], "application/pdf")
+        self.assertTrue(r.content.startswith(b"%PDF"))
+
+    def test_the_pdf_says_what_an_invoice_has_to_say(self):
+        r = self._get(format="pdf", party_id="XPT")
+        import invoice_export
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("pymupdf not installed")
+        doc = fitz.open(stream=r.content, filetype="pdf")
+        text = "\n".join(p.get_text() for p in doc)
+        for needed in (invoice_export.COMPANY_NAME, invoice_export.TAGLINE,
+                       "INVOICE", "Export Test Pte Ltd", "SG/XPT",
+                       "Authorised Signature",
+                       invoice_export.amount_in_words(20.00)):
+            with self.subTest(needed):
+                self.assertIn(needed, text)
+
+    def test_the_pdf_carries_the_logo(self):
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("pymupdf not installed")
+        r = self._get(format="pdf", party_id="XPT")
+        doc = fitz.open(stream=r.content, filetype="pdf")
+        self.assertTrue(doc[0].get_images(full=True), "no logo on page 1")
+
+    def test_a_long_address_does_not_break_the_pdf(self):
+        """The core PDF fonts are latin-1 and the row trims rather than
+        wraps. An invoice that raises on a long address is useless."""
+        self.charger.location = "Lot 1234567, Bangunan Yang Sangat Panjang " \
+                                "Namanya, Jalan Besar Sekali 99/123A"
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        try:
+            r = self._get(format="pdf", party_id="XPT")
+            self.assertTrue(r.content.startswith(b"%PDF"))
+        finally:
+            self.charger.location = "Test Mall"
+            self.db.commit()
+            api.invalidate_chargers_cache()
+
+    def test_the_csv_still_works_for_an_import(self):
+        r = self._get(format="csv", party_id="XPT")
+        self.assertIn("text/csv", r.headers["content-type"])
+        body = r.text
+        self.assertTrue(body.startswith("\ufeff"), "no BOM for Excel")
+        self.assertIn("Session ID", body)
+        self.assertIn("Idling Cost (RM)", body)
+        self.assertIn("TOTAL", body)
+
+    def test_the_three_formats_agree_on_the_money(self):
+        """Three renderings of one set of rows. The old CSV was a second
+        implementation and billed RM1.20 a kWh while the page showed
+        something else."""
+        total = self._get(format="json", party_id="XPT").json()["totals"]["total"]
+        self.assertIn("20.0", self._get(format="csv", party_id="XPT").text)
+        self.assertEqual(total, 20.00)
+
+    def test_an_empty_period_still_produces_a_file(self):
+        for fmt in ("csv", "xlsx", "pdf"):
+            with self.subTest(fmt):
+                r = self.client.get("/api/invoice/export", params={
+                    "format": fmt, "party_id": "XPT",
+                    "start_date": "2020-01-01", "end_date": "2020-01-31"})
+                self.assertEqual(r.status_code, 200, r.text)
+                self.assertTrue(r.content)
+
+
+class InvoicePagePartnerTests(unittest.TestCase):
+    """The page has to offer the settlement and build nothing itself."""
+
+    PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "templates", "invoice.html")
+
+    @classmethod
+    def setUpClass(cls):
+        with io.open(cls.PAGE, encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_the_page_offers_a_roaming_partner(self):
+        self.assertIn('id="filterPartner"', self.page)
+
+    def test_the_page_scopes_by_party(self):
+        self.assertIn("party_id=", self.page)
+
+    def test_the_page_says_which_file_goes_out(self):
+        """Sending the fleet report to a partner is the mistake this page
+        has to prevent, so it states the difference where it is read."""
+        self.assertIn("Roaming settlement", self.page)
+        self.assertIn("Fleet report", self.page)
+
+    def test_the_page_no_longer_builds_a_file_itself(self):
+        for gone in ("function exportCSV", "function csvCell", "const up=1.20"):
+            with self.subTest(gone):
+                self.assertNotIn(gone, self.page)
+
+    def test_the_page_offers_all_three_formats(self):
+        for fmt in ("'csv'", "'xlsx'", "'pdf'"):
+            with self.subTest(fmt):
+                self.assertIn("downloadExport(%s)" % fmt, self.page)
+
+    def test_the_download_carries_the_staff_token(self):
+        """The endpoint authenticates on a header, so a plain link would
+        arrive without the token and come back 401 instead of a file."""
+        self.assertIn("downloadExport", self.page)
+        self.assertIn("headers: authHeaders()", self.page)

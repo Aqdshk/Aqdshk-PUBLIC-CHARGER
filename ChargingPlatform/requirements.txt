@@ -15,3 +15,8 @@ httpx>=0.25.0
 python-jose[cryptography]>=3.3.0
 alembic>=1.13.0
 pywebpush>=2.0.0
+# Invoice export. A CSV cannot carry a logo, a column width or a page
+# layout, so the file a partner's finance team receives is built here
+# as a workbook and as a PDF instead.
+xlsxwriter>=3.2.0
+fpdf2>=2.8.1

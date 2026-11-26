@@ -7029,6 +7029,260 @@ async def get_invoice_summary(
     }
 
 
+@app.get("/api/invoice/partners")
+async def list_invoice_partners(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """The roaming partners a settlement can be drawn for.
+
+    Only those that have actually sent us a charge. A partner we exchanged
+    credentials with but never received traffic from would be an empty
+    option that looks like a broken report.
+    """
+    rows = (
+        db.query(OcpiPartner, func.count(ChargingSession.id))
+        .outerjoin(ChargingSession,
+                   ChargingSession.ocpi_partner_id == OcpiPartner.id)
+        .group_by(OcpiPartner.id)
+        .all()
+    )
+    out = []
+    for p, n in rows:
+        if not n:
+            continue
+        out.append({
+            "party_id": p.party_id,
+            "country_code": p.country_code,
+            "code": "%s/%s" % (p.country_code, p.party_id),
+            "name": p.business_name or ("%s/%s" % (p.country_code, p.party_id)),
+            "sessions": int(n),
+        })
+    out.sort(key=lambda r: -r["sessions"])
+    return out
+
+
+def _export_rows(db: Session, start_dt, end_dt, tenant=None, party_id=None,
+                 charger_id=None):
+    """The lines an export is built from, in one shape whoever asked.
+
+    Two different populations, and confusing them is how an invoice stops
+    matching the other side:
+
+      * `party_id` draws the roaming settlement. Scoped by the partner
+        recorded on the session, and only sessions whose CDR has been
+        released, so every line has a counterpart the partner already
+        holds. This is what goes to Voltality.
+      * `tenant` draws a fleet's own report. Every charge on that fleet's
+        chargers, walk-ins and app users included, which the partner has
+        never seen. This is internal.
+    """
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    bill_to = None
+    scope_label, scope_value = "Tenant", "All tenants"
+
+    if party_id:
+        from ocpi.router import _cdr_settled_sql
+        partner = (
+            db.query(OcpiPartner)
+            .filter(OcpiPartner.party_id == party_id.strip().upper())
+            .order_by(OcpiPartner.id.desc())
+            .first()
+        )
+        if partner is None:
+            raise HTTPException(status_code=404,
+                                detail="No roaming partner '%s'" % party_id)
+        q = q.filter(ChargingSession.ocpi_partner_id == partner.id)
+        q = q.filter(_cdr_settled_sql())
+        bill_to = partner.business_name or "%s / %s" % (partner.country_code,
+                                                        partner.party_id)
+        scope_label = "Roaming partner"
+        scope_value = "%s/%s" % (partner.country_code, partner.party_id)
+    else:
+        key = (tenant or "").strip().lower()
+        if key and key != "all":
+            q = q.filter(_session_tenant_sql() == key)
+            t = db.query(Tenant).filter(Tenant.key == key).first()
+            bill_to = (t.label if t else key)
+            scope_value = (t.label if t else key)
+
+    if charger_id:
+        q = q.filter(Charger.charge_point_id == charger_id)
+    if start_dt:
+        q = q.filter(ChargingSession.start_time >= start_dt)
+    if end_dt:
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows, breakdown = [], {}
+    for s, c in q.order_by(ChargingSession.start_time).all():
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        ended = s.unplugged_at or s.stop_time
+        address = _charger_address(c)
+        minutes = 0.0
+        if s.start_time and s.stop_time:
+            minutes = (s.stop_time - s.start_time).total_seconds() / 60
+        rows.append({
+            "session_id": str(s.transaction_id),
+            "start_time": s.start_time,
+            "end_time": ended,
+            "charger": c.charge_point_id,
+            "location": address,
+            "energy_kwh": round(kwh, 2),
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+            "currency": "MYR",
+            "status": s.status,
+        })
+        d = breakdown.setdefault(c.charge_point_id, {
+            "charger": c.charge_point_id, "location": address, "sessions": 0,
+            "energy_kwh": 0.0, "hours": 0.0, "energy_cost": 0.0,
+            "idle_cost": 0.0, "revenue": 0.0,
+        })
+        d["sessions"] += 1
+        d["energy_kwh"] += kwh
+        d["hours"] += minutes / 60
+        d["energy_cost"] += energy_cost
+        d["idle_cost"] += idle_cost
+        d["revenue"] += energy_cost + idle_cost
+
+    for d in breakdown.values():
+        for k in ("energy_kwh", "hours", "energy_cost", "idle_cost", "revenue"):
+            d[k] = round(d[k], 2)
+
+    return rows, sorted(breakdown.values(), key=lambda d: -d["revenue"]), {
+        "bill_to": bill_to,
+        "scope_label": scope_label,
+        "scope_value": scope_value,
+    }
+
+
+@app.get("/api/invoice/export")
+async def export_invoice(
+    format: str = Query("xlsx", pattern="^(json|csv|xlsx|pdf)$"),
+    tenant: Optional[str] = None,
+    party_id: Optional[str] = Query(
+        None, description="A roaming partner, e.g. VLT. Overrides tenant."),
+    charger_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """One export, three formats, built on the server.
+
+    The page used to assemble the CSV in the browser, which is why it could
+    not carry a logo, a column width or a page layout, and why the figures
+    in it were a second implementation that had drifted from the ones on
+    screen. There is one set of numbers now, and the file is whichever
+    container the reader needs.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    rows, breakdown, scope = _export_rows(
+        db, start_dt, end_dt, tenant=tenant, party_id=party_id,
+        charger_id=charger_id)
+
+    # Malaysia time: the document date on an invoice is the local calendar
+    # day, and every other clock on this page is MYT.
+    now = datetime.now(MYT)
+    doc_no = "INV-%s-%s" % (now.strftime("%Y%m%d"),
+                            (party_id or tenant or "ALL").upper()[:8])
+    meta = {
+        "document_no": doc_no,
+        "generated": now.strftime("%d/%m/%Y"),
+        "period": "%s to %s" % (start_date or "all", end_date or "all"),
+        "count": len(rows),
+        **scope,
+    }
+    stem = "PlagSini_%s_%s_%s" % (
+        (party_id or tenant or "all").lower().replace(" ", "-"),
+        (start_date or "all"), (end_date or "all"))
+
+    if format == "json":
+        # What the page shows for a partner scope. Same rows as the file it
+        # will download, so the screen and the attachment cannot disagree,
+        # which is how the old export came to bill RM1.20 a kWh while the
+        # page above it showed something else.
+        import invoice_export
+        t = invoice_export._totals(rows)
+        return {
+            "meta": meta,
+            "totals": t,
+            "breakdown": breakdown,
+            "sessions": [
+                {**r,
+                 "start_time": r["start_time"].isoformat() if r["start_time"] else None,
+                 "end_time": r["end_time"].isoformat() if r["end_time"] else None}
+                for r in rows
+            ],
+        }
+
+    if format == "xlsx":
+        import invoice_export
+        data = invoice_export.build_xlsx(meta, rows, breakdown)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument."
+                       "spreadsheetml.sheet",
+            headers={"Content-Disposition":
+                     'attachment; filename="%s.xlsx"' % stem},
+        )
+
+    if format == "pdf":
+        import invoice_export
+        data = invoice_export.build_pdf(meta, rows, breakdown)
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition":
+                     'attachment; filename="%s.pdf"' % stem},
+        )
+
+    import csv as _csv
+    import io as _io
+
+    import invoice_export
+
+    buf = _io.StringIO()
+    cols = [c[0] for c in invoice_export.COLUMNS]
+    heads = [c[1] for c in invoice_export.COLUMNS]
+    w = _csv.writer(buf)
+    w.writerow([invoice_export.COMPANY_NAME])
+    w.writerow([invoice_export.TAGLINE])
+    w.writerow([])
+    for k, v in (("Document No", doc_no), ("Generated", meta["generated"]),
+                 ("Billing Period", meta["period"]),
+                 (meta["scope_label"], meta["scope_value"]),
+                 ("Sessions", len(rows))):
+        w.writerow([k, v])
+    w.writerow([])
+    w.writerow(heads)
+    for r in rows:
+        w.writerow([
+            invoice_export._dt(r[c]) if c in ("start_time", "end_time") else r[c]
+            for c in cols
+        ])
+    t = {
+        "energy_kwh": round(sum(r["energy_kwh"] for r in rows), 2),
+        "energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+        "idle_minutes": int(sum(r["idle_minutes"] for r in rows)),
+        "idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+        "total": round(sum(r["total"] for r in rows), 2),
+    }
+    w.writerow(["TOTAL"] + ["" if c not in t else t[c] for c in cols[1:]])
+    # BOM so Excel reads it as UTF-8 rather than mangling the address.
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s.csv"' % stem},
+    )
+
+
 @app.get("/api/invoice/partner-sessions")
 async def get_partner_invoice_sessions(
     party_id: Optional[str] = Query(None, description="e.g. VLT. Omit for every roaming partner."),

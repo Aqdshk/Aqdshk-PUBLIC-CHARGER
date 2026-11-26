@@ -106,8 +106,9 @@
                 <h1 class="page-title"><span>📄</span> Invoice & Reports</h1>
             </div>
             <div class="header-right">
-                <button class="btn btn-secondary btn-small" onclick="exportCSV()">📥 CSV</button>
-                <button class="btn btn-primary btn-small" onclick="window.print()">🖨️ Print</button>
+                <button class="btn btn-secondary btn-small" onclick="downloadExport('csv')">📄 CSV</button>
+                <button class="btn btn-secondary btn-small" onclick="downloadExport('xlsx')">📊 Excel</button>
+                <button class="btn btn-primary btn-small" onclick="downloadExport('pdf')">🧾 Invoice PDF</button>
             </div>
         </header>
 
@@ -115,6 +116,7 @@
             <!-- Filters -->
             <div class="inv-filter no-print">
                 <div><label>Tenant</label><select id="filterTenant"><option value="all">All Tenants</option></select></div>
+                <div><label>Roaming partner</label><select id="filterPartner"><option value="">— none (tenant report) —</option></select></div>
                 <div><label>From</label><input type="date" id="startDate"></div>
                 <div><label>To</label><input type="date" id="endDate"></div>
                 <div><label>Charger</label><select id="filterCharger"><option value="">All</option></select></div>
@@ -134,9 +136,11 @@
                         <div class="inv-info">
                         <strong>Generated</strong> <span id="reportDate">-</span><br>
                         <strong>Period</strong> <span id="reportPeriod">-</span><br>
-                        <strong>Tenant</strong> <span id="reportTenant">-</span>
+                        <strong>Scope</strong> <span id="reportTenant">-</span>
                     </div>
                 </div>
+
+                    <div id="scopeNote" class="no-print" style="display:none;font-size:10px;padding:6px 10px;margin-bottom:8px;border-radius:6px;"></div>
 
                     <div class="inv-summary">
                         <div class="inv-card"><div class="inv-icon">📋</div><div class="inv-val" id="totalSessions">-</div><div class="inv-lbl">Sessions</div></div>
@@ -175,7 +179,35 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
-        document.addEventListener('DOMContentLoaded', () => { initTenant(); loadChargers(); setThisMonth(); });
+        document.addEventListener('DOMContentLoaded', () => {
+            initTenant(); loadPartners(); loadChargers(); setThisMonth();
+        });
+
+        // Two different populations, and sending the wrong one is how an
+        // invoice stops matching the other side's records. A partner
+        // settlement is only the charges that partner sent us, and only
+        // those whose CDR we released. A tenant report is every charge on
+        // that fleet's chargers, walk-ins included, which the partner has
+        // never seen and cannot reconcile.
+        function partnerValue() {
+            const el = document.getElementById('filterPartner');
+            return (el && el.value) || '';
+        }
+
+        async function loadPartners() {
+            const el = document.getElementById('filterPartner');
+            try {
+                const rows = await (await fetch(`${API_BASE}/invoice/partners`,
+                    { headers: authHeaders() })).json();
+                (rows || []).forEach(p => {
+                    const o = document.createElement('option');
+                    o.value = p.party_id;
+                    o.textContent = `${p.name} (${p.code})`;
+                    el.appendChild(o);
+                });
+            } catch (e) {}
+            el.addEventListener('change', () => { loadReport(); });
+        }
 
         // A report is scoped before it is generated, so the scope belongs in
         // the filter bar beside the dates rather than only in the sidebar.
@@ -264,12 +296,58 @@
             return t ? { 'X-Staff-Token': t } : {};
         };
         
+        // The query every request on this page is built from, so the figures
+        // on screen and the file downloaded are drawn from one scope.
+        function scopeParams() {
+            const p = [];
+            const sd = document.getElementById('startDate').value;
+            const ed = document.getElementById('endDate').value;
+            const ci = document.getElementById('filterCharger').value;
+            const pt = partnerValue();
+            const tn = tenantValue();
+            if (sd) p.push(`start_date=${sd}`);
+            if (ed) p.push(`end_date=${ed}`);
+            if (ci) p.push(`charger_id=${ci}`);
+            if (pt) p.push(`party_id=${encodeURIComponent(pt)}`);
+            else if (tn && tn !== 'all') p.push(`tenant=${encodeURIComponent(tn)}`);
+            return p.join('&');
+        }
+
+        function scopeText() {
+            const pt = partnerValue();
+            if (!pt) return tenantLabel(tenantValue());
+            const el = document.getElementById('filterPartner');
+            return [...el.options].find(o => o.value === pt)?.textContent || pt;
+        }
+
+        function showScopeNote() {
+            const el = document.getElementById('scopeNote');
+            if (partnerValue()) {
+                el.style.display = 'block';
+                el.style.background = 'rgba(0,230,118,.08)';
+                el.style.color = 'var(--accent,#22c55e)';
+                el.textContent = 'Roaming settlement. Only the charges this partner '
+                    + 'sent us, and only those whose CDR has been released, so every '
+                    + 'line matches a record they already hold. Send this one.';
+            } else {
+                el.style.display = 'block';
+                el.style.background = 'rgba(255,167,38,.08)';
+                el.style.color = 'var(--orange,#ffa726)';
+                el.textContent = 'Fleet report. Every charge on this tenant\'s chargers, '
+                    + 'including walk-ins and app users a roaming partner never saw. '
+                    + 'For internal P&L, not for invoicing a partner.';
+            }
+        }
+
         async function loadReport() {
-            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
-            const tn=tenantValue();
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
+            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
             document.getElementById('reportPeriod').textContent = `${sd||'-'} ~ ${ed||'-'}`;
-            document.getElementById('reportTenant').textContent = tenantLabel(tn);
+            document.getElementById('reportTenant').textContent = scopeText();
+            showScopeNote();
+            if (partnerValue()) return loadPartnerReport();
+            const ci=document.getElementById('filterCharger').value;
+            const tn=tenantValue();
             const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
             if(tn && tn!=='all') p.push(`tenant=${encodeURIComponent(tn)}`);
             const qs = p.length ? '?'+p.join('&') : '';
@@ -308,81 +386,95 @@
             } catch(e){ console.error('Error:',e); }
         }
         
-        // What a finance team asked a charging record to show: start, end,
-        // charger, location, kWh, the cost split into energy and idling, and
-        // an identifier that means something to the party being invoiced.
-        //
-        // The old export invented all of it. Every row was billed at a
-        // hardcoded RM1.20/kWh, which matched neither the chargers' own rates
-        // nor the figures printed above it on the same page; idling was not
-        // billed at all; the end time read a field the payload does not carry,
-        // so every row said "-"; and the session identifier was a row counter,
-        // S0001 upward, which corresponds to nothing either side holds.
-        function csvCell(v) {
-            const t = (v === null || v === undefined) ? '' : String(v);
-            return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
-        }
+        // A partner settlement, drawn from the same endpoint that builds the
+        // file, so the screen cannot drift from the attachment. Maintenance
+        // and net profit are blanked: a partner is invoiced for charges, not
+        // charged for our repairs.
+        async function loadPartnerReport() {
+            const qs = '?format=json&' + scopeParams();
+            try {
+                const j = await (await fetch(`${API_BASE}/invoice/export${qs}`,
+                    { headers: authHeaders() })).json();
+                const t = j.totals || {};
+                const rows = j.sessions || [];
+                const hours = (j.breakdown || []).reduce((a, b) => a + (b.hours || 0), 0);
+                document.getElementById('totalSessions').textContent = t.count || 0;
+                document.getElementById('totalEnergy').textContent = (t.energy_kwh || 0).toFixed(1);
+                document.getElementById('totalHours').textContent = hours.toFixed(1);
+                document.getElementById('pricePerKwh').textContent =
+                    (t.energy_kwh ? (t.energy_cost / t.energy_kwh) : 0).toFixed(2);
+                document.getElementById('energyRevenue').textContent = (t.energy_cost || 0).toFixed(2);
+                document.getElementById('idleRevenue').textContent = (t.idle_cost || 0).toFixed(2);
+                document.getElementById('totalRevenue').textContent = (t.total || 0).toFixed(2);
+                document.getElementById('maintenanceCost').textContent = '—';
+                document.getElementById('netProfit').textContent = '—';
 
-        function exportCSV() {
-            if (!reportData.sessions.length) { alert('No data'); return; }
-            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
-            const tn=tenantValue();
-            const now=new Date(), invDate=now.toLocaleDateString('en-GB');
-            const invNo=`INV-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`;
-            const fmt=d=>d?new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
-            const rows=[...reportData.sessions].sort((a,b)=>new Date(a.start_time||0)-new Date(b.start_time||0));
-
-            let te=0,tE=0,tI=0,ta=0;
-            rows.forEach(s=>{te+=s.energy_kwh||0;tE+=s.energy_cost||0;tI+=s.idle_cost||0;ta+=s.amount||0;});
-
-            const L=[];
-            L.push('PLAG SINI SDN. BHD.');
-            L.push('EV Charging Session Record');
-            L.push('');
-            L.push(['Document No',invNo].map(csvCell).join(','));
-            L.push(['Generated',invDate].map(csvCell).join(','));
-            L.push(['Billing Period',`${sd||'-'} to ${ed||'-'}`].map(csvCell).join(','));
-            L.push(['Tenant',tenantLabel(tn)].map(csvCell).join(','));
-            L.push(['Sessions',rows.length].map(csvCell).join(','));
-            L.push('');
-            L.push(['Session ID','Start Time','End Time','Charger','Location',
-                    'Energy (kWh)','Rate (RM/kWh)','Energy Cost (RM)',
-                    'Idle (min)','Idling Cost (RM)','Total (RM)','Currency','Status']
-                   .map(csvCell).join(','));
-            rows.forEach(s=>{
-                L.push([
-                    s.transaction_id, fmt(s.start_time), fmt(s.end_time),
-                    s.charge_point_id, s.location || '',
-                    (s.energy_kwh||0).toFixed(2), (s.price_per_kwh||0).toFixed(2),
-                    (s.energy_cost||0).toFixed(2), s.idle_minutes||0,
-                    (s.idle_cost||0).toFixed(2), (s.amount||0).toFixed(2),
-                    s.currency||'MYR', s.status,
-                ].map(csvCell).join(','));
-            });
-            // The invoiced figure belongs in the file being reconciled, not
-            // only in the covering email.
-            L.push(['TOTAL','','','','',te.toFixed(2),'',tE.toFixed(2),'',
-                    tI.toFixed(2),ta.toFixed(2),'MYR',''].map(csvCell).join(','));
-
-            if (Object.keys(reportData.breakdown).length) {
-                L.push('');
-                L.push(['Charger','Location','Sessions','Energy (kWh)','Duration (hrs)',
-                        'Energy Cost (RM)','Idling Cost (RM)','Revenue (RM)']
-                       .map(csvCell).join(','));
-                Object.entries(reportData.breakdown).forEach(([id,d])=>{
-                    L.push([id, d.location||'', d.sessions, d.energy_kwh.toFixed(2),
-                            (d.duration_minutes/60).toFixed(2),
-                            (d.energy_cost||0).toFixed(2), (d.idle_cost||0).toFixed(2),
-                            d.revenue.toFixed(2)].map(csvCell).join(','));
+                reportData.breakdown = {};
+                (j.breakdown || []).forEach(b => {
+                    reportData.breakdown[b.charger] = {
+                        sessions: b.sessions, energy_kwh: b.energy_kwh,
+                        revenue: b.revenue, energy_cost: b.energy_cost,
+                        idle_cost: b.idle_cost, duration_minutes: (b.hours || 0) * 60,
+                        location: b.location,
+                    };
                 });
-            }
+                const bb = document.getElementById('chargerBreakdown');
+                const bd = reportData.breakdown;
+                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="6" class="empty-state">No data</td></tr>'; }
+                else {
+                    let ts=0,te=0,td=0,tr=0,ti=0;
+                    let h = Object.entries(bd).map(([id,d])=>{const idl=d.idle_cost||0;ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue;ti+=idl; return `<tr><td class="text-blue" title="${d.location||''}">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-orange">${idl.toFixed(2)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${ti.toFixed(2)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
+                    bb.innerHTML = h;
+                }
 
-            const name=`PlagSini_${tn==='all'?'all-tenants':tn}_${sd||'all'}_${invNo}.csv`;
-            // BOM so Excel opens it as UTF-8 instead of mangling the address.
-            const blob=new Blob(['\ufeff'+L.join('\n')+'\n'],{type:'text/csv;charset=utf-8;'});
-            const url=URL.createObjectURL(blob); const a=document.createElement('a');
-            a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+                reportData.sessions = rows;
+                const sb = document.getElementById('sessionDetails');
+                if (!rows.length) { sb.innerHTML = '<tr><td colspan="9" class="empty-state">No settled sessions for this partner</td></tr>'; }
+                else {
+                    let h = rows.map(r=>{const st=r.start_time?new Date(r.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const idl=r.idle_cost?r.idle_cost.toFixed(2):'-'; return `<tr><td>#${r.session_id}</td><td class="text-blue" title="${r.location||''}">${r.charger}</td><td>${st}</td><td>—</td><td class="text-right">${(r.energy_kwh||0).toFixed(1)}</td><td class="text-right">${(r.energy_cost||0).toFixed(2)}</td><td class="text-right text-orange" title="${r.idle_minutes||0} min">${idl}</td><td class="text-right text-green">${(r.total||0).toFixed(2)}</td><td class="text-green">${(r.status||'').substring(0,4).toUpperCase()}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${(t.energy_cost||0).toFixed(2)}</strong></td><td class="text-right"><strong>${(t.idle_cost||0).toFixed(2)}</strong></td><td class="text-right"><strong>${(t.total||0).toFixed(2)}</strong></td><td></td></tr>`;
+                    sb.innerHTML = h;
+                }
+            } catch (e) { console.error('Error:', e); }
         }
+
+        // The file is built on the server, where the logo, the column widths
+        // and the page layout live. A browser-assembled CSV could carry none
+        // of them, and its figures were a second implementation of the money.
+        // The download goes through fetch because the endpoint authenticates
+        // on a header: a plain link would arrive without the staff token and
+        // come back 401 instead of a file.
+        async function downloadExport(fmt) {
+            const url = `${API_BASE}/invoice/export?format=${fmt}&` + scopeParams();
+            const btns = document.querySelectorAll('.header-right .btn');
+            btns.forEach(b => b.disabled = true);
+            try {
+                const res = await fetch(url, { headers: authHeaders() });
+                if (!res.ok) {
+                    let why = res.status;
+                    try { why = (await res.json()).detail || why; } catch (e) {}
+                    alert('Export failed: ' + why);
+                    return;
+                }
+                const blob = await res.blob();
+                const cd = res.headers.get('Content-Disposition') || '';
+                const name = (cd.match(/filename="([^"]+)"/) || [])[1]
+                    || `PlagSini_export.${fmt}`;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) {
+                alert('Export failed: ' + e.message);
+            } finally {
+                btns.forEach(b => b.disabled = false);
+            }
+        }
+
     </script>
 </body>
 </html>
