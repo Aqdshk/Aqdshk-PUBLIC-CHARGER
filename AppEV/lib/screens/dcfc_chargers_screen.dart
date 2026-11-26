@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/charger_provider.dart';
 import '../constants/app_colors.dart';
 import 'charger_detail_screen.dart';
+import '../providers/theme_provider.dart';
 
 class DCFCChargersScreen extends StatefulWidget {
   const DCFCChargersScreen({super.key});
@@ -18,6 +19,9 @@ class _DCFCChargersScreenState extends State<DCFCChargersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -164,6 +168,9 @@ class _DCFCChargerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id'] ?? 'Unknown';
     final status = charger['availability'] ?? 'unknown';
     final isAvailable = status == 'available' || status == 'preparing';

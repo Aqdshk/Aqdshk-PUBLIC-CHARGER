@@ -4,6 +4,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../models/user.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class WalletHistoryScreen extends StatefulWidget {
   const WalletHistoryScreen({super.key});
@@ -41,6 +42,9 @@ class _WalletHistoryScreenState extends State<WalletHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(

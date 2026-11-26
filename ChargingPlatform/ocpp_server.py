@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -33,6 +34,9 @@ from ocpp.v16 import ChargePoint as cp, call, call_result
 from ocpp.v16.enums import AuthorizationStatus, RegistrationStatus
 
 from database import SessionLocal, Charger, ChargingSchedule, ChargingSession, MeterValue, Fault, User, PaymentTransaction
+from connectivity import record_event as record_connectivity_event, remote_ip_of
+import ocpp_trace
+import idle_billing
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,56 @@ _MYT_OFFSET = timedelta(hours=8)
 def _now_myt():
     """Server clock as Malaysia wall time, naive — the session/meter convention."""
     return (datetime.now(timezone.utc) + _MYT_OFFSET).replace(tzinfo=None)
+
+
+def parse_sampled_values(sampled_value) -> tuple:
+    """Read one MeterValues sample set into (voltage, current, power, kWh, soc).
+
+    Pulled out of the handler so it can be tested against the payloads real
+    chargers actually send, which is how the bug below went unnoticed: the
+    handler needs a database session and a live websocket to exercise, so
+    nobody ever ran a reading through it.
+
+    OCPP 1.6 makes measurand optional and defines the default as
+    Energy.Active.Import.Register, with Wh as the default unit. Voltality's
+    test charger sends exactly that bare form, {"value": "431"} and nothing
+    else. We required the field to be present, so every such reading was
+    discarded: session 449 sent 22 over 21 minutes and stored energy on none of
+    them, and the kWh only appeared at StopTransaction. The 2.0.1 handler had
+    always applied the default.
+    """
+    voltage = current = power = total_kwh = soc = None
+
+    for sv in sampled_value or []:
+        try:
+            value = float(sv.get('value', 0) or 0)
+        except (ValueError, TypeError):
+            value = 0.0
+        measurand = sv.get('measurand') or 'Energy.Active.Import.Register'
+        # Chargers send power in W or kW and energy in Wh or kWh. Respect the
+        # unit so what we store is always kW and kWh.
+        unit = (sv.get('unit') or '').strip()
+
+        if measurand == 'Voltage':
+            voltage = value
+        elif measurand == 'Current.Import':
+            current = value
+        elif measurand == 'Power.Active.Import':
+            # If the unit is absent, infer from magnitude: anything over 1000
+            # is almost certainly watts.
+            if unit.lower() == 'w' or (not unit and value > 1000):
+                power = value / 1000.0
+            else:
+                power = value
+        elif measurand == 'Energy.Active.Import.Register':
+            total_kwh = value if unit.lower() == 'kwh' else value / 1000.0
+        elif measurand == 'SoC':
+            # Clamped: a charger with no vehicle sometimes reports a
+            # placeholder outside 0-100.
+            if 0 <= value <= 100:
+                soc = value
+
+    return voltage, current, power, total_kwh, soc
 
 
 def _charger_ts_to_myt(value, fallback=None):
@@ -197,6 +251,107 @@ def _add_firmware_event(charger_id: str, status: str, firmware_version: str = ""
         firmware_events.pop(0)
 # Charge point ID format: alphanumeric, dots, underscores, colons, hyphens; 3–64 chars
 _CP_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{3,64}$")
+
+# id_tags we have just asked a charger to start with, keyed by
+# (charge_point_id, id_tag) and holding the moment the pass expires.
+#
+# A charger that receives RemoteStartTransaction may still send Authorize for
+# the tag before it opens the transaction, and the answer has to be yes: we
+# issued that tag ourselves a second earlier. Without this, a roaming start
+# was accepted as a command and then refused as a card. On 2026-11-25, with
+# Voltality live, their token `dc39aef7a92s73dn2590` was blocked three
+# seconds after we asked the charger to start with it, and the car never
+# charged while the partner was told ACCEPTED.
+#
+# Short-lived on purpose. The pass covers the handshake that follows our own
+# command, not a tag anybody may present later.
+_REMOTE_START_TAGS: Dict[tuple, float] = {}
+_REMOTE_START_TTL_SECONDS = 180
+
+# Transactions we have asked a charger to stop, keyed by
+# (charge_point_id, transaction_id).
+#
+# OCPP 1.6 gives a reason on StopTransaction, but DC3001's firmware answers
+# "Other" whether the driver ended the charge from the car or the charger
+# decided by itself, so the reason alone cannot say who stopped it. Whether
+# *we* asked is something only this process knows, and only while the stop
+# is in flight, so it is recorded here and read once when the charger
+# reports back.
+_REMOTE_STOP_TXNS: Dict[tuple, float] = {}
+_REMOTE_STOP_TTL_SECONDS = 300
+
+
+def _remember_remote_stop(cp_id: str, transaction_id) -> None:
+    """Note that the platform, not the driver, asked for this stop."""
+    if not cp_id or transaction_id is None:
+        return
+    now = time.time()
+    for key, expires in list(_REMOTE_STOP_TXNS.items()):
+        if expires <= now:
+            _REMOTE_STOP_TXNS.pop(key, None)
+    _REMOTE_STOP_TXNS[(cp_id, int(transaction_id))] = now + _REMOTE_STOP_TTL_SECONDS
+
+
+def _was_remote_stop(cp_id: str, transaction_id) -> bool:
+    if transaction_id is None:
+        return False
+    key = (cp_id, int(transaction_id))
+    expires = _REMOTE_STOP_TXNS.get(key)
+    if expires is None:
+        return False
+    if expires <= time.time():
+        _REMOTE_STOP_TXNS.pop(key, None)
+        return False
+    return True
+
+
+def stop_initiator(cp_id: str, transaction_id, reason: Optional[str]) -> str:
+    """Who ended the charge, from the reason plus what we know we asked for.
+
+    The reason on its own is not enough. Voltality's live test on 2026-11-25
+    ended two charges from the car and DC3001 reported "Other" for both,
+    which is also what it reports when it simply finishes. The dashboard
+    showed "reason: other" and told the operator nothing.
+
+    `Remote` and a stop we issued are the platform. `Local` is somebody at
+    the unit. `EVDisconnected` is the cable or the car. Anything else, when
+    we did not ask, is the vehicle ending its own charge, which is the case
+    that used to be invisible.
+    """
+    r = (reason or "").strip()
+    if r == "Remote" or _was_remote_stop(cp_id, transaction_id):
+        return "platform"
+    if r == "Local":
+        return "charger"
+    if r == "EVDisconnected":
+        return "vehicle"
+    if r in ("PowerLoss", "EmergencyStop", "ImmediateReset", "HardReset",
+             "SoftReset", "Reboot", "DeAuthorized", "QuotaReached",
+             "NeverStarted"):
+        return "charger"
+    return "vehicle"
+
+
+def _remember_remote_start(cp_id: str, id_tag: str) -> None:
+    """Vouch for an id_tag we are about to send to a charger."""
+    if not cp_id or not id_tag:
+        return
+    now = time.time()
+    for key, expires in list(_REMOTE_START_TAGS.items()):
+        if expires <= now:
+            _REMOTE_START_TAGS.pop(key, None)
+    _REMOTE_START_TAGS[(cp_id, id_tag)] = now + _REMOTE_START_TTL_SECONDS
+
+
+def _is_our_remote_start(cp_id: str, id_tag: str) -> bool:
+    """Whether this charger is asking about a tag we just sent it."""
+    expires = _REMOTE_START_TAGS.get((cp_id, id_tag))
+    if expires is None:
+        return False
+    if expires <= time.time():
+        _REMOTE_START_TAGS.pop((cp_id, id_tag), None)
+        return False
+    return True
 
 
 def _parse_token_map(raw_tokens: str) -> Dict[str, str]:
@@ -401,6 +556,7 @@ class ChargePoint(cp):
                 # first time has no row until right here.
                 charger.ocpp_version = self.ocpp_version
                 charger.last_heartbeat = _utcnow()
+
                 
                 # BootNotification means charger just rebooted — any active/pending sessions
                 # from before the reboot are orphaned (StopTransaction was never received).
@@ -440,6 +596,21 @@ class ChargePoint(cp):
                     charger.availability = "available"
                     logger.info(f"Charger {self.id} rebooted — closed {len(orphaned)} orphan session(s)")
             
+            # The SIM, if the charger has one. Only written when present: a
+            # boot that leaves the fields out says nothing about the SIM being
+            # gone, and plenty of firmware never sends them. See connectivity.py.
+            if kwargs.get('iccid'):
+                charger.iccid = str(kwargs['iccid']).strip()[:32]
+            if kwargs.get('imsi'):
+                charger.imsi = str(kwargs['imsi']).strip()[:20]
+            # A reboot is part of the link's story: the log shows a charger that
+            # restarts every night at the same minute, which is otherwise
+            # indistinguishable from a network drop.
+            record_connectivity_event(
+                self.id, "boot",
+                detail=f"{charge_point_vendor} {charge_point_model}, firmware {kwargs.get('firmware_version') or '?'}",
+            )
+
             # Auto-populate max_power_kw from model name if not manually set (e.g. "30kW" → 30.0)
             if charger.max_power_kw is None and charge_point_model:
                 match = re.search(r'(\d+\.?\d*)\s*kw', charge_point_model, re.IGNORECASE)
@@ -500,6 +671,16 @@ class ChargePoint(cp):
         try:
             # Known app-initiated id_tags (RemoteStart flow) — always accept
             if id_tag in ("APP_USER", "DASHBOARD_USER", "LOCAL_CHARGING", ""):
+                return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
+
+            # A tag we handed this charger ourselves, moments ago, in a
+            # RemoteStartTransaction. A roaming partner's token is none of the
+            # shapes below, so without this it falls through to Blocked and
+            # the charge the partner asked for never begins.
+            if _is_our_remote_start(self.id, id_tag):
+                logger.info(
+                    "Authorize accepted for %s: id_tag=%r is our own remote start",
+                    self.id, id_tag)
                 return call_result.Authorize(id_tag_info={"status": AuthorizationStatus.accepted})
 
             # quick-pay / terminal-kiosk id_tag format is "PAY{txn.id}".
@@ -641,6 +822,38 @@ class ChargePoint(cp):
                 except Exception as e:
                     logger.error(f"[idle-fee] failed to mark charge_complete_at for {self.id}: {e}")
 
+            # ── Unplug detection ──────────────────────────────────────────
+            # "Available" is the only signal we get that the cable actually
+            # came out. A session stopped from the app or by a roaming partner
+            # has already closed by now, so this is where its idle figure is
+            # settled and where its CDR becomes issuable.
+            if status == 'Available':
+                _settled = None
+                try:
+                    # Bill to the instant the charger says the cable came out,
+                    # not to the instant its message reached us. The two differ
+                    # by however long the report took, and because idle rounds
+                    # up to a whole block, a few seconds of lag can add a block
+                    # the driver did not earn.
+                    _unplugged_at = _charger_ts_to_myt(kwargs.get('timestamp'))
+                    _settled = idle_billing.settle_unplug(
+                        self.db, charger, now=_unplugged_at
+                    )
+                    if _settled is not None:
+                        self.db.commit()
+                        logger.info(
+                            f"[idle-fee] {self.id}: unplugged — session "
+                            f"{_settled.transaction_id}, idle={_settled.idle_minutes} min"
+                        )
+                except Exception as e:
+                    self.db.rollback()
+                    logger.error(f"[idle-fee] failed to mark unplug for {self.id}: {e}")
+                # Outside the try: a failed push must not look like a failed
+                # settlement, and the row is already committed either way.
+                if _settled is not None:
+                    _ocpi_push("session", _settled.id)
+                    _ocpi_push("cdr", _settled.id)
+
             # Update availability based on actual connector status
             # Only set to "charging" if connector status is actually "Charging"
             if status == 'Charging':
@@ -696,8 +909,17 @@ class ChargePoint(cp):
                         charger.availability = new_availability
                     
                     # Clear placeholder sessions (transaction_id = 0 or negative) if charger is not charging
+                    #
+                    # Not on SuspendedEV / SuspendedEVSE. A connector only
+                    # reports those inside a transaction, so they mean the
+                    # start we asked for is under way, not that it failed.
+                    # AION E7 units send SuspendedEV a few seconds before
+                    # their StartTransaction. Clearing the placeholder then
+                    # told the partner app its session was over with 0 kWh
+                    # while the car charged on, and the real session lost the
+                    # paid quota the placeholder was carrying (2026-10-10).
                     try:
-                        placeholder_sessions = self.db.query(ChargingSession).filter(
+                        placeholder_sessions = [] if status in ('SuspendedEV', 'SuspendedEVSE') else self.db.query(ChargingSession).filter(
                             ChargingSession.charger_id == charger.id,
                             ChargingSession.status.in_(['active', 'pending']),
                             ChargingSession.transaction_id <= 0  # Clear both 0 and negative transaction_ids
@@ -949,6 +1171,8 @@ class ChargePoint(cp):
                 session.status = "completed"
                 session.meter_stop = meter_stop
                 session.stop_reason = kwargs.get("reason")
+                session.stop_initiator = stop_initiator(
+                    self.id, transaction_id, kwargs.get("reason"))
 
                 # Use meter_stop for billing accuracy — OCPP spec: meter_stop is authoritative Wh at session end
                 if meter_stop is not None:
@@ -969,6 +1193,8 @@ class ChargePoint(cp):
                         meter_stop=meter_stop,
                         energy_consumed=session.energy_consumed,
                         stop_reason=kwargs.get("reason"),
+                        stop_initiator=stop_initiator(
+                            self.id, transaction_id, kwargs.get("reason")),
                     )
 
                 # Update charger availability
@@ -993,17 +1219,18 @@ class ChargePoint(cp):
                         kwh = float(session.energy_consumed or 0)
                         energy_cost = round(kwh * tariff, 2)
 
-                        # Idle minutes accrued past grace
-                        idle_min = 0
-                        idle_fee = 0.0
-                        if session.idle_started_at and session.stop_time:
-                            elapsed = (session.stop_time - session.idle_started_at).total_seconds() / 60.0
-                            past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
-                            idle_min = int(past_grace)
-                            idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+                        # A stop can arrive while the cable is still in — that
+                        # is exactly what a remote stop from the app or from a
+                        # roaming partner looks like. Start the idle clock here
+                        # if the connector never reported Suspended/Finishing,
+                        # otherwise the blocked bay accrues nothing at all.
+                        if not session.idle_started_at:
+                            session.idle_started_at = session.stop_time
 
-                        session.idle_minutes = idle_min
-                        session.idle_fee_amount = Decimal(str(idle_fee))
+                        # Accrues to the unplug, not to stop_time. Still open
+                        # at this point for a remote stop, so this figure is
+                        # provisional and the Available handler rewrites it.
+                        idle_min, idle_fee = idle_billing.finalize_idle(session, charger)
 
                         # A refund only means something when money was held up
                         # front, which is the kiosk flow. Roaming sessions are
@@ -1124,10 +1351,12 @@ class ChargePoint(cp):
             except (NameError, UnboundLocalError):
                 _ended = None
             if _ended is not None and getattr(_ended, "id", None):
-                # The session reaches its final state and the CDR becomes
-                # billable at the same moment, so both go out together.
+                # Only the session goes out here. The CDR is not billable
+                # yet: the car may still be plugged in, and its parking time
+                # is part of the record. It is pushed from the unplug handler
+                # instead. A charger that never reports Available leaves the
+                # CDR to be pulled once the hold window expires.
                 _ocpi_push("session", _ended.id)
-                _ocpi_push("cdr", _ended.id)
 
             return call_result.StopTransaction(
                 id_tag_info={'status': AuthorizationStatus.accepted}
@@ -1154,47 +1383,8 @@ class ChargePoint(cp):
             # python-ocpp converts camelCase → snake_case, so sampledValue → sampled_value
             sampled_value = mv.get('sampled_value', mv.get('sampledValue', []))
             
-            voltage = None
-            current = None
-            power = None
-            total_kwh = None
-            soc = None
-            
-            for sv in sampled_value:
-                try:
-                    value = float(sv.get('value', 0) or 0)
-                except (ValueError, TypeError):
-                    value = 0.0
-                measurand = sv.get('measurand', '')
-                # OCPP 1.6: chargers may send power in 'W' or 'kW', energy in
-                # 'Wh' or 'kWh'. Respect the unit field so we always store in
-                # canonical SI prefix expected by the UI (power=kW, energy=kWh).
-                unit = (sv.get('unit') or '').strip()
+            voltage, current, power, total_kwh, soc = parse_sampled_values(sampled_value)
 
-                if measurand == 'Voltage':
-                    voltage = value
-                elif measurand == 'Current.Import':
-                    current = value
-                elif measurand == 'Power.Active.Import':
-                    # Canonicalise to kW. If unit absent, infer from magnitude
-                    # (anything >1000 is almost certainly watts).
-                    if unit.lower() == 'w' or (not unit and value > 1000):
-                        power = value / 1000.0
-                    else:
-                        power = value  # already kW
-                elif measurand == 'Energy.Active.Import.Register':
-                    # Canonicalise to kWh.
-                    if unit.lower() == 'kwh':
-                        total_kwh = value
-                    else:
-                        total_kwh = value / 1000.0  # Wh → kWh
-                elif measurand == 'SoC':
-                    # The battery percentage the charger shows on its own
-                    # screen. Clamped because a charger with no vehicle
-                    # sometimes reports a placeholder outside 0-100.
-                    if 0 <= value <= 100:
-                        soc = value
-            
             meter_value_obj = MeterValue(
                 charger_id=charger.id,
                 connector_id=connector_id,
@@ -1213,6 +1403,31 @@ class ChargePoint(cp):
                 session = self.db.query(ChargingSession).filter(
                     ChargingSession.transaction_id == transaction_id
                 ).first()
+                # A session closed as "interrupted" that is still reporting is
+                # not over. Some chargers (AION E7) send BootNotification after
+                # a mere network reconnect, with the transaction still running,
+                # and the boot handler then closes it as an orphan. On
+                # 2026-10-07 that ended a guest's live session four minutes in
+                # while the car went on charging: the partner app saw a
+                # stop_time and showed the charge as finished. A reading for
+                # this transaction, taken after the moment we closed it, is the
+                # charger saying otherwise, so the session is reopened.
+                # Readings queued before the reboot carry earlier timestamps
+                # and leave a genuinely ended session closed.
+                if (
+                    session
+                    and session.status == "interrupted"
+                    and session.stop_time
+                    and timestamp
+                    and timestamp > session.stop_time
+                ):
+                    logger.warning(
+                        f"Session {session.id} (tx={transaction_id}) on {self.id} was closed as "
+                        f"interrupted at {session.stop_time} but reported again at {timestamp}; reopening"
+                    )
+                    session.status = "active"
+                    session.stop_time = None
+                    self.db.commit()
                 if session and total_kwh:
                     # total_kwh is the charger's cumulative lifetime register,
                     # not this session's delivery. Storing it raw billed the
@@ -1438,6 +1653,9 @@ class ChargePoint(cp):
         """
         try:
             logger.info(f"Sending RemoteStartTransaction to {self.id}: connector_id={connector_id}, id_tag={id_tag}")
+            # Before the call, not after: some chargers send Authorize for the
+            # tag while this request is still in flight.
+            _remember_remote_start(self.id, id_tag)
             request = call.RemoteStartTransaction(
                 id_tag=id_tag,
                 connector_id=connector_id
@@ -1452,6 +1670,7 @@ class ChargePoint(cp):
     async def remote_stop_transaction(self, transaction_id: int):
         """Send RemoteStopTransaction to charger"""
         try:
+            _remember_remote_stop(self.id, transaction_id)
             request = call.RemoteStopTransaction(
                 transaction_id=transaction_id
             )
@@ -1925,6 +2144,14 @@ async def on_connect(websocket):
         else:
             charge_point = ChargePoint(charge_point_id, websocket)
 
+        # Record raw frames for chargers a vendor is testing (ocpp_trace.py).
+        # A no-op for every other charger, and never allowed to stop a
+        # connection from being served.
+        try:
+            ocpp_trace.attach(charge_point)
+        except Exception as e:
+            logger.warning(f"[on_connect] could not attach trace for {charge_point_id}: {e}")
+
         # Record what this charger speaks, and how it authenticated, so the
         # dashboard can show both even once the charger drops off and the pool
         # no longer holds a handler.
@@ -1976,6 +2203,11 @@ async def on_connect(websocket):
         # admin force-reconnect (ws.close() alone leaves a zombie loop).
         connection_tasks[charge_point_id] = asyncio.current_task()
         logger.info(f"✅ Charge point {charge_point_id} registered. Total active connections: {len(active_charge_points)}")
+        record_connectivity_event(
+            charge_point_id, "connected",
+            remote_ip=remote_ip_of(websocket),
+            detail=f"OCPP {charge_point.ocpp_version}",
+        )
 
         try:
             # Start handling OCPP messages from charger
@@ -1992,6 +2224,14 @@ async def on_connect(websocket):
             logger.error(f"Error in charge point {charge_point_id} message handling: {e}", exc_info=True)
             # Log error but let connection close naturally
         finally:
+            # How it ended. websockets sets these once the closing handshake
+            # is done or the link is found dead; 1006 means no close frame
+            # ever arrived, which is what a lost signal looks like.
+            record_connectivity_event(
+                charge_point_id, "disconnected",
+                close_code=getattr(websocket, "close_code", None),
+                close_reason=getattr(websocket, "close_reason", None),
+            )
             # Remove from active connections when disconnected
             active_charge_points.pop(charge_point_id, None)
             connection_tasks.pop(charge_point_id, None)
@@ -2273,6 +2513,12 @@ async def orphan_session_watchdog(interval_seconds: int = 120):
                 s.status = "interrupted"
                 s.stop_time = _now_myt()  # session clock is MYT wall time, not UTC
                 s.energy_consumed = final_energy
+                # Nothing is going to report this cable coming out: the charger
+                # has stopped talking to us, which is why the watchdog is
+                # closing the session at all. Leaving unplugged_at NULL would
+                # hold the CDR for the full fallback window on a record that is
+                # already final.
+                s.unplugged_at = s.stop_time
 
                 if charger:
                     charger.availability = "available"
@@ -2312,6 +2558,9 @@ async def orphan_session_watchdog(interval_seconds: int = 120):
                 s.status = "interrupted"
                 s.stop_reason = "NeverStarted"
                 s.stop_time = _now_myt()
+                # No energy was ever delivered, so there is no idling phase to
+                # wait out and the record is complete as it stands.
+                s.unplugged_at = s.stop_time
                 closed += 1
                 logger.warning(
                     f"Watchdog closed never-started session {s.id} "

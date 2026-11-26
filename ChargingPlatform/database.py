@@ -18,12 +18,12 @@ Usage:
 import hashlib
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
-    UniqueConstraint, create_engine,
+    Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text,
+    UniqueConstraint, create_engine, event, inspect as sa_inspect, text,
 )
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
@@ -33,6 +33,11 @@ Base = declarative_base()
 def _utcnow():
     """Timezone-safe replacement for deprecated datetime.utcnow()"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _now_myt():
+    """Server clock as Malaysia wall time, naive — the session/meter convention."""
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None)
 
 
 # ─── User & Wallet ────────────────────────────────────────────────────────
@@ -311,6 +316,10 @@ class Charger(Base):
     # Per-connector OCPP status as a JSON string, e.g. {"1": "available", "2": "faulted"}.
     # `availability` above stays as the derived "best usable" status for backward compat.
     connector_status = Column(Text, nullable=True)
+    # When anything a roaming partner can see about this charger last changed:
+    # its connector status, its address, its tariff. Locations and Tariffs are
+    # filtered on it for the same reason sessions are.
+    last_updated = Column(DateTime, nullable=True, index=True)
     last_heartbeat = Column(DateTime)
     created_at = Column(DateTime, default=_utcnow)
     
@@ -328,6 +337,14 @@ class Charger(Base):
 
     # Physical / location info (set via admin API or directly in DB)
     location = Column(String(500), nullable=True)        # Human-readable address
+    # OCPI models an address in parts, and we only ever had the street line.
+    # City and postcode came from OCPI_LOCATION_CITY / OCPI_LOCATION_POSTAL,
+    # one value for the whole platform, so every published charger claimed to
+    # be in Kuala Lumpur 50000 however far from it the coordinates pointed.
+    # NULL falls back to those settings, which is what every charger did
+    # before these columns existed.
+    city = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     connector_type = Column(String(100), nullable=True)  # e.g. "Type 2", "CCS2", "CHAdeMO"
@@ -347,13 +364,30 @@ class Charger(Base):
     auth_method = Column(String(48), nullable=True)   # e.g. "HTTP Basic", "query-string", "none"
     auth_ok = Column(Boolean, nullable=True)          # True = would pass enforcement
 
+    # How the charger reaches the internet. OCPP 1.6 BootNotification carries
+    # the SIM's ICCID and IMSI when there is a modem, and 2.0.1 carries them
+    # under chargingStation.modem; both were being dropped. A charger that
+    # sends neither is not thereby on WiFi (plenty of firmware simply omits
+    # them), so `connectivity_override` lets an operator say what it really
+    # uses: "cellular", "wifi" or "ethernet". See connectivity.py.
+    iccid = Column(String(32), nullable=True)
+    imsi = Column(String(20), nullable=True)
+    connectivity_override = Column(String(16), nullable=True)
+    # Where the last WebSocket came from, as the charger's public address.
+    last_remote_ip = Column(String(64), nullable=True)
+
     # Whether this charger is published over OCPI to roaming partners.
-    #   None  → decide automatically from heartbeat age (the default)
-    #   True  → always publish, even while offline
+    #   True  → publish to roaming partners, including while offline
     #   False → never publish
-    # The automatic default exists because the table accumulates chargers that
-    # connected once and were never seen again; publishing those sends roaming
-    # users to charge points that are not there.
+    #   None  → never set; treated as False
+    # None used to mean "decide from heartbeat age", which published any
+    # charger that had checked in recently. That is how three Proton home
+    # chargers reached Voltality. Publication is opt-in now: see _publishable
+    # in ocpi/router.py, which requires True outright.
+    #
+    # A charger created from a BootNotification therefore starts hidden, and
+    # since 2026-11-18 it starts explicitly False rather than None, so the
+    # dashboard shows a deliberate "hidden" instead of an ambiguous blank.
     is_public = Column(Boolean, nullable=True)
 
     # Friendly metadata (Jeffrey spec: charging point name, supported vehicle)
@@ -438,6 +472,122 @@ class PartnerAPIKey(Base):
     last_used_at = Column(DateTime, nullable=True)
 
 
+class ChargerConnectionEvent(Base):
+    """
+    One row per WebSocket connect, disconnect or BootNotification.
+
+    Connection drops were visible only in the container log, which is capped
+    and rotated, so "how often does this charger lose its link" could not be
+    answered for more than a day or two back, and not at all from the
+    dashboard. A charger on a weak SIM signal was seen dropping every two
+    minutes with close code 1006 while looking "online" in between.
+
+    Times are UTC, like heartbeats and faults. `duration_seconds` is how long
+    the connection that just closed had lasted (on "disconnected") or how long
+    the charger had been gone (on "connected"), so the log reads without
+    arithmetic. Rows older than 30 days are pruned (connectivity.py).
+    """
+    __tablename__ = "charger_connection_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    charge_point_id = Column(String(255), nullable=False)
+    event = Column(String(16), nullable=False)        # connected | disconnected | boot
+    at = Column(DateTime, nullable=False, default=_utcnow)
+    close_code = Column(Integer, nullable=True)       # WebSocket close code on disconnect
+    close_reason = Column(String(255), nullable=True)
+    remote_ip = Column(String(64), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    detail = Column(String(255), nullable=True)
+
+    __table_args__ = (Index("ix_conn_events_cp_at", "charge_point_id", "at"),)
+
+
+class VendorAccount(Base):
+    """
+    A charger manufacturer's login to the vendor test portal (/vendor).
+
+    Vendors integrating a new charger asked for "a test account", and the only
+    login the dashboard had was an administrator's, which shows every charger,
+    customer and payment on the platform. This is the narrow alternative: an
+    account that sees and drives only the charge points listed on it.
+
+    `charge_point_ids` is a comma-separated list rather than a join to
+    chargers, because a pile ID has to be assignable before the charger has
+    ever connected, which is exactly when a vendor needs the page.
+    """
+    __tablename__ = "vendor_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company = Column(String(120), nullable=False)
+    contact_name = Column(String(120), nullable=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    charge_point_ids = Column(Text, nullable=False, default="")
+    is_active = Column(Boolean, nullable=False, default=True)
+    # NULL = no end date. Access stops at this instant (UTC) without anyone
+    # having to remember to switch the account off after a test campaign.
+    expires_at = Column(DateTime, nullable=True)
+    notes = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    last_login = Column(DateTime, nullable=True)
+
+    def set_password(self, password: str):
+        salt = secrets.token_hex(16)
+        hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+        self.password_hash = f"{salt}${hash_obj.hex()}"
+
+    def check_password(self, password: str) -> bool:
+        try:
+            salt, stored_hash = self.password_hash.split("$", 1)
+            hash_obj = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+            return secrets.compare_digest(hash_obj.hex(), stored_hash)
+        except (ValueError, AttributeError):
+            return False
+
+    def charger_ids(self) -> list:
+        return [c.strip() for c in (self.charge_point_ids or "").split(",") if c.strip()]
+
+    def is_usable(self) -> bool:
+        if not self.is_active:
+            return False
+        return self.expires_at is None or self.expires_at > _utcnow()
+
+
+class VendorSession(Base):
+    """Login sessions for the vendor portal, in the database like StaffSession
+    so a deploy does not sign every vendor out."""
+    __tablename__ = "vendor_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendor_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(128), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class OcppMessageLog(Base):
+    """
+    Raw OCPP frames for chargers under vendor test (ocpp_trace.py).
+
+    Only chargers assigned to a vendor account are recorded, so this stays a
+    few rows a minute rather than the whole fleet's traffic. Times are UTC.
+    `action` is filled in on replies as well, from the call they answer, so
+    the log reads without matching message ids by hand. Pruned after 14 days.
+    """
+    __tablename__ = "ocpp_message_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    charge_point_id = Column(String(255), nullable=False)
+    at = Column(DateTime, nullable=False, default=_utcnow)
+    direction = Column(String(3), nullable=False)     # in = from charger, out = to charger
+    message_type = Column(Integer, nullable=True)     # 2 Call, 3 CallResult, 4 CallError
+    unique_id = Column(String(64), nullable=True)
+    action = Column(String(64), nullable=True)
+    payload = Column(Text, nullable=True)             # the frame as sent, truncated
+
+    __table_args__ = (Index("ix_ocpp_msg_cp_id", "charge_point_id", "id"),)
+
+
 class ChargingSession(Base):
     __tablename__ = "charging_sessions"
     
@@ -472,6 +622,13 @@ class ChargingSession(Base):
     meter_start = Column(Integer, nullable=True)   # Wh at session start
     meter_stop = Column(Integer, nullable=True)    # Wh at session end (preferred over last MeterValues)
     stop_reason = Column(String(50), nullable=True)  # Local, Remote, EmergencyStop, PowerLoss, etc.
+    # Who ended the charge: platform, charger or vehicle. The reason
+    # above is what the charger said, and DC3001 answers "Other" both
+    # when the driver stops from the car and when it finishes by itself.
+    # Whether we asked for the stop is known only in the process that
+    # asked, and only while it is in flight, so it is decided at
+    # StopTransaction by ocpp_server.stop_initiator and kept here.
+    stop_initiator = Column(String(16), nullable=True)
     status = Column(String(50), default="active")  # active, completed, stopped
     # Pre-paid quota (quick-pay flow): kWh purchased = paid_amount / tariff.
     # When energy delivered hits this, OCPP server auto-fires RemoteStopTransaction
@@ -494,12 +651,50 @@ class ChargingSession(Base):
     hold_amount_rm   = Column(Numeric(8, 2), nullable=True)
     charge_complete_at = Column(DateTime, nullable=True)
     idle_started_at  = Column(DateTime, nullable=True)
+    # When the cable actually came out. Idle has to be billed up to this point,
+    # not up to stop_time: a stop from the app or from a roaming partner closes
+    # the transaction while the car stays plugged in, so measuring to stop_time
+    # scored every remotely-stopped session as zero idle minutes however long
+    # the bay stayed blocked. NULL on a stopped session means we are still
+    # waiting for the connector to report Available.
+    unplugged_at     = Column(DateTime, nullable=True)
     idle_minutes     = Column(Integer, nullable=False, default=0)
     idle_fee_amount  = Column(Numeric(8, 2), nullable=False, default=Decimal("0"))
     refund_amount    = Column(Numeric(8, 2), nullable=True)
     refund_status    = Column(String(32), nullable=True)
     refund_txn_ref   = Column(String(64), nullable=True)
     refund_at        = Column(DateTime, nullable=True)
+    # The prices that applied when this session began, copied off the charger
+    # at insert by _stamp_session_prices.
+    #
+    # A CDR is rebuilt from the session row every time a partner reads it, and
+    # it used to take the rates from the charger as it stands today. Editing a
+    # charger's price therefore rewrote every bill it had ever issued: session
+    # 588 was published to Voltality at RM1.60 of parking, and raising the idle
+    # rate to RM0.30 would have turned that same record into RM2.40 the next
+    # time they pulled it. Our own terms promise the opposite, that a price
+    # change "will never affect a session already in progress".
+    #
+    # Null on every row written before this existed, and the readers fall back
+    # to the charger for those, which is exactly what they did before.
+    # Which fleet the charge belonged to when it ran. The rate was already
+    # frozen onto the session; the owner was not, so a report filtered by
+    # tenant read `chargers.tenant` as it stands today and every past session
+    # of a charger followed it to its new fleet. Re-running last month's
+    # invoice after a move returned different money. An invoice that has been
+    # sent has to be reproducible.
+    tenant_at_start             = Column(String(50), nullable=True, index=True)
+    tariff_per_kwh_at_start     = Column(Numeric(8, 4), nullable=True)
+    idle_fee_enabled_at_start   = Column(Boolean, nullable=True)
+    idle_fee_per_min_at_start   = Column(Numeric(6, 2), nullable=True)
+    idle_grace_minutes_at_start = Column(Integer, nullable=True)
+    # When anything about this session last changed, in Malaysia wall time like
+    # every other clock on this row. A roaming partner filters on it to decide
+    # what to re-read, so it has to be a real stored value and not something
+    # computed at render time: OCPI's date_from and date_to select on
+    # last_updated, and you cannot put an expression in a WHERE clause that
+    # depends on a subquery per row without the query falling apart.
+    last_updated     = Column(DateTime, nullable=True, index=True)
 
     charger = relationship("Charger", back_populates="sessions")
     payment = relationship("Payment", back_populates="session")
@@ -578,8 +773,47 @@ class OcpiPartner(Base):
     token_inbound = Column(String(256), nullable=True)  # secret: never log in full
     registered_at = Column(DateTime, nullable=True)
     last_updated = Column(DateTime, nullable=True)
+    # Where the settlement invoice is addressed. The credentials handshake
+    # gives us a business name and nothing else, and a name on its own is not
+    # an invoice a finance team can file. Newlines separate the lines as they
+    # should print.
+    billing_address = Column(String(512), nullable=True)
 
     __table_args__ = (UniqueConstraint("country_code", "party_id", name="uq_ocpi_partner"),)
+
+
+class Tenant(Base):
+    """A fleet operator the dashboard can be scoped to.
+
+    `chargers.tenant` holds the key rather than a foreign key, because it
+    predates this table and is deliberately free-form: a charger can carry a
+    key that was never registered here without breaking anything. This table
+    exists so the list is editable from the dashboard instead of living in a
+    hardcoded array in static/tenant.js, which is where it used to be.
+    """
+
+    __tablename__ = "tenants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Matches chargers.tenant. Lowercase slug; changing it would orphan every
+    # charger pointing at the old value, so the API refuses to rename.
+    key = Column(String(50), unique=True, nullable=False, index=True)
+    label = Column(String(120), nullable=False)
+    # Short tag on the charger card, e.g. TNG or P2. Optional.
+    badge = Column(String(12), nullable=True)
+    hint = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=100, nullable=False)
+    # A fleet that is being invoiced against a live contract. Moving a charger
+    # into or out of one is refused unless the caller says outright that it
+    # means to, because the move changes which fleet earns from that charger
+    # from then on. It cannot change what a past invoice said: that is what
+    # charging_sessions.tenant_at_start is for, and this flag is the second
+    # guard rather than the one doing the work.
+    billing_locked = Column(Boolean, default=False, nullable=False,
+                            server_default="0")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class Pricing(Base):
@@ -1083,6 +1317,111 @@ def init_db():
     """Create all tables if they don't exist."""
     Base.metadata.create_all(bind=engine)
     _ensure_charging_session_connector_id_column()
+
+
+# ─── last_updated bookkeeping ─────────────────────────────────────────────
+# OCPI filters Sessions, CDRs, Locations and Tariffs on last_updated, so the
+# column has to be right every time, not only where somebody remembered to set
+# it. A session is written from a dozen places across two OCPP stacks and the
+# API, and a charger from more, so this is a mapper event rather than a dozen
+# assignments: one that cannot be forgotten by the next person to add a write.
+
+@event.listens_for(ChargingSession, "before_insert")
+@event.listens_for(ChargingSession, "before_update")
+def _stamp_session_last_updated(mapper, connection, target):
+    target.last_updated = _now_myt()
+
+
+@event.listens_for(ChargingSession, "before_insert")
+def _stamp_session_prices(mapper, connection, target):
+    """Freeze the charger's prices onto the session as it is created.
+
+    Sessions are created from six places across two OCPP stacks, the API and
+    the edge sync, so this is a mapper event for the same reason last_updated
+    is: the next person to add a seventh must not have to remember.
+
+    Only on insert. A price edited later is a new price, and the whole point
+    of the snapshot is that it does not reach back into a session that has
+    already started. A caller that has set a value itself is left alone, which
+    is what lets a test or a correction state the rates explicitly.
+
+    The tenant is frozen here for the same reason and is decided separately,
+    so a caller that states the rates explicitly still gets an owner stamped
+    on the row.
+    """
+    if target.charger_id is None:
+        return
+    want_prices = target.tariff_per_kwh_at_start is None
+    want_tenant = target.tenant_at_start is None
+    if not (want_prices or want_tenant):
+        return
+    row = connection.execute(
+        text(
+            "SELECT tariff_per_kwh, idle_fee_enabled, idle_fee_per_min, "
+            "idle_grace_minutes, tenant FROM chargers WHERE id = :cid"
+        ),
+        {"cid": target.charger_id},
+    ).first()
+    if row is None:
+        return
+    if want_prices:
+        target.tariff_per_kwh_at_start = row[0]
+        target.idle_fee_enabled_at_start = bool(row[1])
+        target.idle_fee_per_min_at_start = row[2]
+        target.idle_grace_minutes_at_start = row[3]
+    if want_tenant:
+        target.tenant_at_start = row[4]
+
+
+# What a roaming partner can actually see about a charger. Heartbeats are
+# deliberately absent: they land every thirty seconds and would make every
+# location look freshly changed, so a partner polling on last_updated would
+# re-read the whole list continuously and learn nothing.
+_PARTNER_VISIBLE_CHARGER_FIELDS = frozenset({
+    "charge_point_id", "connector_status", "availability", "status",
+    "number_of_connectors", "connector_type", "max_power_kw",
+    "location", "city", "postal_code", "latitude", "longitude",
+    "tariff_per_kwh", "idle_fee_enabled", "idle_fee_per_min",
+    "idle_grace_minutes", "is_public", "tenant",
+})
+
+
+# UTC, not Malaysia time. Every other clock on the chargers table is UTC —
+# last_heartbeat, created_at — and a column that holds one zone for rows the
+# migration filled and another for rows written since is the same defect this
+# file has already produced twice. Sessions are the opposite convention and
+# their stamp follows theirs.
+@event.listens_for(Charger, "before_insert")
+def _stamp_charger_created(mapper, connection, target):
+    target.last_updated = _utcnow()
+
+
+@event.listens_for(Charger, "before_insert")
+def _new_charger_starts_hidden(mapper, connection, target):
+    """A charger nobody has decided about is not advertised to a partner.
+
+    Chargers are created from a BootNotification on both OCPP stacks, by the
+    edge sync, and from the dashboard, so the guarantee belongs here rather
+    than at five call sites that each have to remember it. A sixth will be
+    added one day and this still holds.
+
+    Leaving the column NULL would be equally hidden, since _publishable
+    requires True outright. Writing False says it on purpose: the operator
+    sees "hidden" rather than a blank, and nobody has to know what a NULL
+    means in order to trust it.
+    """
+    if target.is_public is None:
+        target.is_public = False
+
+
+@event.listens_for(Charger, "before_update")
+def _stamp_charger_last_updated(mapper, connection, target):
+    state = sa_inspect(target)
+    for field in _PARTNER_VISIBLE_CHARGER_FIELDS:
+        attr = state.attrs.get(field)
+        if attr is not None and attr.history.has_changes():
+            target.last_updated = _utcnow()
+            return
 
 
 def get_db():

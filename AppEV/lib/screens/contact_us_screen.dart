@@ -5,6 +5,7 @@ import '../constants/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'chat_support_screen.dart';
+import '../providers/theme_provider.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -39,6 +40,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -575,6 +579,9 @@ class _ContactMethodCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -623,6 +630,9 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Row(
       children: [
         Icon(icon, color: AppColors.primaryGreen, size: 16),
@@ -647,6 +657,9 @@ class _SocialButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(50),

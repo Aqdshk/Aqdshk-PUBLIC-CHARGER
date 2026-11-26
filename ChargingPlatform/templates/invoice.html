@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=13">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=1"></script>
+    <script src="/static/tenant.js?v=3"></script>
     <style>
         .inv-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(clamp(80px, 8vw, 120px),1fr)); gap: clamp(6px, 0.5vw, 10px); margin-bottom: clamp(8px, 0.7vw, 14px); }
         .inv-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding: clamp(6px, 0.6vw, 12px) clamp(4px, 0.4vw, 8px); text-align:center; transition:all var(--transition); }
@@ -56,6 +56,17 @@
             .tbl-grid { grid-template-columns:1fr; }
         }
         @media(max-width:1200px){ .tbl-grid{grid-template-columns:1fr;} }
+        .exp-wrap { position:relative; display:inline-block; }
+        .exp-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:50; min-width:250px;
+                    background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md);
+                    box-shadow:0 10px 30px rgba(0,0,0,.35); padding:4px; display:none; }
+        .exp-menu.open { display:block; }
+        .exp-item { display:block; width:100%; text-align:left; background:none; border:0; cursor:pointer;
+                    padding:8px 10px; border-radius:var(--radius-sm); color:var(--text-primary); }
+        .exp-item:hover { background:rgba(0,230,118,.08); }
+        .exp-item strong { display:block; font-size:12px; font-weight:700; }
+        .exp-item span { display:block; font-size:10px; color:var(--text-muted); margin-top:2px; line-height:1.35; }
+        .exp-item[disabled] { opacity:.5; cursor:default; }
         @media(max-width:500px){ .inv-filter{flex-direction:column;align-items:stretch;} }
     </style>
 </head>
@@ -74,27 +85,28 @@
         <div class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Main Menu</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
-                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
-                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
-                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
-                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
-                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
-                <a href="/invoice" class="nav-item active"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
-                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+                <a href="/" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a6 6 0 0 1-12 0V8Z"/></svg></span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8"/><path d="M8 16h5"/></svg></span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg></span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item active"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8"/><path d="M8 17h6"/></svg></span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg></span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg></span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg></span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg></span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
                 <div class="nav-section-title">Administration</div>
-                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
-                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
-                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v14"/></svg></span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg></span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin?tab=vendors" class="nav-item" onclick="localStorage.setItem('adminTab','vendors')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg></span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </div>
         <div class="sidebar-footer">
-            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"/></svg></span><span class="nav-item-text">API Docs</span></a>
         </div>
     </nav>
 
@@ -105,14 +117,30 @@
                 <h1 class="page-title"><span>📄</span> Invoice & Reports</h1>
             </div>
             <div class="header-right">
-                <button class="btn btn-secondary btn-small" onclick="exportCSV()">📥 CSV</button>
-                <button class="btn btn-primary btn-small" onclick="window.print()">🖨️ Print</button>
+                <div class="exp-wrap">
+                    <button class="btn btn-primary btn-small" id="exportBtn" onclick="toggleExportMenu(event)">📤 Export ▾</button>
+                    <div class="exp-menu" id="exportMenu">
+                        <button class="exp-item" onclick="downloadExport('pdf')">
+                            <strong>🧾 Invoice PDF</strong>
+                            <span>Ready to send. Letterhead, charges, total in words, session list attached.</span>
+                        </button>
+                        <button class="exp-item" onclick="downloadExport('xlsx')">
+                            <strong>📊 Excel workbook</strong>
+                            <span>To open and reconcile. Logo, sized columns, filters, a By Charger sheet.</span>
+                        </button>
+                        <button class="exp-item" onclick="downloadExport('csv')">
+                            <strong>📄 CSV</strong>
+                            <span>Plain text, for importing into another system. No logo or formatting: a CSV cannot carry either.</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
 
         <div class="dashboard-container fade-in">
             <!-- Filters -->
             <div class="inv-filter no-print">
+                <div><label>Report for</label><select id="filterScope" style="min-width:230px;"><option value="all">All tenants (combined)</option></select></div>
                 <div><label>From</label><input type="date" id="startDate"></div>
                 <div><label>To</label><input type="date" id="endDate"></div>
                 <div><label>Charger</label><select id="filterCharger"><option value="">All</option></select></div>
@@ -131,15 +159,20 @@
                         </div>
                         <div class="inv-info">
                         <strong>Generated</strong> <span id="reportDate">-</span><br>
-                        <strong>Period</strong> <span id="reportPeriod">-</span>
+                        <strong>Period</strong> <span id="reportPeriod">-</span><br>
+                        <strong>Scope</strong> <span id="reportTenant">-</span>
                     </div>
                 </div>
+
+                    <div id="scopeNote" class="no-print" style="display:none;font-size:10px;padding:6px 10px;margin-bottom:8px;border-radius:6px;"></div>
 
                     <div class="inv-summary">
                         <div class="inv-card"><div class="inv-icon">📋</div><div class="inv-val" id="totalSessions">-</div><div class="inv-lbl">Sessions</div></div>
                         <div class="inv-card"><div class="inv-icon">⚡</div><div class="inv-val" id="totalEnergy">-</div><div class="inv-lbl">kWh</div></div>
                         <div class="inv-card"><div class="inv-icon">⏱️</div><div class="inv-val" id="totalHours">-</div><div class="inv-lbl">Hours</div></div>
-                        <div class="inv-card"><div class="inv-icon">💵</div><div class="inv-val" id="pricePerKwh">-</div><div class="inv-lbl">RM/kWh</div></div>
+                        <div class="inv-card"><div class="inv-icon">💵</div><div class="inv-val" id="pricePerKwh">-</div><div class="inv-lbl">Avg RM/kWh</div></div>
+                        <div class="inv-card"><div class="inv-icon">🔋</div><div class="inv-val" id="energyRevenue">-</div><div class="inv-lbl">Energy RM</div></div>
+                        <div class="inv-card warn"><div class="inv-icon">🅿️</div><div class="inv-val" id="idleRevenue">-</div><div class="inv-lbl">Idling RM</div></div>
                         <div class="inv-card hl"><div class="inv-icon">💰</div><div class="inv-val" id="totalRevenue">-</div><div class="inv-lbl">Revenue</div></div>
                         <div class="inv-card warn"><div class="inv-icon">🔧</div><div class="inv-val" id="maintenanceCost">-</div><div class="inv-lbl">Cost</div></div>
                         <div class="inv-card hl"><div class="inv-icon">📈</div><div class="inv-val" id="netProfit">-</div><div class="inv-lbl">Net Profit</div></div>
@@ -148,11 +181,11 @@
                     <div class="tbl-grid">
                         <div class="card" style="margin-bottom:0;">
                             <div class="card-header"><span class="card-title"><span>🔌</span> By Charger</span></div>
-                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>ID</th><th class="text-right">#</th><th class="text-right">kWh</th><th class="text-right">Hrs</th><th class="text-right">RM</th></tr></thead><tbody id="chargerBreakdown"><tr><td colspan="5" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>ID</th><th class="text-right">#</th><th class="text-right">kWh</th><th class="text-right">Hrs</th><th class="text-right">Idle</th><th class="text-right">RM</th></tr></thead><tbody id="chargerBreakdown"><tr><td colspan="6" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
                         </div>
                         <div class="card" style="margin-bottom:0;">
                             <div class="card-header"><span class="card-title"><span>📋</span> Session Details</span></div>
-                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>TXN</th><th>Charger</th><th>Time</th><th>Dur</th><th class="text-right">kWh</th><th class="text-right">RM</th><th>Status</th></tr></thead><tbody id="sessionDetails"><tr><td colspan="7" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
+                            <div class="card-body" style="padding:0;"><div class="tbl-scroll"><table class="inv-tbl"><thead><tr><th>TXN</th><th>Charger</th><th>Time</th><th>Dur</th><th class="text-right">kWh</th><th class="text-right">Energy</th><th class="text-right">Idle</th><th class="text-right">RM</th><th>Status</th></tr></thead><tbody id="sessionDetails"><tr><td colspan="9" style="text-align:center;padding:20px;">Loading...</td></tr></tbody></table></div></div>
                         </div>
                     </div>
                 </div>
@@ -170,14 +203,184 @@
         hamburger.addEventListener('click', () => { hamburger.classList.toggle('active'); sidebar.classList.toggle('active'); sidebarOverlay.classList.toggle('active'); });
         sidebarOverlay.addEventListener('click', closeSidebar);
 
-        document.addEventListener('DOMContentLoaded', () => { loadChargers(); setThisMonth(); });
+        document.addEventListener('DOMContentLoaded', () => {
+            initScope().then(() => { loadChargers(); setThisMonth(); });
+        });
 
-        async function loadChargers() {
-            try { const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || ''; const cs = await(await fetch(`${API_BASE}/chargers`, { headers: _t ? {'X-Staff-Token': _t} : {} })).json(); const s=document.getElementById('filterCharger'); cs.forEach(c=>{s.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;}); } catch(e){}
+        // One control, because two could disagree. A tenant dropdown and a
+        // partner dropdown sat side by side and the partner silently won,
+        // so the page could read "HICOM Public Charging" while showing
+        // Voltality's figures. There is nothing to reconcile now: a report
+        // is for one thing, and the list says what the thing is.
+        //
+        // The two kinds are not interchangeable. A fleet report is every
+        // charge on that tenant's chargers, walk-ins and app users
+        // included. A roaming settlement is only the charges one partner
+        // sent us, and only those whose CDR we released, which is what
+        // their own records can be matched against.
+        function scopeEl() { return document.getElementById('filterScope'); }
+
+        function scopeKind() {
+            const v = scopeEl().value || 'all';
+            if (v.startsWith('partner:')) return 'partner';
+            if (v.startsWith('tenant:')) return 'tenant';
+            return 'all';
         }
 
-        function setThisMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth(),1); const l=new Date(n.getFullYear(),n.getMonth()+1,0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
-        function setLastMonth() { const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const l=new Date(n.getFullYear(),n.getMonth(),0); document.getElementById('startDate').value=f.toISOString().split('T')[0]; document.getElementById('endDate').value=l.toISOString().split('T')[0]; loadReport(); }
+        function scopeKey() {
+            const v = scopeEl().value || 'all';
+            const i = v.indexOf(':');
+            return i < 0 ? '' : v.slice(i + 1);
+        }
+
+        function scopeText() {
+            const o = scopeEl().selectedOptions[0];
+            return o ? o.textContent.trim() : 'All tenants';
+        }
+
+        function partnerIsTest() {
+            return scopeEl().selectedOptions[0]?.dataset.env === 'test';
+        }
+
+        // The sidebar switcher scopes the whole dashboard. It still drives
+        // this page while the report is a fleet one, and is left alone for a
+        // partner settlement, which is not a fleet and has no tenant to show.
+        function syncSidebar() {
+            if (typeof window.setTenant !== 'function') return;
+            const kind = scopeKind();
+            if (kind === 'partner') return;
+            const want = kind === 'tenant' ? scopeKey() : 'all';
+            if (window.currentTenant() !== want) window.setTenant(want);
+        }
+
+        async function buildScope() {
+            const el = scopeEl();
+            const keep = el.value;
+
+            // Asked for directly rather than read from the sidebar switcher.
+            // That switcher starts with a hardcoded pair, czero-tng and
+            // perodua, and replaces it once /api/tenants answers. Reading it
+            // at boot got the placeholder, and a guard that rebuilt only
+            // when the list looked empty saw two entries and left it there,
+            // so HICOM, PROTON and Mini never appeared at all.
+            let tenants = [];
+            let partners = [];
+            try {
+                const [t, p] = await Promise.all([
+                    fetch(`${API_BASE}/tenants`, { headers: authHeaders() })
+                        .then(r => r.ok ? r.json() : []),
+                    fetch(`${API_BASE}/invoice/partners`, { headers: authHeaders() })
+                        .then(r => r.ok ? r.json() : []),
+                ]);
+                tenants = (t || []).map(x => ({ value: x.key, label: x.label }));
+                partners = p || [];
+            } catch (e) {
+                // Only if the request itself failed. Better the switcher's
+                // two than an empty list with no way to scope anything.
+                tenants = (typeof window.tenantList === 'function')
+                    ? window.tenantList().filter(x => x.value !== 'all') : [];
+            }
+
+            el.innerHTML = '';
+            const all = document.createElement('option');
+            all.value = 'all';
+            all.textContent = 'All tenants (combined)';
+            el.appendChild(all);
+
+            if (tenants.length) {
+                const g = document.createElement('optgroup');
+                g.label = 'Fleet report  ·  internal P&L';
+                tenants.forEach(t => {
+                    const o = document.createElement('option');
+                    o.value = 'tenant:' + t.value;
+                    o.textContent = t.label;
+                    g.appendChild(o);
+                });
+                el.appendChild(g);
+            }
+
+            if (partners.length) {
+                const g = document.createElement('optgroup');
+                g.label = 'Roaming settlement  ·  invoice a partner';
+                partners.forEach(pt => {
+                    const o = document.createElement('option');
+                    o.value = 'partner:' + pt.party_id;
+                    o.dataset.env = pt.environment || 'production';
+                    const tag = o.dataset.env === 'test' ? 'TEST / UAT' : 'LIVE';
+                    o.textContent = `${pt.name} — ${tag} (${pt.code})`;
+                    g.appendChild(o);
+                });
+                el.appendChild(g);
+            }
+
+            // Keep what was selected; otherwise follow the sidebar's tenant.
+            if (keep && [...el.options].some(o => o.value === keep)) {
+                el.value = keep;
+            } else {
+                const t = (typeof window.currentTenant === 'function')
+                    ? window.currentTenant() : 'all';
+                el.value = (t && t !== 'all' &&
+                            [...el.options].some(o => o.value === 'tenant:' + t))
+                    ? 'tenant:' + t : 'all';
+            }
+        }
+
+        async function initScope() {
+            await buildScope();
+
+            scopeEl().addEventListener('change', () => {
+                syncSidebar();
+                loadChargers();
+                loadReport();
+            });
+            window.addEventListener('tenantChange', (e) => {
+                if (scopeKind() === 'partner') return;   // not a fleet view
+                const v = (e.detail && e.detail.tenant) || 'all';
+                const want = v === 'all' ? 'all' : 'tenant:' + v;
+                if (scopeEl().value === want) return;
+                buildScope().then(() => {
+                    if ([...scopeEl().options].some(o => o.value === want)) {
+                        scopeEl().value = want;
+                    }
+                    loadChargers();
+                    loadReport();
+                });
+            });
+        }
+
+        async function loadChargers() {
+            const sel = document.getElementById('filterCharger');
+            const keep = sel.value;
+            try {
+                const _t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                // A fleet report should not offer another fleet's chargers.
+                // A settlement can touch any charger the partner used, so it
+                // is not narrowed.
+                const t = scopeKind() === 'tenant' ? scopeKey() : '';
+                const url = `${API_BASE}/chargers` + (t ? `?tenant=${encodeURIComponent(t)}` : '');
+                const cs = await(await fetch(url, { headers: _t ? {'X-Staff-Token': _t} : {} })).json();
+                sel.innerHTML = '<option value="">All</option>';
+                cs.forEach(c=>{sel.innerHTML+=`<option value="${c.charge_point_id}">${c.charge_point_id}</option>`;});
+                if (keep && [...sel.options].some(o=>o.value===keep)) sel.value = keep;
+            } catch(e){}
+        }
+
+        // toISOString() converts to UTC, and Malaysia is eight hours ahead of
+        // it. Local midnight on the 1st became 16:00 on the last day of the
+        // previous month, so "This Month" asked for 31 Oct to 29 Nov: it
+        // billed a day belonging to October and dropped the last day of
+        // November. The dates here are calendar days, not instants.
+        const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        function setMonth(offset) {
+            const n=new Date();
+            const f=new Date(n.getFullYear(),n.getMonth()+offset,1);
+            const l=new Date(n.getFullYear(),n.getMonth()+offset+1,0);
+            document.getElementById('startDate').value=ymd(f);
+            document.getElementById('endDate').value=ymd(l);
+            loadReport();
+        }
+        function setThisMonth() { setMonth(0); }
+        function setLastMonth() { setMonth(-1); }
 
         let reportData = { breakdown:{}, sessions:[] };
         const authHeaders = () => {
@@ -185,17 +388,65 @@
             return t ? { 'X-Staff-Token': t } : {};
         };
         
+        // The query every request on this page is built from, so the figures
+        // on screen and the file downloaded are drawn from one scope.
+        function scopeParams() {
+            const p = [];
+            const sd = document.getElementById('startDate').value;
+            const ed = document.getElementById('endDate').value;
+            const ci = document.getElementById('filterCharger').value;
+            if (sd) p.push(`start_date=${sd}`);
+            if (ed) p.push(`end_date=${ed}`);
+            if (ci) p.push(`charger_id=${ci}`);
+            if (scopeKind() === 'partner') p.push(`party_id=${encodeURIComponent(scopeKey())}`);
+            else if (scopeKind() === 'tenant') p.push(`tenant=${encodeURIComponent(scopeKey())}`);
+            return p.join('&');
+        }
+
+        function showScopeNote() {
+            const el = document.getElementById('scopeNote');
+            if (scopeKind() === 'partner' && partnerIsTest()) {
+                el.style.display = 'block';
+                el.style.background = 'rgba(255,68,102,.10)';
+                el.style.color = '#ff4466';
+                el.textContent = 'Test environment. These charges came from the '
+                    + 'partner\'s UAT side, not from paying drivers. Do not invoice '
+                    + 'from this. Pick the LIVE party instead.';
+            } else if (scopeKind() === 'partner') {
+                el.style.display = 'block';
+                el.style.background = 'rgba(0,230,118,.08)';
+                el.style.color = 'var(--accent,#22c55e)';
+                el.textContent = 'Roaming settlement. Only the charges this partner '
+                    + 'sent us, and only those whose CDR has been released, so every '
+                    + 'line matches a record they already hold. Send this one.';
+            } else {
+                el.style.display = 'block';
+                el.style.background = 'rgba(255,167,38,.08)';
+                el.style.color = 'var(--orange,#ffa726)';
+                el.textContent = (scopeKind() === 'all'
+                    ? 'All fleets combined. '
+                    : 'Fleet report. ')
+                    + 'Every charge on these chargers, including walk-ins and app '
+                    + 'users a roaming partner never saw. For internal P&L, not for '
+                    + 'invoicing a partner.';
+            }
+        }
+
         async function loadReport() {
-            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value, ci=document.getElementById('filterCharger').value;
             document.getElementById('reportDate').textContent = new Date().toLocaleDateString('en-MY');
+            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
             document.getElementById('reportPeriod').textContent = `${sd||'-'} ~ ${ed||'-'}`;
-            const p=[]; if(sd)p.push(`start_date=${sd}`); if(ed)p.push(`end_date=${ed}`); if(ci)p.push(`charger_id=${ci}`);
-            const qs = p.length ? '?'+p.join('&') : '';
+            document.getElementById('reportTenant').textContent = scopeText();
+            showScopeNote();
+            if (scopeKind() === 'partner') return loadPartnerReport();
+            const qs = '?' + scopeParams();
             try {
                 const sum = await(await fetch(`${API_BASE}/invoice/summary${qs}`, { headers: authHeaders() })).json();
                 document.getElementById('totalSessions').textContent = sum.sessions.total;
                 document.getElementById('totalEnergy').textContent = sum.energy.total_kwh.toFixed(1);
                 document.getElementById('totalRevenue').textContent = sum.revenue.total.toFixed(2);
+                document.getElementById('energyRevenue').textContent = (sum.revenue.energy ?? 0).toFixed(2);
+                document.getElementById('idleRevenue').textContent = (sum.revenue.idle ?? 0).toFixed(2);
                 document.getElementById('maintenanceCost').textContent = sum.maintenance.total_cost.toFixed(2);
                 document.getElementById('totalHours').textContent = sum.duration.total_hours.toFixed(1);
                 document.getElementById('pricePerKwh').textContent = sum.energy.price_per_kwh.toFixed(2);
@@ -203,44 +454,126 @@
 
                 const bb = document.getElementById('chargerBreakdown');
                 const bd = sum.charger_breakdown; reportData.breakdown = bd;
-                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="5" class="empty-state">No data</td></tr>'; }
+                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="6" class="empty-state">No data</td></tr>'; }
                 else {
-                    let ts=0,te=0,td=0,tr=0;
-                    let h = Object.entries(bd).map(([id,d])=>{ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue; return `<tr><td class="text-blue">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
-                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
+                    let ts=0,te=0,td=0,tr=0,ti=0;
+                    let h = Object.entries(bd).map(([id,d])=>{const idl=d.idle_cost||0;ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue;ti+=idl; return `<tr><td class="text-blue" title="${d.location||''}">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-orange">${idl.toFixed(2)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${ti.toFixed(2)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
                     bb.innerHTML = h;
                 }
 
                 const sessions = await(await fetch(`${API_BASE}/invoice/sessions${qs}`, { headers: authHeaders() })).json();
                 reportData.sessions = sessions;
                 const sb = document.getElementById('sessionDetails');
-                if (!sessions.length) { sb.innerHTML = '<tr><td colspan="7" class="empty-state">No sessions</td></tr>'; }
+                if (!sessions.length) { sb.innerHTML = '<tr><td colspan="9" class="empty-state">No sessions</td></tr>'; }
                 else {
-                    let ta=0;
-                    let h = sessions.map(s=>{ta+=s.amount; const st=s.start_time?new Date(s.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const dur=s.duration_minutes>0?`${Math.floor(s.duration_minutes/60)}h${Math.round(s.duration_minutes%60)}m`:'-'; const sc=s.status==='completed'?'text-green':s.status==='active'?'text-orange':''; return `<tr><td>#${s.transaction_id}</td><td class="text-blue">${s.charge_point_id}</td><td>${st}</td><td>${dur}</td><td class="text-right">${s.energy_kwh.toFixed(1)}</td><td class="text-right text-green">${s.amount.toFixed(2)}</td><td class="${sc}">${s.status.substring(0,4).toUpperCase()}</td></tr>`;}).join('');
-                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${ta.toFixed(2)}</strong></td><td></td></tr>`;
+                    let ta=0,tE=0,tI=0;
+                    let h = sessions.map(s=>{const ec=s.energy_cost||0, ic=s.idle_cost||0; ta+=s.amount; tE+=ec; tI+=ic; const st=s.start_time?new Date(s.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const dur=s.duration_minutes>0?`${Math.floor(s.duration_minutes/60)}h${Math.round(s.duration_minutes%60)}m`:'-'; const sc=s.status==='completed'?'text-green':s.status==='active'?'text-orange':''; const idl=ic?`${ic.toFixed(2)}`:'-'; return `<tr><td>#${s.transaction_id}</td><td class="text-blue" title="${s.location||''}">${s.charge_point_id}</td><td>${st}</td><td>${dur}</td><td class="text-right">${s.energy_kwh.toFixed(1)}</td><td class="text-right">${ec.toFixed(2)}</td><td class="text-right text-orange" title="${s.idle_minutes||0} min">${idl}</td><td class="text-right text-green">${s.amount.toFixed(2)}</td><td class="${sc}">${s.status.substring(0,4).toUpperCase()}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${tE.toFixed(2)}</strong></td><td class="text-right"><strong>${tI.toFixed(2)}</strong></td><td class="text-right"><strong>${ta.toFixed(2)}</strong></td><td></td></tr>`;
                     sb.innerHTML = h;
                 }
             } catch(e){ console.error('Error:',e); }
         }
         
-        function exportCSV() {
-            if (!reportData.sessions.length) { alert('No data'); return; }
-            const sd=document.getElementById('startDate').value, ed=document.getElementById('endDate').value;
-            const now=new Date(), invDate=now.toLocaleDateString('en-GB');
-            const invNo=`INV-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`;
-            const fmt=d=>new Date(d).toLocaleDateString('en-GB');
-            let te=0,ta=0,td=0; reportData.sessions.forEach(s=>{te+=s.energy_kwh;ta+=s.amount;td+=s.duration_minutes;});
-            const up=1.20, sub=te*up;
-            let csv=`PLAG SINI SDN. BHD.\nEV Charging Platform\n\nInvoice No,: ${invNo}\nInvoice Date,: ${invDate}\nBilling Period,: ${fmt(sd)} - ${fmt(ed)}\n\n`;
-            csv+=`Total Sessions,: ${reportData.sessions.length}\nTotal Energy,: ${te.toFixed(2)} kWh\nTotal Time,: ${(td/60).toFixed(2)} hours\n\n`;
-            csv+='Session ID,Start Time,End Time,Duration (min),Energy (kWh),Unit Price (RM),Amount (RM)\n';
-            reportData.sessions.forEach((s,i)=>{const sid=`S${String(i+1).padStart(4,'0')}`; const st=s.start_time?new Date(s.start_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; const et=s.end_time?new Date(s.end_time).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'; csv+=`${sid},${st},${et},${s.duration_minutes},${s.energy_kwh.toFixed(2)},${up.toFixed(2)},${(s.energy_kwh*up).toFixed(2)}\n`;});
-            csv+=`\nTOTAL AMOUNT,: RM ${sub.toFixed(2)}\n`;
-            if(Object.keys(reportData.breakdown).length){csv+='\nCharger ID,Sessions,Energy (kWh),Duration (hrs),Revenue (RM)\n'; Object.entries(reportData.breakdown).forEach(([id,d])=>{csv+=`${id},${d.sessions},${d.energy_kwh.toFixed(2)},${(d.duration_minutes/60).toFixed(2)},${d.revenue.toFixed(2)}\n`;});}
-            csv+='\nThank you for using Plag Sini.\n';
-            const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`PlagSini_${invNo}.csv`; a.click(); URL.revokeObjectURL(url);
+        // A partner settlement, drawn from the same endpoint that builds the
+        // file, so the screen cannot drift from the attachment. Maintenance
+        // and net profit are blanked: a partner is invoiced for charges, not
+        // charged for our repairs.
+        async function loadPartnerReport() {
+            const qs = '?format=json&' + scopeParams();
+            try {
+                const j = await (await fetch(`${API_BASE}/invoice/export${qs}`,
+                    { headers: authHeaders() })).json();
+                const t = j.totals || {};
+                const rows = j.sessions || [];
+                const hours = (j.breakdown || []).reduce((a, b) => a + (b.hours || 0), 0);
+                document.getElementById('totalSessions').textContent = t.count || 0;
+                document.getElementById('totalEnergy').textContent = (t.energy_kwh || 0).toFixed(1);
+                document.getElementById('totalHours').textContent = hours.toFixed(1);
+                document.getElementById('pricePerKwh').textContent =
+                    (t.energy_kwh ? (t.energy_cost / t.energy_kwh) : 0).toFixed(2);
+                document.getElementById('energyRevenue').textContent = (t.energy_cost || 0).toFixed(2);
+                document.getElementById('idleRevenue').textContent = (t.idle_cost || 0).toFixed(2);
+                document.getElementById('totalRevenue').textContent = (t.total || 0).toFixed(2);
+                document.getElementById('maintenanceCost').textContent = '—';
+                document.getElementById('netProfit').textContent = '—';
+
+                reportData.breakdown = {};
+                (j.breakdown || []).forEach(b => {
+                    reportData.breakdown[b.charger] = {
+                        sessions: b.sessions, energy_kwh: b.energy_kwh,
+                        revenue: b.revenue, energy_cost: b.energy_cost,
+                        idle_cost: b.idle_cost, duration_minutes: (b.hours || 0) * 60,
+                        location: b.location,
+                    };
+                });
+                const bb = document.getElementById('chargerBreakdown');
+                const bd = reportData.breakdown;
+                if (!Object.keys(bd).length) { bb.innerHTML = '<tr><td colspan="6" class="empty-state">No data</td></tr>'; }
+                else {
+                    let ts=0,te=0,td=0,tr=0,ti=0;
+                    let h = Object.entries(bd).map(([id,d])=>{const idl=d.idle_cost||0;ts+=d.sessions;te+=d.energy_kwh;td+=d.duration_minutes;tr+=d.revenue;ti+=idl; return `<tr><td class="text-blue" title="${d.location||''}">${id}</td><td class="text-right">${d.sessions}</td><td class="text-right">${d.energy_kwh.toFixed(1)}</td><td class="text-right">${(d.duration_minutes/60).toFixed(1)}</td><td class="text-right text-orange">${idl.toFixed(2)}</td><td class="text-right text-green">${d.revenue.toFixed(2)}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td><strong>TOTAL</strong></td><td class="text-right"><strong>${ts}</strong></td><td class="text-right"><strong>${te.toFixed(1)}</strong></td><td class="text-right"><strong>${(td/60).toFixed(1)}</strong></td><td class="text-right"><strong>${ti.toFixed(2)}</strong></td><td class="text-right"><strong>${tr.toFixed(2)}</strong></td></tr>`;
+                    bb.innerHTML = h;
+                }
+
+                reportData.sessions = rows;
+                const sb = document.getElementById('sessionDetails');
+                if (!rows.length) { sb.innerHTML = '<tr><td colspan="9" class="empty-state">No settled sessions for this partner</td></tr>'; }
+                else {
+                    let h = rows.map(r=>{const st=r.start_time?new Date(r.start_time).toLocaleString('en-MY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'-'; const idl=r.idle_cost?r.idle_cost.toFixed(2):'-'; return `<tr><td>#${r.session_id}</td><td class="text-blue" title="${r.location||''}">${r.charger}</td><td>${st}</td><td>—</td><td class="text-right">${(r.energy_kwh||0).toFixed(1)}</td><td class="text-right">${(r.energy_cost||0).toFixed(2)}</td><td class="text-right text-orange" title="${r.idle_minutes||0} min">${idl}</td><td class="text-right text-green">${(r.total||0).toFixed(2)}</td><td class="text-green">${(r.status||'').substring(0,4).toUpperCase()}</td></tr>`;}).join('');
+                    h += `<tr class="total-row"><td colspan="5"><strong>TOTAL</strong></td><td class="text-right"><strong>${(t.energy_cost||0).toFixed(2)}</strong></td><td class="text-right"><strong>${(t.idle_cost||0).toFixed(2)}</strong></td><td class="text-right"><strong>${(t.total||0).toFixed(2)}</strong></td><td></td></tr>`;
+                    sb.innerHTML = h;
+                }
+            } catch (e) { console.error('Error:', e); }
         }
+
+        // The file is built on the server, where the logo, the column widths
+        // and the page layout live. A browser-assembled CSV could carry none
+        // of them, and its figures were a second implementation of the money.
+        // The download goes through fetch because the endpoint authenticates
+        // on a header: a plain link would arrive without the staff token and
+        // come back 401 instead of a file.
+        function toggleExportMenu(ev) {
+            ev.stopPropagation();
+            document.getElementById('exportMenu').classList.toggle('open');
+        }
+        document.addEventListener('click', (e) => {
+            const m = document.getElementById('exportMenu');
+            if (m && !e.target.closest('.exp-wrap')) m.classList.remove('open');
+        });
+
+        async function downloadExport(fmt) {
+            document.getElementById('exportMenu').classList.remove('open');
+            const url = `${API_BASE}/invoice/export?format=${fmt}&` + scopeParams();
+            const btns = document.querySelectorAll('.header-right .btn, .exp-item');
+            btns.forEach(b => b.disabled = true);
+            try {
+                const res = await fetch(url, { headers: authHeaders() });
+                if (!res.ok) {
+                    let why = res.status;
+                    try { why = (await res.json()).detail || why; } catch (e) {}
+                    alert('Export failed: ' + why);
+                    return;
+                }
+                const blob = await res.blob();
+                const cd = res.headers.get('Content-Disposition') || '';
+                const name = (cd.match(/filename="([^"]+)"/) || [])[1]
+                    || `PlagSini_export.${fmt}`;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) {
+                alert('Export failed: ' + e.message);
+            } finally {
+                btns.forEach(b => b.disabled = false);
+            }
+        }
+
     </script>
 </body>
 </html>

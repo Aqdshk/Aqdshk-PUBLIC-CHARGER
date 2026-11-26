@@ -23,22 +23,24 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
-from sqlalchemy import and_, desc, func, or_, text
+from sqlalchemy import and_, case, desc, func, or_, text
 from sqlalchemy.orm import Session
 
+import idle_billing
 from database import (
     CATEGORY_DEPARTMENT_MAP, DEPARTMENTS, STAFF_ROLES, TICKET_SLA_HOURS,
     AuditLog,
-    Charger, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
+    Charger, ChargerConnectionEvent, ChargerReview, ChargerBooking, ChargingSchedule, ChargingSession, Fault, MaintenanceRecord, MeterValue,
     Notification,
+    OcpiPartner,
     OTPVerification, PartnerAPIKey, PaymentGatewayConfig, PaymentTerminal, PaymentTransaction, TerminalCharger,
-    Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, TicketMessage,
+    Pricing, StaffSession, SupportStaff, SupportTicket, SystemSetting, Tenant, TicketMessage,
     User, Vehicle, Wallet, WalletTransaction,
     SessionLocal, get_db, init_db, get_hold_amount_rm,
 )
@@ -48,6 +50,7 @@ from ocpp_server import (
     force_close_charge_point, ocpp_state_healer_loop, orphan_session_watchdog,
 )
 from ocpp_server_v201 import OcppOperationUnsupported
+import connectivity as conn_info
 from payment_gateway import (
     get_gateway,
     generate_transaction_ref,
@@ -570,7 +573,8 @@ app.add_middleware(
 # by the "AUDIT" prefix so they're trivially greppable.
 _audit_logger = logging.getLogger(__name__)
 _AUDIT_PATH_PREFIXES = ("/api/admin/", "/api/ocpp/", "/api/charging/start",
-                        "/api/charging/stop", "/ocpi/2.2.1/commands/")
+                        "/api/charging/stop", "/ocpi/2.2.1/commands/",
+                        "/api/vendor/")
 
 
 @app.middleware("http")
@@ -609,6 +613,10 @@ app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="sta
 
 # OCPI 2.2.1 - CPO interface for roaming (TNG integration)
 from ocpi import router as ocpi_router, aion_router
+# From the module, not the package: `ocpi.router` the name bound in
+# ocpi/__init__ is the APIRouter object, so ocpi_router.publishes would be an
+# attribute error at request time rather than import time.
+from ocpi.router import publishes as _ocpi_publishes
 app.include_router(ocpi_router)
 app.include_router(aion_router)
 
@@ -688,8 +696,14 @@ class ChargerStatus(BaseModel):
     firmware_version: Optional[str]
     # OCPP version negotiated at the last handshake — "1.6" or "2.0.1".
     ocpp_version: Optional[str] = None
-    # OCPI publication override: True always, False never, None automatic.
+    # OCPI publication: True publishes, False and None do not.
     is_public: Optional[bool] = None
+    # Whether a roaming partner actually sees this charger, which is the flag
+    # above AND a tenant we publish from. Declared here because the route
+    # carries response_model=List[ChargerStatus], and FastAPI drops any key
+    # the model does not name: the handler returned this field and the
+    # browser never received it, so every card read it as hidden.
+    roaming_published: Optional[bool] = None
     # How the charger authenticated on its last handshake, and whether it
     # would survive enforcement being switched on.
     auth_method: Optional[str] = None
@@ -703,8 +717,19 @@ class ChargerStatus(BaseModel):
     last_heartbeat: Optional[datetime]
     active_transaction_id: Optional[int] = None
     number_of_connectors: Optional[int] = None
-    # Physical / location info
+    # Physical / location info.
+    #
+    # city, postal_code and name are declared here because the route carries
+    # response_model=List[ChargerStatus] and FastAPI drops any key the model
+    # does not name. Leaving them out did real damage rather than merely
+    # hiding something: the Edit dialog populated city and postcode from this
+    # payload, got nothing, and its save sends those two fields unconditionally
+    # so that clearing a box can clear the value. Opening Edit and saving any
+    # unrelated change therefore wiped the charger's city and postcode, and
+    # that address is what a roaming partner publishes to its drivers.
     location: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
@@ -722,6 +747,11 @@ class ChargerStatus(BaseModel):
     idle_grace_minutes: Optional[int] = None
     # Multi-tenant tag — drives sidebar filter + badge on the charger card
     tenant: Optional[str] = None
+    # How the charger reaches us and how often its link dropped in the last
+    # 24h: {type, label, source, operator, drops_24h, abnormal_drops_24h}.
+    # The SIM's ICCID/IMSI are deliberately not here; they are served only by
+    # the authenticated connectivity endpoint.
+    connectivity: Optional[Dict[str, Any]] = None
 
     @field_serializer("last_heartbeat")
     def _ser_hb(self, v: Optional[datetime], _info) -> Optional[str]:
@@ -734,6 +764,10 @@ class CreateChargerRequest(BaseModel):
     vendor: Optional[str] = None
     model: Optional[str] = None
     firmware_version: Optional[str] = None
+    # Which tenant the new charger joins. The dashboard sends whichever tenant
+    # is selected, because adding a charger while scoped to one and then not
+    # finding it in the list reads as the add having failed.
+    tenant: Optional[str] = None
 
 
 class ChargingSessionResponse(BaseModel):
@@ -751,10 +785,24 @@ class ChargingSessionResponse(BaseModel):
     # finished charge from one the vehicle cut short — three DC3001 sessions on
     # 17 August all read COMPLETED when only the last had actually finished.
     stop_reason: Optional[str] = None
+    # Who ended it: platform, charger or vehicle. The reason above is
+    # the charger's own word for it, and DC3001 says "Other" both when
+    # the driver stops from the car and when it finishes by itself.
+    # Declared here because the route carries a response_model, which
+    # silently drops any key the model does not name.
+    stop_initiator: Optional[str] = None
     charger_id: int
     charge_point_id: str
+    # A charge ends in two steps and the dashboard only knew about the first.
+    # The transaction closes when the car stops drawing, and the session is
+    # not finished until the cable comes out: the idle fee runs in between,
+    # and the CDR is held until the unplug. A row sitting at "completed" with
+    # no unplug is still accruing, which is the state Aqid asked to see.
+    unplugged_at: Optional[datetime] = None
+    idle_minutes: Optional[int] = None
+    idle_fee_amount: Optional[float] = None
 
-    @field_serializer("start_time", "stop_time")
+    @field_serializer("start_time", "stop_time", "unplugged_at")
     def _ser_session_dt(self, v: Optional[datetime], _info) -> Optional[str]:
         return _iso_myt_naive_local(v)
 
@@ -1080,6 +1128,28 @@ async def get_chargers(
         else:
             pricing_by_charger[p.charger_id] = float(p.price_per_kwh)
 
+    # Link drops per charger over the last 24h, in one grouped query rather
+    # than one per card.
+    drops_24h: dict[str, tuple[int, int]] = {}
+    try:
+        _since = _utcnow() - timedelta(hours=24)
+        for cp_id, total, abnormal in (
+            db.query(
+                ChargerConnectionEvent.charge_point_id,
+                func.count(ChargerConnectionEvent.id),
+                func.sum(case((ChargerConnectionEvent.close_code == 1006, 1), else_=0)),
+            )
+            .filter(
+                ChargerConnectionEvent.event == "disconnected",
+                ChargerConnectionEvent.at >= _since,
+            )
+            .group_by(ChargerConnectionEvent.charge_point_id)
+            .all()
+        ):
+            drops_24h[cp_id] = (int(total or 0), int(abnormal or 0))
+    except Exception as e:
+        logger.warning(f"[chargers] could not read connection drops: {e}")
+
     # Add active transaction_id for each charger
     result = []
     for charger in chargers:
@@ -1173,12 +1243,22 @@ async def get_chargers(
             "active_transactions": active_txn_by_conn or None,
             "number_of_connectors": charger.number_of_connectors,
             "location": charger.location,
+            # The Edit dialog fills these from here and sends them back
+            # unconditionally, so omitting them made saving wipe them.
+            "city": charger.city,
+            "postal_code": charger.postal_code,
             "latitude": charger.latitude,
             "longitude": charger.longitude,
             "connector_type": eff_connector,
             "max_power_kw": eff_power,
             "ocpp_version": charger.ocpp_version,
             "is_public": charger.is_public,
+            # Whether a roaming partner actually sees it, answered by the same
+            # predicate the OCPI endpoints use. The dashboard worked this out
+            # for itself and still had the rule we retired in October, so a
+            # charger with a recent heartbeat and no flag was labelled
+            # "Published (auto)" while being withheld.
+            "roaming_published": _ocpi_publishes(charger),
             "auth_method": charger.auth_method,
             "auth_ok": charger.auth_ok,
             "price_per_kwh": price_per_kwh,
@@ -1193,6 +1273,21 @@ async def get_chargers(
             "idle_fee_per_min": float(charger.idle_fee_per_min) if charger.idle_fee_per_min is not None else None,
             "idle_grace_minutes": int(charger.idle_grace_minutes) if charger.idle_grace_minutes is not None else None,
             "ws_connected": charger.charge_point_id in active_charge_points,
+            # Declared on the response model but never filled, so every charger
+            # came back with tenant null. The sidebar filter worked because it
+            # is applied in SQL, but nothing could show which tenant a charger
+            # belongs to, and the Edit dialog could not preselect it.
+            "tenant": charger.tenant,
+        }
+        _c = conn_info.classify(charger)
+        _d = drops_24h.get(charger.charge_point_id, (0, 0))
+        charger_dict["connectivity"] = {
+            "type": _c["type"],
+            "label": _c["label"],
+            "source": _c["source"],
+            "operator": _c["operator"],
+            "drops_24h": _d[0],
+            "abnormal_drops_24h": _d[1],
         }
         result.append(ChargerStatus(**charger_dict))
 
@@ -1206,7 +1301,7 @@ async def get_chargers(
         out = result
     else:
         SENSITIVE = {"vendor", "model", "firmware_version", "last_heartbeat",
-                     "active_transaction_id", "ws_connected"}
+                     "active_transaction_id", "ws_connected", "connectivity"}
         out = []
         for cs in result:
             d = cs.model_dump()
@@ -1290,7 +1385,7 @@ async def admin_create_charger(
     existing = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Charger {cp_id} already exists")
-    charger = Charger(
+    kwargs = dict(
         charge_point_id=cp_id,
         vendor=req.vendor or "Manual",
         model=req.model or "ESP32",
@@ -1298,6 +1393,13 @@ async def admin_create_charger(
         status="offline",
         availability="unknown",
     )
+    if req.tenant:
+        key = req.tenant.strip()
+        known = db.query(Tenant).filter(Tenant.key == key, Tenant.is_active == True).first()
+        if not known:
+            raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
+        kwargs["tenant"] = key
+    charger = Charger(**kwargs)
     db.add(charger)
     db.commit()
     db.refresh(charger)
@@ -1305,12 +1407,321 @@ async def admin_create_charger(
     return charger
 
 
+# ── Tenants ────────────────────────────────────────────────────────────────
+# The dashboard's tenant switcher used to read a hardcoded array in
+# static/tenant.js, so adding a fleet operator meant editing code and
+# deploying. These endpoints back it with a table instead.
+
+class TenantResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    badge: Optional[str] = None
+    hint: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 100
+    # A fleet invoiced against a live contract. Chargers do not move into or
+    # out of one by accident.
+    billing_locked: bool = False
+    # How many chargers currently point at this key. Shown in the UI so an
+    # operator can see what a tenant actually holds before removing it.
+    charger_count: int = 0
+
+
+class TenantWriteRequest(BaseModel):
+    key: Optional[str] = None
+    label: Optional[str] = None
+    badge: Optional[str] = None
+    hint: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+    billing_locked: Optional[bool] = None
+
+
+_TENANT_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,49}$")
+
+
+def _tenant_counts(db: Session) -> dict:
+    rows = (
+        db.query(Charger.tenant, func.count(Charger.id))
+        .group_by(Charger.tenant)
+        .all()
+    )
+    return {k: n for k, n in rows}
+
+
+@app.get("/api/tenants", response_model=List[TenantResponse])
+async def list_tenants(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Fleet operators the dashboard can be scoped to."""
+    q = db.query(Tenant)
+    if not include_inactive:
+        q = q.filter(Tenant.is_active == True)
+    counts = _tenant_counts(db)
+    out = []
+    for t in q.order_by(Tenant.sort_order, Tenant.label).all():
+        row = TenantResponse.model_validate(t)
+        row.charger_count = counts.get(t.key, 0)
+        out.append(row)
+    return out
+
+
+@app.post("/api/tenants", response_model=TenantResponse, status_code=201)
+async def create_tenant(
+    req: TenantWriteRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    key = (req.key or "").strip().lower()
+    label = (req.label or "").strip()
+    if not _TENANT_KEY_RE.match(key):
+        raise HTTPException(
+            status_code=400,
+            detail="Key must be lowercase letters, digits or hyphens, 2-50 characters.",
+        )
+    if not label:
+        raise HTTPException(status_code=400, detail="Label is required.")
+    if db.query(Tenant).filter(Tenant.key == key).first():
+        raise HTTPException(status_code=409, detail=f"Tenant '{key}' already exists.")
+
+    t = Tenant(
+        key=key,
+        label=label,
+        badge=(req.badge or "").strip()[:12] or None,
+        hint=(req.hint or "").strip()[:255] or None,
+        is_active=True if req.is_active is None else req.is_active,
+        sort_order=req.sort_order if req.sort_order is not None else 100,
+        billing_locked=bool(req.billing_locked),
+    )
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    logger.info("Tenant %s created", key)
+    return TenantResponse.model_validate(t)
+
+
+@app.patch("/api/tenants/{key}", response_model=TenantResponse)
+async def update_tenant(
+    key: str,
+    req: TenantWriteRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Rename or retag a tenant. The key itself is immutable: chargers store it
+    directly, so changing it would orphan every charger pointing at the old
+    value."""
+    t = db.query(Tenant).filter(Tenant.key == key).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if req.key is not None and req.key.strip().lower() != t.key:
+        raise HTTPException(
+            status_code=400,
+            detail="A tenant key cannot be changed. Create a new tenant and move the chargers.",
+        )
+    if req.label is not None:
+        if not req.label.strip():
+            raise HTTPException(status_code=400, detail="Label cannot be empty.")
+        t.label = req.label.strip()
+    if req.badge is not None:
+        t.badge = req.badge.strip()[:12] or None
+    if req.hint is not None:
+        t.hint = req.hint.strip()[:255] or None
+    if req.sort_order is not None:
+        t.sort_order = req.sort_order
+    if req.is_active is not None:
+        t.is_active = req.is_active
+    if req.billing_locked is not None:
+        t.billing_locked = bool(req.billing_locked)
+    db.commit()
+    db.refresh(t)
+    out = TenantResponse.model_validate(t)
+    out.charger_count = _tenant_counts(db).get(t.key, 0)
+    return out
+
+
+@app.delete("/api/tenants/{key}")
+async def delete_tenant(
+    key: str,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Remove a tenant, but only once nothing points at it.
+
+    Deleting one that still holds chargers would leave them filtered out of
+    every view, which reads as chargers having disappeared.
+    """
+    t = db.query(Tenant).filter(Tenant.key == key).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    count = _tenant_counts(db).get(key, 0)
+    if count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{count} charger(s) still belong to '{key}'. Move them to another tenant first.",
+        )
+    db.delete(t)
+    db.commit()
+    logger.info("Tenant %s deleted", key)
+    return {"success": True, "key": key}
+
+
 class UpdateChargerInfoRequest(BaseModel):
     location: Optional[str] = None
+    # OCPI publishes an address in parts. These two used to come from a single
+    # platform-wide setting, so every charger was labelled Kuala Lumpur 50000
+    # whatever its street line and coordinates said. Empty string clears them
+    # back to that setting; None leaves them alone.
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     connector_type: Optional[str] = None
     max_power_kw: Optional[float] = None
+    # Which fleet operator this charger belongs to. Previously settable only by
+    # an UPDATE against the database, so a charger could never be moved between
+    # tenants from the dashboard.
+    tenant: Optional[str] = None
+    # Required to move a charger into or out of a fleet that is being invoiced
+    # against a live contract. Not a formality: the move decides which fleet
+    # earns from this charger from now on, and the caller has to say it means
+    # it. It cannot affect an invoice already issued, because a session
+    # records the fleet it ran under.
+    confirm_tenant_change: bool = False
+    # "cellular", "wifi" or "ethernet" to state how the charger connects, or
+    # "auto" to go back to what the charger itself reports.
+    connectivity: Optional[str] = None
+
+
+@app.delete("/api/admin/chargers/{charge_point_id}")
+async def delete_charger(
+    charge_point_id: str,
+    confirm: Optional[str] = Query(
+        None,
+        description="Must equal the charge point id. Typing it is the "
+                    "confirmation; a delete cannot be undone.",
+    ),
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Remove a charger that has no charging history.
+
+    **A charger that has ever run a session is never deleted.** Every report
+    on this platform joins `chargers` to name the charge point and its
+    address, so deleting one would take its sessions out of every report
+    silently, including months already invoiced. That is the same failure as
+    moving a charger between tenants used to be, and the answer is the same:
+    history does not change because something about the hardware did. Hide
+    it from the dashboard instead, which is what `maintenance_mode` and
+    `is_public` are for.
+
+    What this is actually for is the debris: a charger created by an
+    internet scanner probing the OCPP endpoint, or by a test that is over.
+    Those have no sessions at all, and leaving them in place inflates the
+    fleet count and the tenant reports they landed in.
+
+    Telemetry that only describes the charger goes with it in the same
+    transaction: meter values, faults, its pricing row, schedules, bookings,
+    reviews and maintenance records. None of them means anything once the
+    charger they belong to is gone, and leaving them would orphan rows that
+    point at an id nothing answers to.
+    """
+    charger = (
+        db.query(Charger)
+        .filter(Charger.charge_point_id == charge_point_id)
+        .first()
+    )
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    if (confirm or "").strip() != charge_point_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Type the charge point id to confirm. This cannot be undone.",
+        )
+
+    # A live OCPP socket means the charger is out there and will simply
+    # register itself again on its next BootNotification, so the delete would
+    # achieve nothing and lose whatever was configured on it.
+    if charge_point_id in active_charge_points:
+        raise HTTPException(
+            status_code=409,
+            detail=("%s is connected over OCPP right now. It would register "
+                    "itself again on its next boot. Disconnect it first."
+                    % charge_point_id),
+        )
+
+    sessions = (
+        db.query(func.count(ChargingSession.id))
+        .filter(ChargingSession.charger_id == charger.id)
+        .scalar() or 0
+    )
+    if sessions:
+        active = (
+            db.query(func.count(ChargingSession.id))
+            .filter(ChargingSession.charger_id == charger.id)
+            .filter(ChargingSession.status == "active")
+            .scalar() or 0
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "%s has %d charging session%s%s and cannot be deleted. Every "
+                "report joins the charger to name it and its address, so "
+                "removing it would take those sessions out of reports for "
+                "months that have already been invoiced. Hide it instead: "
+                "switch Roaming visibility off and put it in maintenance mode."
+                % (charge_point_id, sessions, "" if sessions == 1 else "s",
+                   " (%d still active)" % active if active else "")
+            ),
+        )
+
+    removed = {}
+    for model, label in (
+        (MeterValue, "meter_values"),
+        (Fault, "faults"),
+        (Pricing, "pricing"),
+        (MaintenanceRecord, "maintenance_records"),
+        (ChargingSchedule, "charging_schedules"),
+        (ChargerReview, "charger_reviews"),
+        (ChargerBooking, "charger_bookings"),
+    ):
+        n = (
+            db.query(model)
+            .filter(model.charger_id == charger.id)
+            .delete(synchronize_session=False)
+        )
+        if n:
+            removed[label] = int(n)
+
+    # Connection events key on the charge point id rather than the row id,
+    # so they are not caught by the loop above and would otherwise be left
+    # describing a charger that no longer exists. For a scanner's probe
+    # these are the only rows it ever produced.
+    n = (
+        db.query(ChargerConnectionEvent)
+        .filter(ChargerConnectionEvent.charge_point_id == charge_point_id)
+        .delete(synchronize_session=False)
+    )
+    if n:
+        removed["charger_connection_events"] = int(n)
+
+    db.delete(charger)
+    db.commit()
+    _CHARGERS_CACHE.clear()
+    logger.warning(
+        "Charger %s deleted by admin (tenant=%s, rows removed: %s)",
+        charge_point_id, charger.tenant, removed or "none",
+    )
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "removed": removed,
+        "message": "%s deleted." % charge_point_id,
+    }
 
 
 @app.patch("/api/admin/chargers/{charge_point_id}/info")
@@ -1326,6 +1737,10 @@ async def update_charger_info(
         raise HTTPException(status_code=404, detail="Charger not found")
     if req.location is not None:
         charger.location = req.location
+    if req.city is not None:
+        charger.city = req.city.strip() or None
+    if req.postal_code is not None:
+        charger.postal_code = req.postal_code.strip() or None
     if req.latitude is not None:
         charger.latitude = req.latitude
     if req.longitude is not None:
@@ -1334,17 +1749,80 @@ async def update_charger_info(
         charger.connector_type = req.connector_type
     if req.max_power_kw is not None:
         charger.max_power_kw = req.max_power_kw
+    if req.tenant is not None:
+        key = req.tenant.strip()
+        # Must be a registered tenant. An unknown key would leave the charger
+        # invisible under every filter, which looks exactly like it vanished.
+        known = db.query(Tenant).filter(Tenant.key == key, Tenant.is_active == True).first()
+        if not known:
+            raise HTTPException(status_code=400, detail=f"Unknown tenant '{key}'")
+        if key != charger.tenant and not req.confirm_tenant_change:
+            # Either side of the move can object: taking a charger out of a
+            # billed fleet reduces what it earns from here on, and putting one
+            # in adds to what that fleet is invoiced for.
+            locked = [
+                t.key for t in db.query(Tenant).filter(
+                    Tenant.key.in_([charger.tenant, key]),
+                    Tenant.billing_locked == True,  # noqa: E712
+                ).all()
+            ]
+            if locked:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "%s is invoiced against a live contract. Moving %s "
+                        "from '%s' to '%s' changes which fleet earns from it "
+                        "from now on. Invoices already issued are unaffected: "
+                        "every session records the fleet it ran under. Send "
+                        "confirm_tenant_change to proceed."
+                        % (" and ".join(sorted(locked)), charge_point_id,
+                           charger.tenant, key)
+                    ),
+                )
+        charger.tenant = key
+    if req.connectivity is not None:
+        value = req.connectivity.strip().lower()
+        if value not in ("auto", "cellular", "wifi", "ethernet"):
+            raise HTTPException(status_code=400, detail="connectivity must be auto, cellular, wifi or ethernet")
+        charger.connectivity_override = None if value == "auto" else value
     db.commit()
+    _CHARGERS_CACHE.clear()
     logger.info(f"Charger {charge_point_id} info updated by admin")
     eff_power, eff_connector = _effective_charger_specs(charger.max_power_kw, charger.connector_type, charger.model)
     return {
         "success": True,
         "charge_point_id": charge_point_id,
         "location": charger.location,
+        "city": charger.city,
+        "postal_code": charger.postal_code,
         "latitude": charger.latitude,
         "longitude": charger.longitude,
         "connector_type": eff_connector,
         "max_power_kw": eff_power,
+    }
+
+
+@app.get("/api/admin/chargers/{charge_point_id}/connectivity")
+async def get_charger_connectivity(
+    charge_point_id: str,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    _: dict = Depends(require_admin_or_staff_admin),
+    db: Session = Depends(get_db),
+):
+    """How a charger connects, and its connect/disconnect log.
+
+    Uptime, disconnect count and abnormal drops (close code 1006, the
+    signature of a lost signal) over the last `hours`, with the events
+    themselves, newest first. Staff only: the SIM identifiers are here.
+    """
+    charger = db.query(Charger).filter(Charger.charge_point_id == charge_point_id).first()
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+    return {
+        "charge_point_id": charge_point_id,
+        "connected_now": charge_point_id in active_charge_points,
+        "connectivity": conn_info.classify(charger),
+        **conn_info.summarize(db, charge_point_id, hours),
     }
 
 
@@ -1433,6 +1911,75 @@ async def update_charger_idle_fee(
         "idle_fee_enabled": bool(charger.idle_fee_enabled),
         "idle_fee_per_min": float(charger.idle_fee_per_min or 0),
         "idle_grace_minutes": int(charger.idle_grace_minutes or 0),
+    }
+
+
+@app.get("/api/admin/sessions/{transaction_id}/timeline")
+async def session_timeline(
+    transaction_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Everything that happened during one session, facts and logs together.
+
+    Built after the Voltality UAT, where answering "why did this session cost
+    that" meant SSHing to the server and grepping container logs by hand.
+    Nobody watching a partner test could see what the charger and the partner
+    actually exchanged.
+    """
+    import session_timeline as _tl
+
+    sess = (
+        db.query(ChargingSession)
+        .filter(ChargingSession.transaction_id == transaction_id)
+        .order_by(ChargingSession.id.desc())
+        .first()
+    )
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
+
+    energy = float(sess.energy_consumed or 0)
+    rate = float(charger.tariff_per_kwh) if charger and charger.tariff_per_kwh is not None else 0.0
+    idle_min = int(sess.idle_minutes or 0)
+    idle_rate = float(charger.idle_fee_per_min) if charger and charger.idle_fee_per_min is not None else 0.0
+    energy_cost = round(energy * rate, 2)
+    idle_cost = round(idle_min * idle_rate, 2)
+
+    start_utc, end_utc = _tl._window(sess)
+    lines = await _tl.fetch_log_lines(
+        charger.charge_point_id if charger else "", start_utc, end_utc
+    )
+
+    return {
+        "transaction_id": sess.transaction_id,
+        "charge_point_id": charger.charge_point_id if charger else None,
+        "status": sess.status,
+        "stop_reason": sess.stop_reason,
+        "stop_initiator": sess.stop_initiator,
+        "times": {
+            "start": sess.start_time.isoformat() if sess.start_time else None,
+            "stop": sess.stop_time.isoformat() if sess.stop_time else None,
+            "unplugged": sess.unplugged_at.isoformat() if sess.unplugged_at else None,
+            "idle_started": sess.idle_started_at.isoformat() if sess.idle_started_at else None,
+        },
+        "money": {
+            "energy_kwh": energy,
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": idle_min,
+            "idle_rate_per_min": idle_rate,
+            "idle_grace_minutes": int(charger.idle_grace_minutes or 0) if charger else 0,
+            "idle_fee_enabled": bool(charger.idle_fee_enabled) if charger else False,
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+        },
+        "partner": {
+            "authorization_reference": sess.authorization_reference,
+            "ocpi_partner_id": sess.ocpi_partner_id,
+        },
+        "events": _tl.build_events(lines),
+        "log_lines_scanned": len(lines),
     }
 
 
@@ -2144,6 +2691,16 @@ async def staff_portal_page():
         raise HTTPException(status_code=500, detail=f"Error loading staff portal: {str(e)}")
 
 
+@app.get("/vendor")
+async def vendor_portal_page():
+    """Vendor test portal. It has its own sign-in (vendor accounts, managed
+    under /admin), so the page itself is public like /login."""
+    file_path = _BASE_DIR / "templates" / "vendor.html"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Vendor portal template not found")
+    return FileResponse(file_path, media_type="text/html")
+
+
 @app.get("/login")
 async def login_page():
     """Centralized staff login page — redirects to appropriate portal based on role."""
@@ -2270,6 +2827,22 @@ async def quick_pay_page(charger: str = "", connector: str = "1"):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading pay page: {str(e)}")
+
+
+@app.get("/terms")
+async def terms_page():
+    """Public terms and conditions.
+
+    Needed by roaming partners, who link it from their own apps so a driver
+    arriving through them can read whose network they are using and on what
+    basis. Voltality asked for the URL on 2026-10-07. The quick-pay page has
+    also told customers "By paying you agree to PlagSini's terms" since it was
+    written, with nothing to point at.
+    """
+    file_path = _BASE_DIR / "templates" / "terms.html"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Terms page not found")
+    return FileResponse(file_path, media_type="text/html")
 
 
 @app.get("/api/charger/{charger_id}/info")
@@ -2512,6 +3085,59 @@ def _enforce_tenant_guard(partner: "PartnerAPIKey", charger: "Charger") -> None:
         )
 
 
+@app.get("/api/partner/chargers")
+async def partner_list_chargers(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Server-to-server: the chargers this partner key is allowed to drive.
+
+    A partner app cannot show a bay list without this. It previously had to be
+    hard-coded on the partner side, which meant a charger renamed or taken out
+    of service here stayed visible over there until someone noticed.
+
+    Scoping is the key's own controls_tenant, never a query parameter, so a
+    partner cannot widen its own view by asking differently. An unscoped
+    (legacy) key still sees everything, matching _enforce_tenant_guard.
+    """
+    partner_row = _authenticate_partner(request, db)
+    scope = (partner_row.controls_tenant or "").strip()
+
+    q = db.query(Charger)
+    if scope:
+        q = q.filter(Charger.tenant == scope)
+
+    rows = q.order_by(Charger.charge_point_id).all()
+    return {
+        "count": len(rows),
+        "tenant": scope or None,
+        "chargers": [
+            {
+                "charger_id": c.charge_point_id,
+                "name": c.name,
+                "location": c.location,
+                # The Edit charger dialog populates from this list, so the
+                # address parts have to travel with it or the two new boxes
+                # would open empty however often they are saved.
+                "city": c.city,
+                "postal_code": c.postal_code,
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "connector_type": c.connector_type,
+                "number_of_connectors": c.number_of_connectors,
+                "max_power_kw": c.max_power_kw,
+                # status is the websocket link, availability is what the gun is
+                # doing. A partner UI needs both to explain "why can't I start?".
+                "status": c.status,
+                "availability": c.availability,
+                "maintenance_mode": bool(c.maintenance_mode),
+                "tariff_per_kwh": float(c.tariff_per_kwh or Decimal("0.10")),
+            }
+            for c in rows
+        ],
+    }
+
+
 class PartnerStartChargingRequest(BaseModel):
     charger_id: str = Field(..., description="charge_point_id, e.g. 'DC3001' or '0748911403000093'")
     customer_id: Optional[str] = Field(
@@ -2682,16 +3308,33 @@ async def partner_stop_charging(
         raise HTTPException(status_code=404, detail=f"Charger {txn.charger_id} not found")
     _enforce_tenant_guard(partner_row, charger)
 
-    # Find the active session linked to this txn
+    # Find the session this payment started: the first real one on the charger
+    # after the payment, the same rule /sessions/{ref} uses, so stop acts on
+    # the session the partner has been polling.
+    #
+    # This used to take the latest row on the charger, placeholder included.
+    # RemoteStart leaves a placeholder (negative transaction_id) stamped with
+    # our clock, and it is marked completed once the charger's StartTransaction
+    # arrives. The real session carries the charger's own timestamp, which can
+    # be a few seconds earlier, and then the placeholder sorted first: the
+    # endpoint answered "already stopped" and never sent RemoteStop, while the
+    # car went on charging (2026-10-06, 73 minutes past the guest's stop).
     if txn.paid_at:
-        window_start = txn.paid_at - timedelta(minutes=2)
+        # paid_at is naive UTC; start_time is naive Malaysian wall time.
+        paid_utc = txn.paid_at if txn.paid_at.tzinfo else txn.paid_at.replace(tzinfo=UTC)
+        paid_local = paid_utc.astimezone(MYT).replace(tzinfo=None)
         session = (
             db.query(ChargingSession)
             .filter(
                 ChargingSession.charger_id == charger.id,
-                ChargingSession.start_time >= window_start,
+                ChargingSession.transaction_id > 0,
+                ChargingSession.start_time >= paid_local - timedelta(minutes=2),
+                ChargingSession.start_time <= paid_local + timedelta(hours=12),
+                # Not one that was over before this payment was made; see
+                # the same filter in _serialize_sync_transaction.
+                or_(ChargingSession.stop_time.is_(None), ChargingSession.stop_time >= paid_local),
             )
-            .order_by(ChargingSession.start_time.desc())
+            .order_by(ChargingSession.start_time.asc())
             .first()
         )
     else:
@@ -2776,6 +3419,11 @@ async def partner_get_session(
 class PartnerKeyCreateRequest(BaseModel):
     partner_name: str = Field(..., min_length=2, max_length=50)
     notes: Optional[str] = Field(default=None, max_length=255)
+    controls_tenant: Optional[str] = Field(
+        default=None, max_length=50,
+        description="Restrict this key to one tenant (chargers.tenant). Leave "
+                    "empty only for legacy partners that must reach every fleet.",
+    )
 
 
 @app.post("/api/admin/partners")
@@ -2797,6 +3445,7 @@ async def admin_create_partner_key(
         key_hash=_hash_partner_key(raw),
         active=True,
         notes=req.notes,
+        controls_tenant=(req.controls_tenant or "").strip() or None,
     )
     db.add(row)
     db.commit()
@@ -2808,6 +3457,7 @@ async def admin_create_partner_key(
         "partner_name": row.partner_name,
         "api_key": raw,
         "notes": row.notes,
+        "controls_tenant": row.controls_tenant,
         "created_at": row.created_at.isoformat(),
         "warning": "Store this key now — it will not be shown again.",
     }
@@ -2828,6 +3478,7 @@ async def admin_list_partner_keys(
                 "partner_name": r.partner_name,
                 "active": r.active,
                 "notes": r.notes,
+                "controls_tenant": r.controls_tenant,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "revoked_at": r.revoked_at.isoformat() if r.revoked_at else None,
                 "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
@@ -2917,14 +3568,35 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                 "location": charger.location,
             }
             if t.paid_at:
-                window_start = t.paid_at - timedelta(minutes=2)
-                window_end = t.paid_at + timedelta(hours=12)
+                # paid_at is naive UTC (written by _utcnow); ChargingSession
+                # .start_time is naive Malaysian wall time, as the charger
+                # reports it. Comparing them directly put the window eight
+                # hours early, so a payment at 10:29 MYT searched from 02:27
+                # MYT and swept up every session since breakfast. Combined with
+                # "earliest first" below, a second charge on the same charger
+                # was answered with the first charge of that day: already
+                # completed, with its kWh. A partner polling that reference saw
+                # its live session finish seconds after it began.
+                paid_utc = t.paid_at if t.paid_at.tzinfo else t.paid_at.replace(tzinfo=UTC)
+                paid_local = paid_utc.astimezone(MYT).replace(tzinfo=None)
+                # Two minutes back for a charger whose clock runs slightly
+                # ahead of ours, then the first session to start after the
+                # payment: that is the one this payment paid for.
+                window_start = paid_local - timedelta(minutes=2)
+                window_end = paid_local + timedelta(hours=12)
                 session = (
                     db.query(ChargingSession)
                     .filter(
                         ChargingSession.charger_id == charger.id,
                         ChargingSession.start_time >= window_start,
                         ChargingSession.start_time <= window_end,
+                        # A session that had already ended when the payment
+                        # was made cannot be the one it paid for. Without
+                        # this, two charges less than two minutes apart
+                        # shared the look-back window above and the second
+                        # was answered with the first: finished, with its
+                        # kWh and stop reason (2026-10-10).
+                        or_(ChargingSession.stop_time.is_(None), ChargingSession.stop_time >= paid_local),
                     )
                     .order_by(ChargingSession.start_time.asc())
                     .first()
@@ -2943,9 +3615,45 @@ def _serialize_sync_transaction(t: "PaymentTransaction", db: Session) -> dict:
                         "energy_kwh_limit": float(session.energy_kwh_limit) if session.energy_kwh_limit else None,
                         "auto_stopped": bool(session.auto_stopped),
                         "stop_reason": session.stop_reason,
+                        "stop_initiator": session.stop_initiator,
                         "meter_start_wh": session.meter_start,
                         "meter_stop_wh": session.meter_stop,
                     }
+
+                    # Live telemetry. Until now the partner payload carried
+                    # energy and duration only, so a partner app could show how
+                    # much had been delivered but not whether the car was still
+                    # drawing. Everything below already exists in meter_values;
+                    # it simply was not exposed on this side of the fence.
+                    #
+                    # Each field stays None when the charger never reported that
+                    # measurand (SoC in particular is optional in OCPP), so a
+                    # partner UI can say "not reported" instead of rendering a
+                    # confident 0.0 kW into a driver's face.
+                    latest_mv = (
+                        db.query(MeterValue)
+                        .filter(MeterValue.transaction_id == session.transaction_id)
+                        .order_by(MeterValue.timestamp.desc())
+                        .first()
+                    )
+                    peak_kw = (
+                        db.query(func.max(MeterValue.power))
+                        .filter(MeterValue.transaction_id == session.transaction_id)
+                        .scalar()
+                    )
+                    session_payload.update(
+                        {
+                            "power_kw": latest_mv.power if latest_mv else None,
+                            "current_a": latest_mv.current if latest_mv else None,
+                            "voltage_v": latest_mv.voltage if latest_mv else None,
+                            "soc": latest_mv.soc if latest_mv else None,
+                            "peak_power_kw": float(peak_kw) if peak_kw is not None else None,
+                            "reading_at": (
+                                _iso_myt_naive_local(latest_mv.timestamp)
+                                if latest_mv else None
+                            ),
+                        }
+                    )
 
     # Parse gateway_response JSON safely
     raw_response = None
@@ -4087,6 +4795,23 @@ async def stop_charging(request: StopChargingRequest, db: Session = Depends(get_
             success=False,
             message="An unexpected error occurred"
         )
+
+
+# ==================== VENDOR TEST PORTAL ====================
+# Included here rather than with the other routers because it reuses the start
+# and stop handlers above, so a vendor's start goes down the same path as the
+# dashboard's and cannot drift from it.
+from vendor_portal import build_router as _build_vendor_router
+
+app.include_router(_build_vendor_router(
+    require_admin=require_admin_or_staff_admin,
+    enforce_rate_limit=_enforce_rate_limit,
+    start_charging=start_charging,
+    stop_charging=stop_charging,
+    start_request_model=StartChargingRequest,
+    stop_request_model=StopChargingRequest,
+    offline_after_minutes=OFFLINE_THRESHOLD_MINUTES,
+))
 
 
 # ==================== CHARGING SCHEDULES ====================
@@ -6232,128 +6957,614 @@ async def invoice_page():
         raise HTTPException(status_code=500, detail=f"Error loading invoice page: {str(e)}")
 
 
+def _invoice_window(start_date, end_date):
+    """The reporting period, as two naive datetimes.
+
+    A bare date as the end of a period means the whole of that day. The
+    end-of-day widening used to sit in a `except ValueError` branch that
+    `fromisoformat` stopped reaching in Python 3.11, where a plain
+    "2026-07-15" parses happily as midnight. So the closing date silently
+    dropped everything charged on it, which on a month-end report is the
+    whole of the last day. The shape of the string decides it now, not which
+    parser happened to raise.
+    """
+    def one(value, end=False):
+        value = (value or "").strip()
+        if not value:
+            return None
+        bare_date = len(value) == 10 and "T" not in value
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            dt = datetime.strptime(value[:10], "%Y-%m-%d")
+            bare_date = True
+        if end and bare_date:
+            return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt
+
+    return one(start_date), one(end_date, end=True)
+
+
+def _session_tenant_sql():
+    """Which fleet a charge belonged to, as SQL.
+
+    The session's own stamp wins. `chargers.tenant` is only the fallback, for
+    a row written between the deploy and the migration; reading it first is
+    what made a charger move rewrite history, because every past session
+    followed the charger to its new fleet.
+    """
+    return func.coalesce(ChargingSession.tenant_at_start, Charger.tenant)
+
+
+def _charger_address(c) -> str:
+    """One line a finance team can put on an invoice.
+
+    City and postcode fall back to the platform's own, which is where every
+    charger sat before those columns existed.
+    """
+    return ", ".join(x for x in (
+        c.location,
+        c.city or os.getenv("OCPI_LOCATION_CITY", "").strip() or None,
+        c.postal_code or os.getenv("OCPI_LOCATION_POSTAL", "").strip() or None,
+    ) if x)
+
+
+def _session_money(s, c) -> tuple:
+    """What one session is worth: (kWh, rate, energy cost, idle cost).
+
+    The rate is the one frozen onto the session when it started, so
+    re-running last month's report after a price change returns last
+    month's figures. Sessions that ran before 2026-11-12 carry no frozen
+    rate and fall back to what their charger charges today.
+    """
+    kwh = float(s.energy_consumed or 0)
+    rate = s.tariff_per_kwh_at_start
+    if rate is None:
+        rate = c.tariff_per_kwh
+    rate = float(rate or 0)
+    return kwh, rate, round(kwh * rate, 2), round(float(s.idle_fee_amount or 0), 2)
+
+
 @app.get("/api/invoice/summary")
 async def get_invoice_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
+    tenant: Optional[str] = Query(
+        None,
+        description="Fleet operator key, e.g. czero-tng. Omit or pass 'all' for every fleet.",
+    ),
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get invoice summary with totals (admin/staff only)"""
-    # Parse dates
-    start_dt = None
-    end_dt = None
-    if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        except:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        except:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            end_dt = end_dt.replace(hour=23, minute=59, second=59)
-    
-    # Build query
-    query = db.query(ChargingSession)
-    
+    """Report totals, scoped to one fleet.
+
+    Two faults here reached the printed report.
+
+    The money was a guess. Every session was billed at a single rate read
+    from the pricing table, which is empty, so the page fell back to
+    RM0.50/kWh for all 503 chargers whatever they actually charge, and the
+    idle fee was not counted at all. A session is now billed at the rate
+    frozen onto it when it started, falling back to its charger's rate for
+    anything that ran before 2026-11-12, plus the idle fee it collected.
+
+    And one report covered every fleet at once, which cannot be sent to any
+    of them. `tenant` scopes the sessions, the per-charger breakdown and the
+    maintenance cost together, so a fleet's net profit is that fleet's
+    revenue less that fleet's repairs rather than the platform's.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    tenant_key = (tenant or "").strip().lower()
+    scoped = bool(tenant_key) and tenant_key != "all"
+
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    if scoped:
+        q = q.filter(_session_tenant_sql() == tenant_key)
     if charger_id:
-        charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-        if charger:
-            query = query.filter(ChargingSession.charger_id == charger.id)
-    
+        q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
-        query = query.filter(ChargingSession.start_time >= start_dt)
+        q = q.filter(ChargingSession.start_time >= start_dt)
     if end_dt:
-        query = query.filter(ChargingSession.start_time <= end_dt)
-    
-    sessions = query.all()
-    
-    # Calculate totals
-    total_sessions = len(sessions)
-    completed_sessions = len([s for s in sessions if s.status == 'completed'])
-    active_sessions = len([s for s in sessions if s.status == 'active'])
-    total_energy = float(sum(s.energy_consumed or 0 for s in sessions))
-    
-    # Get pricing (use default if not set)
-    pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
-    price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50  # Default RM 0.50/kWh
-    
-    total_revenue = total_energy * price_per_kwh
-    
-    # Calculate total duration
-    total_duration_minutes = 0
-    for s in sessions:
-        if s.start_time and s.stop_time:
-            duration = (s.stop_time - s.start_time).total_seconds() / 60
-            total_duration_minutes += duration
-    
-    # Get charger breakdown
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows = q.all()
+
+    total_sessions = len(rows)
+    completed_sessions = active_sessions = 0
+    total_energy = energy_cost = idle_cost = total_duration_minutes = 0.0
     charger_breakdown = {}
-    for s in sessions:
-        charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
-        if charger:
-            cp_id = charger.charge_point_id
-            if cp_id not in charger_breakdown:
-                charger_breakdown[cp_id] = {
-                    "sessions": 0,
-                    "energy_kwh": 0,
-                    "revenue": 0,
-                    "duration_minutes": 0
-                }
-            charger_breakdown[cp_id]["sessions"] += 1
-            charger_breakdown[cp_id]["energy_kwh"] += s.energy_consumed or 0
-            charger_breakdown[cp_id]["revenue"] += (s.energy_consumed or 0) * price_per_kwh
-            if s.start_time and s.stop_time:
-                charger_breakdown[cp_id]["duration_minutes"] += (s.stop_time - s.start_time).total_seconds() / 60
-    
-    # Round values and ensure float (not Decimal)
-    for cp_id in charger_breakdown:
-        charger_breakdown[cp_id]["energy_kwh"] = float(round(charger_breakdown[cp_id]["energy_kwh"], 2))
-        charger_breakdown[cp_id]["revenue"] = float(round(charger_breakdown[cp_id]["revenue"], 2))
-        charger_breakdown[cp_id]["duration_minutes"] = float(round(charger_breakdown[cp_id]["duration_minutes"], 1))
-    
-    # Get maintenance costs in period
+
+    for s, c in rows:
+        if s.status == "completed":
+            completed_sessions += 1
+        elif s.status == "active":
+            active_sessions += 1
+
+        kwh, rate, e_cost, i_cost = _session_money(s, c)
+        total_energy += kwh
+        energy_cost += e_cost
+        idle_cost += i_cost
+
+        minutes = 0.0
+        if s.start_time and s.stop_time:
+            minutes = (s.stop_time - s.start_time).total_seconds() / 60
+        total_duration_minutes += minutes
+
+        d = charger_breakdown.setdefault(c.charge_point_id, {
+            "sessions": 0, "energy_kwh": 0.0, "revenue": 0.0,
+            "energy_cost": 0.0, "idle_cost": 0.0, "duration_minutes": 0.0,
+            "location": _charger_address(c),
+            "tenant": s.tenant_at_start or c.tenant,
+        })
+        d["sessions"] += 1
+        d["energy_kwh"] += kwh
+        d["energy_cost"] += e_cost
+        d["idle_cost"] += i_cost
+        d["revenue"] += e_cost + i_cost
+        d["duration_minutes"] += minutes
+
+    for d in charger_breakdown.values():
+        for k in ("energy_kwh", "revenue", "energy_cost", "idle_cost"):
+            d[k] = float(round(d[k], 2))
+        d["duration_minutes"] = float(round(d["duration_minutes"], 1))
+
+    total_revenue = energy_cost + idle_cost
+    # A single RM/kWh is no longer a setting; it is what this period actually
+    # sold at across however many rates the chargers in scope carry.
+    blended = (energy_cost / total_energy) if total_energy else 0.0
+
     maintenance_query = db.query(MaintenanceRecord)
+    if scoped or charger_id:
+        maintenance_query = maintenance_query.join(
+            Charger, Charger.id == MaintenanceRecord.charger_id)
+        if scoped:
+            maintenance_query = maintenance_query.filter(Charger.tenant == tenant_key)
+        if charger_id:
+            maintenance_query = maintenance_query.filter(
+                Charger.charge_point_id == charger_id)
     if start_dt:
-        maintenance_query = maintenance_query.filter(MaintenanceRecord.date_reported >= start_dt)
+        maintenance_query = maintenance_query.filter(
+            MaintenanceRecord.date_reported >= start_dt)
     if end_dt:
-        maintenance_query = maintenance_query.filter(MaintenanceRecord.date_reported <= end_dt)
-    
+        maintenance_query = maintenance_query.filter(
+            MaintenanceRecord.date_reported <= end_dt)
+
     maintenance_records = maintenance_query.all()
     total_maintenance_cost = float(sum(float(m.cost or 0) for m in maintenance_records))
-    
+
     return {
         "period": {
             "start": start_date or "All time",
-            "end": end_date or "Present"
+            "end": end_date or "Present",
+        },
+        "scope": {
+            "tenant": tenant_key if scoped else "all",
+            "charger_id": charger_id or None,
         },
         "sessions": {
             "total": total_sessions,
             "completed": completed_sessions,
-            "active": active_sessions
+            "active": active_sessions,
         },
         "energy": {
             "total_kwh": float(round(total_energy, 2)),
-            "price_per_kwh": float(price_per_kwh)
+            "price_per_kwh": float(round(blended, 4)),
         },
         "revenue": {
             "total": float(round(total_revenue, 2)),
-            "currency": "MYR"
+            "energy": float(round(energy_cost, 2)),
+            "idle": float(round(idle_cost, 2)),
+            "currency": "MYR",
         },
         "duration": {
             "total_minutes": round(total_duration_minutes, 1),
-            "total_hours": round(total_duration_minutes / 60, 2)
+            "total_hours": round(total_duration_minutes / 60, 2),
         },
         "maintenance": {
             "total_records": len(maintenance_records),
-            "total_cost": float(round(total_maintenance_cost, 2))
+            "total_cost": float(round(total_maintenance_cost, 2)),
         },
         "net_profit": float(round(total_revenue - total_maintenance_cost, 2)),
-        "charger_breakdown": charger_breakdown
+        "charger_breakdown": charger_breakdown,
     }
+
+
+# A partner registers its test and its live side as two separate OCPI
+# parties, and both carry the same business name: Voltality is SG/VOL on
+# api-uat.voltnet.io and SG/VLT on api.voltnet.io. A picker showing
+# "Voltality" twice is an invitation to invoice the simulator, so the
+# environment is read off the host it handshook from.
+_TEST_HOST_LABELS = ("uat", "test", "staging", "stage", "sandbox", "sbx",
+                     "dev", "demo", "qa", "preprod", "localhost")
+
+
+def _partner_environment(versions_url: Optional[str]) -> str:
+    host = (urlparse(versions_url or "").hostname or "").lower()
+    labels = host.split(".")
+    for label in labels:
+        for part in label.replace("_", "-").split("-"):
+            if part in _TEST_HOST_LABELS:
+                return "test"
+    return "production"
+
+
+@app.get("/api/invoice/partners")
+async def list_invoice_partners(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """The roaming partners a settlement can be drawn for.
+
+    Only those that have actually sent us a charge. A partner we exchanged
+    credentials with but never received traffic from would be an empty
+    option that looks like a broken report.
+    """
+    rows = (
+        db.query(OcpiPartner, func.count(ChargingSession.id))
+        .outerjoin(ChargingSession,
+                   ChargingSession.ocpi_partner_id == OcpiPartner.id)
+        .group_by(OcpiPartner.id)
+        .all()
+    )
+    out = []
+    for p, n in rows:
+        if not n:
+            continue
+        env = _partner_environment(p.versions_url)
+        out.append({
+            "party_id": p.party_id,
+            "country_code": p.country_code,
+            "code": "%s/%s" % (p.country_code, p.party_id),
+            "name": p.business_name or ("%s/%s" % (p.country_code, p.party_id)),
+            "environment": env,
+            "host": urlparse(p.versions_url or "").hostname or "",
+            "registered_at": p.registered_at.isoformat() if p.registered_at else None,
+            "sessions": int(n),
+        })
+    # Production first. A partner registers its test and live sides as two
+    # separate parties, both carrying the same business name, and the one
+    # that must never be invoiced should not be the one at the top of a list.
+    out.sort(key=lambda r: (r["environment"] != "production", -r["sessions"]))
+    return out
+
+
+def _export_rows(db: Session, start_dt, end_dt, tenant=None, party_id=None,
+                 charger_id=None):
+    """The lines an export is built from, in one shape whoever asked.
+
+    Two different populations, and confusing them is how an invoice stops
+    matching the other side:
+
+      * `party_id` draws the roaming settlement. Scoped by the partner
+        recorded on the session, and only sessions whose CDR has been
+        released, so every line has a counterpart the partner already
+        holds. This is what goes to Voltality.
+      * `tenant` draws a fleet's own report. Every charge on that fleet's
+        chargers, walk-ins and app users included, which the partner has
+        never seen. This is internal.
+    """
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    bill_to = None
+    scope_label, scope_value = "Tenant", "All tenants"
+
+    if party_id:
+        from ocpi.router import _cdr_settled_sql
+        partner = (
+            db.query(OcpiPartner)
+            .filter(OcpiPartner.party_id == party_id.strip().upper())
+            .order_by(OcpiPartner.id.desc())
+            .first()
+        )
+        if partner is None:
+            raise HTTPException(status_code=404,
+                                detail="No roaming partner '%s'" % party_id)
+        q = q.filter(ChargingSession.ocpi_partner_id == partner.id)
+        q = q.filter(_cdr_settled_sql())
+        bill_to = partner.business_name or "%s / %s" % (partner.country_code,
+                                                        partner.party_id)
+        # The address goes under the name, as it prints on the invoice.
+        if getattr(partner, "billing_address", None):
+            bill_to = bill_to + "\n" + partner.billing_address.strip()
+        scope_label = "Roaming partner"
+        scope_value = "%s/%s" % (partner.country_code, partner.party_id)
+    else:
+        key = (tenant or "").strip().lower()
+        if key and key != "all":
+            q = q.filter(_session_tenant_sql() == key)
+            t = db.query(Tenant).filter(Tenant.key == key).first()
+            bill_to = (t.label if t else key)
+            scope_value = (t.label if t else key)
+
+    if charger_id:
+        q = q.filter(Charger.charge_point_id == charger_id)
+    if start_dt:
+        q = q.filter(ChargingSession.start_time >= start_dt)
+    if end_dt:
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows, breakdown = [], {}
+    for s, c in q.order_by(ChargingSession.start_time).all():
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        ended = s.unplugged_at or s.stop_time
+        address = _charger_address(c)
+        minutes = 0.0
+        if s.start_time and s.stop_time:
+            minutes = (s.stop_time - s.start_time).total_seconds() / 60
+        rows.append({
+            "session_id": str(s.transaction_id),
+            "start_time": s.start_time,
+            "end_time": ended,
+            "charger": c.charge_point_id,
+            "location": address,
+            "energy_kwh": round(kwh, 2),
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+            "currency": "MYR",
+            "status": s.status,
+        })
+        d = breakdown.setdefault(c.charge_point_id, {
+            "charger": c.charge_point_id, "location": address, "sessions": 0,
+            "energy_kwh": 0.0, "hours": 0.0, "energy_cost": 0.0,
+            "idle_cost": 0.0, "revenue": 0.0,
+        })
+        d["sessions"] += 1
+        d["energy_kwh"] += kwh
+        d["hours"] += minutes / 60
+        d["energy_cost"] += energy_cost
+        d["idle_cost"] += idle_cost
+        d["revenue"] += energy_cost + idle_cost
+
+    for d in breakdown.values():
+        for k in ("energy_kwh", "hours", "energy_cost", "idle_cost", "revenue"):
+            d[k] = round(d[k], 2)
+
+    return rows, sorted(breakdown.values(), key=lambda d: -d["revenue"]), {
+        "bill_to": bill_to,
+        "scope_label": scope_label,
+        "scope_value": scope_value,
+    }
+
+
+@app.get("/api/invoice/export")
+async def export_invoice(
+    format: str = Query("xlsx", pattern="^(json|csv|xlsx|pdf)$"),
+    tenant: Optional[str] = None,
+    party_id: Optional[str] = Query(
+        None, description="A roaming partner, e.g. VLT. Overrides tenant."),
+    charger_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """One export, three formats, built on the server.
+
+    The page used to assemble the CSV in the browser, which is why it could
+    not carry a logo, a column width or a page layout, and why the figures
+    in it were a second implementation that had drifted from the ones on
+    screen. There is one set of numbers now, and the file is whichever
+    container the reader needs.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    rows, breakdown, scope = _export_rows(
+        db, start_dt, end_dt, tenant=tenant, party_id=party_id,
+        charger_id=charger_id)
+
+    # Malaysia time: the document date on an invoice is the local calendar
+    # day, and every other clock on this page is MYT.
+    now = datetime.now(MYT)
+    doc_no = "INV-%s-%s" % (now.strftime("%Y%m%d"),
+                            (party_id or tenant or "ALL").upper()[:8])
+    meta = {
+        "document_no": doc_no,
+        "generated": now.strftime("%d/%m/%Y"),
+        "period": "%s to %s" % (start_date or "all", end_date or "all"),
+        "count": len(rows),
+        **scope,
+    }
+    stem = "PlagSini_%s_%s_%s" % (
+        (party_id or tenant or "all").lower().replace(" ", "-"),
+        (start_date or "all"), (end_date or "all"))
+
+    if format == "json":
+        # What the page shows for a partner scope. Same rows as the file it
+        # will download, so the screen and the attachment cannot disagree,
+        # which is how the old export came to bill RM1.20 a kWh while the
+        # page above it showed something else.
+        import invoice_export
+        t = invoice_export._totals(rows)
+        return {
+            "meta": meta,
+            "totals": t,
+            "breakdown": breakdown,
+            "sessions": [
+                {**r,
+                 "start_time": r["start_time"].isoformat() if r["start_time"] else None,
+                 "end_time": r["end_time"].isoformat() if r["end_time"] else None}
+                for r in rows
+            ],
+        }
+
+    if format == "xlsx":
+        import invoice_export
+        data = invoice_export.build_xlsx(meta, rows, breakdown)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument."
+                       "spreadsheetml.sheet",
+            headers={"Content-Disposition":
+                     'attachment; filename="%s.xlsx"' % stem},
+        )
+
+    if format == "pdf":
+        import invoice_export
+        data = invoice_export.build_pdf(meta, rows, breakdown)
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition":
+                     'attachment; filename="%s.pdf"' % stem},
+        )
+
+    import csv as _csv
+    import io as _io
+
+    import invoice_export
+
+    buf = _io.StringIO()
+    cols = [c[0] for c in invoice_export.COLUMNS]
+    heads = [c[1] for c in invoice_export.COLUMNS]
+    w = _csv.writer(buf)
+    w.writerow([invoice_export.COMPANY_NAME])
+    w.writerow([invoice_export.TAGLINE])
+    w.writerow([])
+    for k, v in (("Document No", doc_no), ("Generated", meta["generated"]),
+                 ("Billing Period", meta["period"]),
+                 (meta["scope_label"], meta["scope_value"]),
+                 ("Sessions", len(rows))):
+        w.writerow([k, v])
+    w.writerow([])
+    w.writerow(heads)
+    for r in rows:
+        w.writerow([
+            invoice_export._dt(r[c]) if c in ("start_time", "end_time") else r[c]
+            for c in cols
+        ])
+    t = {
+        "energy_kwh": round(sum(r["energy_kwh"] for r in rows), 2),
+        "energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+        "idle_minutes": int(sum(r["idle_minutes"] for r in rows)),
+        "idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+        "total": round(sum(r["total"] for r in rows), 2),
+    }
+    w.writerow(["TOTAL"] + ["" if c not in t else t[c] for c in cols[1:]])
+    # BOM so Excel reads it as UTF-8 rather than mangling the address.
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s.csv"' % stem},
+    )
+
+
+@app.get("/api/invoice/partner-sessions")
+async def get_partner_invoice_sessions(
+    party_id: Optional[str] = Query(None, description="e.g. VLT. Omit for every roaming partner."),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    format: str = Query("json", pattern="^(json|csv)$"),
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Settlement lines for a roaming partner, as Voltality asked for them.
+
+    The existing /api/invoice/sessions cannot serve this. It bills every
+    session on the platform at one flat rate read from an empty pricing
+    table, carries no location, no idle breakdown, and no way to select one
+    partner. Jia Hui asked for start, end, charger, location, kWh, a cost
+    breakdown separating energy from idling, and a stable session id.
+
+    Two things make this reconcile with what the partner already holds:
+
+      * Only settled sessions appear, the same predicate that releases a
+        CDR, so a line here matches a CDR they received. A session still
+        parked, or an interrupted one still inside its hold, is not billed.
+      * Money is the rate the session was sold at, preferring the rate
+        frozen onto it, so re-running last month's invoice after a price
+        change returns last month's figures.
+
+    The identifier is `transaction_id`, which is what the OCPI Session and
+    CDR publish as their `id`. The old export numbered rows S0001 upward,
+    which matches nothing on their side.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+
+    from ocpi.router import _cdr_settled_sql
+
+    q = (
+        db.query(ChargingSession, Charger, OcpiPartner)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .join(OcpiPartner, OcpiPartner.id == ChargingSession.ocpi_partner_id)
+        .filter(_cdr_settled_sql())
+    )
+    if party_id:
+        q = q.filter(OcpiPartner.party_id == party_id.strip().upper())
+    if start_dt:
+        q = q.filter(ChargingSession.start_time >= start_dt)
+    if end_dt:
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
+    rows = []
+    for s, c, p in q.order_by(ChargingSession.start_time).all():
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        address = _charger_address(c)
+        rows.append({
+            "session_id": str(s.transaction_id),
+            "partner": "%s/%s" % (p.country_code, p.party_id),
+            "start_time": s.start_time.isoformat() if s.start_time else None,
+            "end_time": (s.unplugged_at or s.stop_time).isoformat()
+                        if (s.unplugged_at or s.stop_time) else None,
+            "charger": c.charge_point_id,
+            "location": address,
+            "energy_kwh": round(kwh, 3),
+            "rate_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "total": round(energy_cost + idle_cost, 2),
+            "currency": "MYR",
+        })
+
+    if format == "json":
+        return {
+            "party_id": party_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "count": len(rows),
+            "total_energy_kwh": round(sum(r["energy_kwh"] for r in rows), 3),
+            "total_energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+            "total_idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+            "total": round(sum(r["total"] for r in rows), 2),
+            "sessions": rows,
+        }
+
+    import csv as _csv
+    import io as _io
+
+    buf = _io.StringIO()
+    cols = ["session_id", "partner", "start_time", "end_time", "charger",
+            "location", "energy_kwh", "rate_per_kwh", "energy_cost",
+            "idle_minutes", "idle_cost", "total", "currency"]
+    w = _csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    # A totals line, so the figure on the invoice is in the file the partner
+    # reconciles against rather than only in the covering email.
+    w.writerow({
+        "session_id": "TOTAL",
+        "energy_kwh": round(sum(r["energy_kwh"] for r in rows), 3),
+        "energy_cost": round(sum(r["energy_cost"] for r in rows), 2),
+        "idle_cost": round(sum(r["idle_cost"] for r in rows), 2),
+        "total": round(sum(r["total"] for r in rows), 2),
+        "currency": "MYR",
+    })
+    name = "PlagSini_settlement_%s_%s.csv" % (
+        (party_id or "all").upper(), (start_date or "all"))
+    # BOM so Excel opens it as UTF-8 rather than mangling the address.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s"' % name},
+    )
 
 
 @app.get("/api/invoice/sessions")
@@ -6361,68 +7572,77 @@ async def get_invoice_sessions(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     charger_id: Optional[str] = None,
+    tenant: Optional[str] = Query(
+        None,
+        description="Fleet operator key, e.g. czero-tng. Omit or pass 'all' for every fleet.",
+    ),
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin_or_staff_admin),
 ):
-    """Get detailed session list for invoice (admin/staff only)"""
-    # Parse dates
-    start_dt = None
-    end_dt = None
-    if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        except:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        except:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            end_dt = end_dt.replace(hour=23, minute=59, second=59)
-    
-    # Build query
-    query = db.query(ChargingSession)
-    
+    """The session lines behind the report, scoped to one fleet.
+
+    These rows are what the page exports, so they carry what Voltality's
+    finance side asked for a charging record to show: start, end, charger,
+    location, kWh, the cost split into energy and idling, and a session
+    identifier that means something to the party being invoiced.
+
+    `transaction_id` is that identifier. It is what the OCPI Session and CDR
+    publish as their `id`, so a line here can be matched against a record
+    the partner already holds. The old export numbered its rows S0001 upward
+    and billed them at a hardcoded RM1.20, neither of which corresponded to
+    anything.
+
+    A session ends when the cable comes out, not when the car stopped
+    drawing power: the idle fee runs in between, so an end time taken from
+    `stop_time` would not account for the amount on the same line.
+    """
+    start_dt, end_dt = _invoice_window(start_date, end_date)
+    tenant_key = (tenant or "").strip().lower()
+
+    q = (
+        db.query(ChargingSession, Charger)
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+    )
+    if tenant_key and tenant_key != "all":
+        q = q.filter(_session_tenant_sql() == tenant_key)
     if charger_id:
-        charger = db.query(Charger).filter(Charger.charge_point_id == charger_id).first()
-        if charger:
-            query = query.filter(ChargingSession.charger_id == charger.id)
-    
+        q = q.filter(Charger.charge_point_id == charger_id)
     if start_dt:
-        query = query.filter(ChargingSession.start_time >= start_dt)
+        q = q.filter(ChargingSession.start_time >= start_dt)
     if end_dt:
-        query = query.filter(ChargingSession.start_time <= end_dt)
-    
-    sessions = query.order_by(desc(ChargingSession.start_time)).all()
-    
-    # Get pricing
-    pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
-    price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50
-    
+        q = q.filter(ChargingSession.start_time <= end_dt)
+
     result = []
-    for s in sessions:
-        charger = db.query(Charger).filter(Charger.id == s.charger_id).first()
-        
-        duration_minutes = 0
+    for s, c in q.order_by(desc(ChargingSession.start_time)).all():
+        kwh, rate, energy_cost, idle_cost = _session_money(s, c)
+        ended = s.unplugged_at or s.stop_time
+
+        duration_minutes = 0.0
         if s.start_time and s.stop_time:
             duration_minutes = (s.stop_time - s.start_time).total_seconds() / 60
-        
-        amount = float(s.energy_consumed or 0) * price_per_kwh
-        
+
         result.append({
             "id": s.id,
             "transaction_id": s.transaction_id,
-            "charge_point_id": charger.charge_point_id if charger else "Unknown",
+            "charge_point_id": c.charge_point_id,
+            "tenant": s.tenant_at_start or c.tenant,
+            "location": _charger_address(c),
             "start_time": s.start_time.isoformat() if s.start_time else None,
             "stop_time": s.stop_time.isoformat() if s.stop_time else None,
+            "unplugged_at": s.unplugged_at.isoformat() if s.unplugged_at else None,
+            "end_time": ended.isoformat() if ended else None,
             "duration_minutes": round(duration_minutes, 1),
-            "energy_kwh": float(round(s.energy_consumed or 0, 2)),
-            "price_per_kwh": float(price_per_kwh),
-            "amount": float(round(amount, 2)),
+            "energy_kwh": float(round(kwh, 2)),
+            "price_per_kwh": rate,
+            "energy_cost": energy_cost,
+            "idle_minutes": int(s.idle_minutes or 0),
+            "idle_cost": idle_cost,
+            "amount": float(round(energy_cost + idle_cost, 2)),
+            "currency": "MYR",
             "status": s.status,
-            "user_id": s.user_id
+            "user_id": s.user_id,
         })
-    
+
     return result
 
 
@@ -8278,6 +9498,108 @@ async def analytics_page():
     return FileResponse(file_path, media_type="text/html")
 
 
+def _session_revenue_sql():
+    """What a session earned, as SQL: energy at its own rate, plus idle.
+
+    `tariff_per_kwh_at_start` is the rate frozen onto the session when it
+    began; it is NULL for anything before 2026-11-12, which falls back to the
+    charger's rate today. Callers must join Charger for that fallback to
+    resolve.
+    """
+    return (
+        func.coalesce(ChargingSession.energy_consumed, 0)
+        * func.coalesce(ChargingSession.tariff_per_kwh_at_start,
+                        Charger.tariff_per_kwh, 0)
+        + func.coalesce(ChargingSession.idle_fee_amount, 0)
+    )
+
+
+def _tenant_breakdown(db: Session, month_ago: datetime) -> List[dict]:
+    """The same figures as the overview, split by fleet.
+
+    Four grouped queries rather than a pass per tenant, and deliberately not
+    the per-charger loop this endpoint already does, which costs three
+    queries for each of 503 chargers.
+
+    Only what genuinely belongs to a fleet is split. Wallet top-ups and user
+    counts are platform-wide: a customer does not belong to a tenant, so
+    apportioning their balance across fleets would be an invention.
+    """
+    chargers = {
+        row[0]: row
+        for row in db.query(
+            Charger.tenant,
+            func.count(Charger.id),
+            func.coalesce(func.sum(case((Charger.status == "online", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Charger.availability == "faulted", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Charger.is_public.is_(True), 1), else_=0)), 0),
+        ).group_by(Charger.tenant).all()
+    }
+
+    sessions = {
+        row[0]: row
+        for row in db.query(
+            _session_tenant_sql(),
+            func.count(ChargingSession.id),
+            func.coalesce(func.sum(ChargingSession.energy_consumed), 0),
+            func.coalesce(func.sum(_session_revenue_sql()), 0),
+            func.coalesce(func.sum(case((ChargingSession.start_time >= month_ago, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((ChargingSession.start_time >= month_ago,
+                                         ChargingSession.energy_consumed), else_=0)), 0),
+            func.coalesce(func.sum(ChargingSession.idle_fee_amount), 0),
+        )
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .group_by(_session_tenant_sql()).all()
+    }
+
+    faults = dict(
+        db.query(Charger.tenant, func.count(Fault.id))
+        .join(Charger, Charger.id == Fault.charger_id)
+        .filter(Fault.cleared == False)  # noqa: E712
+        .group_by(Charger.tenant).all()
+    )
+
+    # The registry gives a label and an order. A charger may carry a tenant
+    # key that was never registered, which is deliberate, so fall back to the
+    # key itself rather than dropping the row and losing its sessions.
+    registry = {t.key: t for t in db.query(Tenant).all()}
+
+    out = []
+    for key in set(chargers) | set(sessions):
+        c = chargers.get(key)
+        s = sessions.get(key)
+        t = registry.get(key)
+        out.append({
+            "key": key,
+            "label": (t.label if t else None) or (key or "Unassigned"),
+            "badge": t.badge if t else None,
+            "registered": t is not None,
+            "chargers": {
+                "total": int(c[1]) if c else 0,
+                "online": int(c[2]) if c else 0,
+                "faulted": int(c[3]) if c else 0,
+                "published": int(c[4]) if c else 0,
+            },
+            "sessions": {
+                "total": int(s[1]) if s else 0,
+                "this_month": int(s[4]) if s else 0,
+            },
+            "energy": {
+                "total_kwh": round(float(s[2]), 2) if s else 0.0,
+                "this_month_kwh": round(float(s[5]), 2) if s else 0.0,
+            },
+            "revenue": {
+                "total": round(float(s[3]), 2) if s else 0.0,
+                "idle": round(float(s[6]), 2) if s else 0.0,
+            },
+            "active_faults": int(faults.get(key, 0)),
+        })
+
+    order = {k: (registry[k].sort_order if k in registry else 999) for k in registry}
+    out.sort(key=lambda r: (order.get(r["key"], 999), -r["revenue"]["total"], r["label"]))
+    return out
+
+
 @app.get("/api/analytics/overview")
 async def analytics_overview(
     db: Session = Depends(get_db),
@@ -8511,10 +9833,34 @@ async def analytics_overview(
     # ── PRICING ──
     pricing = db.query(Pricing).filter(Pricing.is_active == True).first()
     price_per_kwh = float(pricing.price_per_kwh) if pricing else 0.50
-    charging_revenue = round(total_energy * price_per_kwh, 2)
+
+    # Charging revenue used to be total_energy * price_per_kwh, and the
+    # pricing table has never had a row, so every kWh on the platform was
+    # valued at the RM0.50 fallback. DC3001 sells at RM1.40 and the Proton
+    # and Perodua fleets at RM0.10, so the figure was wrong in both
+    # directions at once, and idle fees were left out altogether. All-time it
+    # read RM1,135 against RM3,938 actually billed.
+    #
+    # _session_revenue_sql values each session at the rate it was sold at,
+    # preferring the rate frozen onto the session over the charger's rate
+    # today, so a later price change cannot rewrite history. Refunds are not
+    # deducted: there are none, and a refund belongs against the month it was
+    # issued rather than the month of the session.
+    charging_revenue = round(float(
+        db.query(func.coalesce(func.sum(_session_revenue_sql()), 0))
+        .join(Charger, Charger.id == ChargingSession.charger_id)
+        .scalar() or 0
+    ), 2)
+
+    # ── PER TENANT ──
+    tenants_breakdown = _tenant_breakdown(db, month_ago)
 
     return {
         "generated_at": now.isoformat(),
+        # Per fleet, before the platform-wide figures below. Only chargers,
+        # sessions, energy, revenue and faults are split; top-ups and users
+        # have no tenant to belong to.
+        "tenants": tenants_breakdown,
         "revenue": {
             "total": round(total_revenue_all, 2),
             "this_month": round(revenue_this_month, 2),
@@ -8979,13 +10325,13 @@ async def _fallback_close_if_charger_silent(session_id: int, charger_id: str, de
                 tariff = float(charger.tariff_per_kwh or 0.10)
                 kwh = float(sess.energy_consumed or 0)
                 energy_cost = round(kwh * tariff, 2)
-                idle_min = 0
-                idle_fee = 0.0
-                if sess.idle_started_at and sess.stop_time:
-                    elapsed = (sess.stop_time - sess.idle_started_at).total_seconds() / 60.0
-                    past_grace = max(0.0, elapsed - float(charger.idle_grace_minutes or 0))
-                    idle_min = int(past_grace)
-                    idle_fee = round(idle_min * float(charger.idle_fee_per_min or 0), 2)
+                # This path is a stop requested from the app, so the cable is
+                # almost certainly still in. Start the clock here if the
+                # connector never reported Suspended/Finishing, and accrue to
+                # the unplug rather than to stop_time, which is now.
+                if not sess.idle_started_at:
+                    sess.idle_started_at = sess.stop_time
+                idle_min, idle_fee = idle_billing.compute_idle(sess, charger)
                 hold = float(sess.hold_amount_rm)
                 total = min(hold, energy_cost + idle_fee)
                 refund = round(hold - total, 2)

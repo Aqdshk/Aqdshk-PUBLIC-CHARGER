@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=13">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=1"></script>
+    <script src="/static/tenant.js?v=3"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* ===== Fluid Analytics Grids ===== */
@@ -52,6 +52,40 @@
         .big-stat .stat-change.up { color: #00ff88; }
         .big-stat .stat-change.down { color: #ff4466; }
         .big-stat .stat-change.neutral { color: var(--text-muted); }
+
+        /* ===== Per-fleet table ===== */
+        .tenant-table {
+            width: 100%; border-collapse: collapse;
+            font-size: clamp(9px, 0.62vw, 12px);
+        }
+        .tenant-table th {
+            text-align: right; padding: clamp(5px, 0.45vw, 9px) clamp(6px, 0.5vw, 11px);
+            color: var(--text-muted); font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.6px;
+            font-size: clamp(7px, 0.46vw, 9px);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        .tenant-table td {
+            text-align: right; padding: clamp(5px, 0.45vw, 9px) clamp(6px, 0.5vw, 11px);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        .tenant-table th:first-child,
+        .tenant-table td:first-child { text-align: left; }
+        .tenant-table tbody tr:hover { background: rgba(255,255,255,.03); }
+        .tenant-table .fleet { font-weight: 700; }
+        .tenant-table .badge {
+            display: inline-block; margin-left: 6px; padding: 1px 6px;
+            border-radius: 999px; background: rgba(0,255,136,.12);
+            color: #00ff88; font-size: .85em; font-weight: 700;
+        }
+        .tenant-table .money { color: #00ff88; font-weight: 700; }
+        .tenant-table .muted { color: var(--text-muted); }
+        .tenant-table .warn  { color: #ff4466; font-weight: 700; }
+        /* The total row proves the split adds up to the figure below it. */
+        .tenant-table tfoot td {
+            border-top: 2px solid var(--border); border-bottom: none;
+            font-weight: 800;
+        }
 
         /* ===== Chart Cards — compact ===== */
         .chart-card {
@@ -169,27 +203,28 @@
         <div class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Main Menu</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
-                <a href="/analytics" class="nav-item active"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
-                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
-                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
-                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
-                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
-                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
-                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+                <a href="/" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item active"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a6 6 0 0 1-12 0V8Z"/></svg></span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8"/><path d="M8 16h5"/></svg></span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg></span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8"/><path d="M8 17h6"/></svg></span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg></span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg></span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg></span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg></span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
                 <div class="nav-section-title">Administration</div>
-                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
-                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
-                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v14"/></svg></span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg></span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin?tab=vendors" class="nav-item" onclick="localStorage.setItem('adminTab','vendors')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg></span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </div>
         <div class="sidebar-footer">
-            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"/></svg></span><span class="nav-item-text">API Docs</span></a>
         </div>
     </nav>
 
@@ -210,7 +245,15 @@
 
         <div id="analyticsContent" class="dashboard-container fade-in" style="display:none;">
 
+            <!-- Per fleet first, platform totals after. Only what belongs to
+                 a fleet is split here: top-ups and users have no tenant. -->
+            <div class="section-title">🏢 By Fleet</div>
+            <div class="chart-card" style="padding:0;overflow-x:auto;">
+                <table class="tenant-table" id="tenantTable"></table>
+            </div>
+
             <!-- KPI Stats -->
+            <div class="section-title">🌐 Whole Platform</div>
             <div class="analytics-grid" id="kpiGrid"></div>
 
             <!-- Revenue & Sessions Charts -->
@@ -344,6 +387,7 @@
                 const overview = await overviewRes.json();
                 const insightsData = await insightsRes.json();
 
+                renderTenants(overview.tenants);
                 renderKPIs(overview);
                 renderCharts(overview);
                 renderFinancials(overview);
@@ -356,6 +400,55 @@
                 console.error('Error loading analytics:', err);
                 document.getElementById('loadingState').innerHTML = '<div style="text-align:center;color:#ff4466;"><p>Failed to load analytics</p><button onclick="loadData()" style="margin-top:10px;padding:8px 20px;background:#00ff88;color:#000;border:none;border-radius:8px;cursor:pointer;">Retry</button></div>';
             }
+        }
+
+        // Per-fleet breakdown. The totals row is not decoration: it adds the
+        // columns up so the split can be checked against the platform figures
+        // immediately below it.
+        function renderTenants(rows) {
+            const table = document.getElementById('tenantTable');
+            if (!rows || !rows.length) {
+                table.innerHTML = '<tbody><tr><td class="muted" style="padding:14px;">No fleets to show</td></tr></tbody>';
+                return;
+            }
+            const rm = n => 'RM ' + (n || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const num = n => (n || 0).toLocaleString('en-MY');
+            const kwh = n => (n || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const sum = f => rows.reduce((a, r) => a + f(r), 0);
+
+            const head = `<thead><tr>
+                <th>Fleet</th><th>Chargers</th><th>Online</th><th>Published</th>
+                <th>Sessions</th><th>This month</th>
+                <th>Energy kWh</th><th>Idle RM</th><th>Revenue</th><th>Faults</th>
+            </tr></thead>`;
+
+            const body = rows.map(r => `<tr>
+                <td class="fleet">${r.label}${r.badge ? `<span class="badge">${r.badge}</span>` : ''}${r.registered ? '' : '<span class="badge" style="background:rgba(255,68,102,.12);color:#ff4466;">unregistered</span>'}</td>
+                <td>${num(r.chargers.total)}</td>
+                <td class="${r.chargers.online ? '' : 'muted'}">${num(r.chargers.online)}</td>
+                <td class="${r.chargers.published ? '' : 'muted'}">${num(r.chargers.published)}</td>
+                <td>${num(r.sessions.total)}</td>
+                <td class="${r.sessions.this_month ? '' : 'muted'}">${num(r.sessions.this_month)}</td>
+                <td>${kwh(r.energy.total_kwh)}</td>
+                <td class="${r.revenue.idle ? '' : 'muted'}">${kwh(r.revenue.idle)}</td>
+                <td class="money">${rm(r.revenue.total)}</td>
+                <td class="${r.active_faults ? 'warn' : 'muted'}">${num(r.active_faults)}</td>
+            </tr>`).join('');
+
+            const foot = `<tfoot><tr>
+                <td>All fleets</td>
+                <td>${num(sum(r => r.chargers.total))}</td>
+                <td>${num(sum(r => r.chargers.online))}</td>
+                <td>${num(sum(r => r.chargers.published))}</td>
+                <td>${num(sum(r => r.sessions.total))}</td>
+                <td>${num(sum(r => r.sessions.this_month))}</td>
+                <td>${kwh(sum(r => r.energy.total_kwh))}</td>
+                <td>${kwh(sum(r => r.revenue.idle))}</td>
+                <td class="money">${rm(sum(r => r.revenue.total))}</td>
+                <td>${num(sum(r => r.active_faults))}</td>
+            </tr></tfoot>`;
+
+            table.innerHTML = head + '<tbody>' + body + '</tbody>' + foot;
         }
 
         function renderKPIs(d) {

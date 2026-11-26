@@ -3,12 +3,16 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -104,6 +108,9 @@ class _HistoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

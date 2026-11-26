@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Car silhouette with a battery pack that fills to the vehicle's state of
 /// charge, drawn rather than imported so the artwork is ours.
@@ -113,6 +115,9 @@ class _ChargingBatteryCarState extends State<ChargingBatteryCar>
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final target = (widget.soc ?? 0).clamp(0, 100).toDouble();
     final hasSoc = widget.soc != null;
 

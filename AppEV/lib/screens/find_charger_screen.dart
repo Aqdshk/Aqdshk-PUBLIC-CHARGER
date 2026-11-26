@@ -8,6 +8,7 @@ import '../providers/session_provider.dart';
 import '../constants/app_colors.dart';
 import 'live_charging_screen.dart';
 import 'dart:ui';
+import '../providers/theme_provider.dart';
 
 class FindChargerScreen extends StatefulWidget {
   const FindChargerScreen({super.key});
@@ -227,6 +228,9 @@ class _FindChargerScreenState extends State<FindChargerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       body: !_locationLoaded

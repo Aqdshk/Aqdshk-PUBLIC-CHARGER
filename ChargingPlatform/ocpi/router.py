@@ -6,12 +6,15 @@ import asyncio
 import logging
 import os
 import secrets
-from urllib.parse import quote
-from datetime import datetime, timedelta
+from urllib.parse import quote, urlsplit
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from sqlalchemy import func
+from sqlalchemy.orm import Session, object_session
+
+import idle_billing
 
 from database import (
     Charger, ChargingSession, MeterValue, OcpiPartner, Pricing, SessionLocal, get_db,
@@ -38,6 +41,25 @@ router = APIRouter(prefix="/ocpi", tags=["OCPI 2.2.1"])
 # does not pull a real charge point off the map, short enough that units which
 # have genuinely gone away disappear. Override with OCPI_PUBLISH_MAX_AGE_DAYS.
 _PUBLISH_MAX_AGE_DAYS = int(os.getenv("OCPI_PUBLISH_MAX_AGE_DAYS", "7"))
+
+# Which tenants may ever reach a roaming partner. `tenant` says which of our
+# apps drives a charger: perodua, hicom and proton are other companies' fleets
+# and their home units, driven through their own PWAs, and none of them is ours
+# to advertise. On 2026-10-07 three Proton home chargers were being published
+# to Voltality as public charge points, and 471 Perodua units were one
+# heartbeat away from joining them.
+#
+# `mini` was in this list until 2026-11-18 and published nothing: its one
+# charger is not flagged. Aqid asked for czero-tng alone, which is what the
+# dashboard already implied, and a list that admits a tenant nobody means to
+# publish is a door left open rather than a feature. The Mini PWA is
+# unaffected; this set is read only by _publishable, which only the OCPI
+# endpoints call.
+_PUBLISHABLE_TENANTS = {
+    t.strip()
+    for t in os.getenv("OCPI_PUBLISHABLE_TENANTS", "czero-tng").split(",")
+    if t.strip()
+}
 
 
 # OCPP connector state → OCPI 2.2.1 EVSE status.
@@ -102,7 +124,7 @@ def _tariff_id(charger) -> str:
     return f"TARIFF-{charger.charge_point_id}"
 
 
-def _build_tariff(charger, now: str) -> dict:
+def _build_tariff(charger, now: str, sess=None) -> dict:
     """The OCPI tariff for one charger, from its own rate and idle settings.
 
     The tariffs endpoint used to read a `Pricing` table that is empty, so it
@@ -112,33 +134,78 @@ def _build_tariff(charger, now: str) -> dict:
 
     Note the unit change: OCPI prices PARKING_TIME per hour, while we
     configure it per minute, so the rate is multiplied by 60. step_size 60
-    keeps it billed in whole minutes, and the grace period becomes a
-    min_duration restriction in seconds — free until it elapses, charged
-    after.
+    keeps it billed in whole minutes.
+
+    The grace period is published as an element of its own, priced at zero and
+    bounded by max_duration, with the charged element starting where it ends.
+    It used to be implied by a lone min_duration on the charged element, which
+    meant a partner had to be told out of band what that number stood for.
+    Voltality objected on 2026-10-13: a grace period we change here would need
+    a message to them before their billing matched ours again. Spelling the
+    free window out as a priced element removes that coupling, because the
+    tariff then says what it costs during those seconds rather than leaving it
+    to be inferred.
     """
+    tariff_id = _tariff_id(charger)
+    # With a session, the rates it froze at its start; the tariffs endpoint
+    # passes none and gets today's, which is what a tariff on its own means.
+    charger = idle_billing.priced(sess, charger)
     energy_rate = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
     elements = [
         {
             "price_components": [
-                {"type": "ENERGY", "price": round(energy_rate, 4), "step_size": 1}
+                {"type": "ENERGY", "price": round(energy_rate, 4),
+                 "vat": _vat_percent(), "step_size": 1}
             ]
         }
     ]
 
-    if getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min:
-        per_hour = round(float(charger.idle_fee_per_min) * 60, 4)
-        grace_seconds = int(charger.idle_grace_minutes or 0) * 60
-        element = {
+    if not (getattr(charger, "idle_fee_enabled", False) and charger.idle_fee_per_min):
+        # Parking is free here, and the tariff has to say so rather than stay
+        # silent. We still report how long the EV sat without charging, so a
+        # tariff carrying no PARKING_TIME at all leaves a partner holding a
+        # duration they cannot put a price against. That is the same fault
+        # Voltality raised on session 528: a CDR must be provable from its own
+        # contents. Absence used to be our way of saying "do not bill
+        # parking"; zero says it and can be checked.
+        elements.append({
             "price_components": [
-                {"type": "PARKING_TIME", "price": per_hour, "step_size": 60}
-            ]
-        }
+                {"type": "PARKING_TIME", "price": 0.0,
+                 "vat": _vat_percent(),
+                 "step_size": idle_billing.PARKING_STEP_SECONDS}
+            ],
+        })
+    else:
+        per_hour = idle_billing.rate_per_hour(charger)
+        # The free window the biller uses, quoted exactly. Advertising one
+        # boundary and billing another is a dispute waiting to happen.
+        grace_seconds = idle_billing.free_seconds(charger)
+        step = idle_billing.PARKING_STEP_SECONDS
+
         if grace_seconds:
-            element["restrictions"] = {"min_duration": grace_seconds}
-        elements.append(element)
+            # The free window, stated rather than implied.
+            elements.append({
+                "price_components": [
+                    {"type": "PARKING_TIME", "price": 0.0,
+                     "vat": _vat_percent(), "step_size": step}
+                ],
+                "restrictions": {"min_duration": 0, "max_duration": grace_seconds},
+            })
+
+        # What is charged once the free window has passed. Same block size the
+        # CDR bills with: advertising one and billing another is a dispute
+        # waiting to happen.
+        charged = {
+            "price_components": [
+                {"type": "PARKING_TIME", "price": per_hour,
+                 "vat": _vat_percent(), "step_size": step}
+            ],
+            "restrictions": {"min_duration": grace_seconds},
+        }
+        elements.append(charged)
 
     return {
-        "id": _tariff_id(charger),
+        "id": tariff_id,
         "currency": "MYR",
         "country_code": os.getenv("OCPI_COUNTRY_CODE", "MY"),
         "party_id": os.getenv("OCPI_PARTY_ID", "PLG"),
@@ -159,6 +226,18 @@ _CONNECTOR_STANDARDS = {
     "type 1": ("IEC_62196_T1", "CABLE", "AC"),
     "type1": ("IEC_62196_T1", "CABLE", "AC"),
 }
+
+
+def _terms_url() -> Optional[str]:
+    """Where our terms and conditions live, or None if none is published.
+
+    Opt-in on purpose, and unset until 2026-11-16 because the page still had
+    blanks in it: advertising a half-written legal document to a roaming
+    partner is worse than advertising none. The blanks are gone, so
+    docker-compose.prod.yml now points this at /terms and every connector
+    carries the link.
+    """
+    return os.getenv("OCPI_TERMS_URL", "").strip() or None
 
 
 def _connector_spec(charger):
@@ -218,10 +297,19 @@ async def _attach_auth_reference(
     The wait is awaited rather than slept through: this runs inside the OCPP
     connection's event loop, and a blocking sleep here would stall every other
     charger on the process for the duration.
+
+    Ninety seconds, not ten. On 2026-11-25, Voltality's first live start on
+    DC3001 took twenty seconds from our RemoteStart to the charger's
+    StartTransaction: command at 08:08:59, charging at 08:09:04,
+    StartTransaction at 08:09:19. This gave up at 08:09:12, seven seconds
+    early, and the charge the partner had asked for ran as an anonymous
+    session they could not see or be billed for. A DC charger has to talk to
+    the car before it opens a transaction, so ten seconds was never enough
+    for real hardware; the simulator answered instantly and hid it.
     """
     from database import SessionLocal as _SL
 
-    for _ in range(10):
+    for _ in range(90):
         db = _SL()
         try:
             sess = (
@@ -318,13 +406,18 @@ def _build_evses(charger, loc_id: str, country: str, party_id: str, now: str) ->
                         standard=_std,
                         format=_fmt,
                         power_type=_ptype,
-                        voltage=_volt,
-                        amperage=_amp,
+                        max_voltage=_volt,
+                        max_amperage=_amp,
                         max_electric_power=_maxw,
                         # Without this an eMSP has no way to know what the
                         # connector costs — Voltality reported every connector
                         # arriving with no tariff attached.
                         tariff_ids=[_tariff_id(charger)],
+                        # OCPI carries the operator's terms on the connector,
+                        # so a partner can link them from their own app without
+                        # us agreeing a URL out of band. Voltality asked for it
+                        # on 2026-10-07.
+                        terms_and_conditions=_terms_url(),
                         last_updated=now,
                     )
                 ],
@@ -339,24 +432,44 @@ def _publishable(query, cutoff: Optional[datetime] = None):
 
     A roaming partner republishes whatever we hand them straight to drivers,
     so anything listed here has to be a charge point someone could actually
-    drive to. The chargers table does not clear itself — it holds every unit
-    that ever connected, including hundreds that reported once months ago —
-    so publication is opt-out by staleness, with explicit operator overrides:
+    drive to, and one that is ours to advertise.
 
-        is_public = True   → always published, even while offline
-        is_public = False  → never published
-        is_public = NULL   → published only if seen within the age window
+    Publication is opt-in on two independent conditions, and both must hold:
+
+        is_public = True        → somebody deliberately published it
+        tenant in the allow-list → it is one of ours to publish
+
+    It used to be opt-out by staleness: any charger that had sent a heartbeat
+    inside the window and carried no explicit flag was advertised. That is
+    backwards for data a partner shows to drivers. Every charger we installed
+    joined the public map by itself, which is how three Proton home chargers
+    came to be advertised to Voltality, and how 471 Perodua units sat one
+    heartbeat away from the same thing.
+
+    A flagged charger stays published while it is offline, which is what the
+    flag has always meant. Dropping it on silence would have pulled Voltality's
+    test charger off the map mid-integration every time it was powered down
+    overnight. Taking a charge point out of service is an explicit act: clear
+    the flag.
     """
-    if cutoff is None:
-        cutoff = datetime.utcnow() - timedelta(days=_PUBLISH_MAX_AGE_DAYS)
+    del cutoff  # retained for callers; publication no longer expires on silence
     return query.filter(
-        (Charger.is_public.is_(True))
-        | (
-            Charger.is_public.is_(None)
-            & Charger.last_heartbeat.isnot(None)
-            & (Charger.last_heartbeat >= cutoff)
-        )
+        Charger.is_public.is_(True),
+        Charger.tenant.in_(_PUBLISHABLE_TENANTS),
     )
+
+
+def publishes(charger) -> bool:
+    """Whether a roaming partner can see this charger, for one instance.
+
+    The same rule as _publishable, which answers it for a query. The
+    dashboard used to decide this for itself in JavaScript and still had the
+    pre-2026-10 rule, so a charger with a recent heartbeat and no flag was
+    shown as "Published (auto)" when it had not been published for weeks.
+    A rule worth getting right is worth having in one place.
+    """
+    return bool(getattr(charger, "is_public", None) is True
+                and getattr(charger, "tenant", None) in _PUBLISHABLE_TENANTS)
 
 
 def _get_base_url(request: Request) -> str:
@@ -440,6 +553,70 @@ def _ocpi_auth(authorization: Optional[str] = Header(None)):
     raise HTTPException(status_code=403, detail="Invalid OCPI token")
 
 
+def _exclude_held_cdrs(q):
+    """Drop sessions whose CDR is not issuable yet, in SQL.
+
+    The builder refuses to emit a held CDR, but X-Total-Count is taken from the
+    query. Filtering only in the builder made the header promise rows the body
+    did not contain, so a partner paging on X-Total-Count would never reach the
+    end.
+    """
+    cutoff = idle_billing.now_myt() - timedelta(minutes=idle_billing.hold_cap_minutes())
+    return q.filter(
+        _cdr_settled_sql()
+        | (ChargingSession.stop_time <= cutoff)
+    )
+
+
+def _cdr_settled_sql():
+    """The unplug that releases a CDR, as a SQL predicate.
+
+    An interrupted session does not qualify, although the watchdog stamps
+    unplugged_at on it. That stamp means "nobody is going to report this cable
+    coming out", not that the session is final: a meter value arriving after
+    the stop reopens it, because some chargers send BootNotification on a mere
+    network blip with the transaction still running. Issuing the CDR the moment
+    the watchdog fired would hand a partner a final bill for a charge that then
+    carried on. The hold cap in the caller releases it instead, by which time
+    the charger has either come back and resumed or it has not.
+    """
+    return ChargingSession.unplugged_at.isnot(None) & (
+        ChargingSession.status != "interrupted"
+    )
+
+
+def _cdr_is_held(sess, now: Optional[datetime] = None) -> bool:
+    """Whether this session's CDR is still being withheld. Mirrors the SQL."""
+    if sess.status != "interrupted":
+        return idle_billing.awaiting_unplug(sess, getattr(sess, "charger", None))
+    # The hold exists so a bill is not issued for a charge that then carried
+    # on. A session that owes nothing has no bill to issue, so there is
+    # nothing to hold back and it is final the moment the watchdog closes it.
+    # Rule B of the watchdog closes sessions that never started at all, and
+    # leaving those pending for three hours would report them ACTIVE long
+    # after everyone involved had gone home.
+    if _session_cost(sess) <= 0:
+        return False
+    if not sess.stop_time:
+        return True
+    now = now or idle_billing.now_myt()
+    return now < sess.stop_time + timedelta(minutes=idle_billing.hold_cap_minutes())
+
+
+def _exclude_invalid_cdrs(q):
+    """Drop sessions that delivered nothing, in SQL.
+
+    Same reason the hold is expressed in SQL: X-Total-Count comes from the
+    query, so filtering only in the builder makes the header promise rows the
+    body does not carry.
+    """
+    return q.filter(
+        (ChargingSession.energy_consumed.isnot(None)
+         & (ChargingSession.energy_consumed > 0))
+        | (ChargingSession.idle_minutes > 0)
+    )
+
+
 def _scope_to_caller(q, caller):
     """Restrict a ChargingSession query to what this caller may see.
 
@@ -454,12 +631,53 @@ def _scope_to_caller(q, caller):
 
 
 def _to_ocpi_datetime(dt) -> str:
-    """Convert datetime to OCPI ISO format."""
+    """Format a UTC datetime the way OCPI wants it.
+
+    Only for values that are already UTC. Session and meter columns are not:
+    see _session_time.
+    """
     if dt is None:
         return ""
     if hasattr(dt, "strftime"):
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     return str(dt)
+
+
+def _session_time(dt) -> str:
+    """Publish a session-clock timestamp as the UTC instant it actually was.
+
+    Sessions and meter values are stored as Malaysia wall time, naive, because
+    that is the basis the OCPP handlers and every report use. We published them
+    with a Z suffix, which asserts UTC, so every timestamp a roaming partner
+    received was eight hours ahead of the truth: a charge at 19:30 local was
+    published as 19:30Z, which is 03:30 the next morning in Malaysia.
+
+    Durations and costs were never affected, because both ends of a session
+    shared the same wrong basis. Absolute times were, and a partner
+    reconciling against its own records or showing a receipt to a driver sees
+    the difference.
+    """
+    if dt is None:
+        return ""
+    if not hasattr(dt, "strftime"):
+        return str(dt)
+    return (dt - _MYT_OFFSET).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _session_filter_time(value: str):
+    """Read a partner's UTC filter bound into the session clock.
+
+    The mirror of _session_time. date_from and date_to arrive as UTC and were
+    compared straight against Malaysia wall time, so a partner asking for
+    today's sessions got a window eight hours out of step with the rows.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed + _MYT_OFFSET
+
+
+_MYT_OFFSET = timedelta(hours=8)
 
 
 # ============ Versions ============
@@ -490,8 +708,11 @@ async def get_version_details(request: Request):
         VersionEndpoint(identifier="tariffs", role="SENDER", url=f"{base}/ocpi/2.2.1/tariffs"),
         # Receiver = eMSP pushes/calls us. Commands are remote-control requests.
         VersionEndpoint(identifier="commands", role="RECEIVER", url=f"{base}/ocpi/2.2.1/commands"),
+        # tariff_groups, taxes and roaming_operators are ours, not OCPI 2.2.1
+        # modules. Advertising them as if they were sent partners looking for a
+        # spec definition that does not exist; the routes stay for anyone
+        # already calling them, but we no longer claim them here.
         VersionEndpoint(identifier="tariff_groups", role="SENDER", url=f"{base}/ocpi/2.2.1/tariff_groups"),
-        VersionEndpoint(identifier="taxes", role="SENDER", url=f"{base}/ocpi/2.2.1/taxes"),
         VersionEndpoint(identifier="roaming_operators", role="SENDER", url=f"{base}/ocpi/2.2.1/roaming_operators"),
     ]
     return {
@@ -505,9 +726,167 @@ async def get_version_details(request: Request):
     }
 
 
+# ============ Pagination ============
+# Every list endpoint used to accept an uncapped `limit` and answer without a
+# single pagination header, so a partner had no way to tell a full page from
+# the end of the data and one request could ask for the whole table.
+_DEFAULT_PAGE_SIZE = 100
+_MAX_PAGE_SIZE = 1000
+
+
+def _page_size(limit: Optional[int]) -> int:
+    """The page size we will actually serve, capped.
+
+    OCPI lets the server reduce a client's requested limit as long as it says
+    so in X-Limit, which is what the caller then has to honour.
+    """
+    try:
+        cap = int(os.getenv("OCPI_MAX_PAGE_SIZE", _MAX_PAGE_SIZE))
+    except ValueError:
+        cap = _MAX_PAGE_SIZE
+    if not limit or limit <= 0:
+        return min(_DEFAULT_PAGE_SIZE, cap)
+    return min(int(limit), cap)
+
+
+def _set_pagination(response: Response, request: Optional[Request],
+                    total: int, offset: int, limit: int) -> None:
+    """X-Total-Count, X-Limit and a rel="next" Link while pages remain."""
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Limit"] = str(limit)
+    nxt = offset + limit
+    if request is not None and nxt < total:
+        # Built from the advertised base, not from request.url. Behind nginx
+        # the app sees plain http, so the link went out as http while every
+        # other URL we publish is https. That redirects, and an HTTP client
+        # that drops the Authorization header across the redirect gets a 401
+        # on the second page of a result set it was already authorised for.
+        parts = urlsplit(str(request.url.include_query_params(offset=nxt, limit=limit)))
+        url = f"{_get_base_url(request)}{parts.path}"
+        if parts.query:
+            url = f"{url}?{parts.query}"
+        response.headers["Link"] = f'<{url}>; rel="next"'
+
+
 # ============ Locations ============
 def _ocpi_now() -> str:
     return _to_ocpi_datetime(datetime.utcnow())
+
+
+def _country_alpha3() -> str:
+    """ISO 3166-1 alpha-3, which is what Location.country takes.
+
+    Not the same field as country_code, which is alpha-2 and identifies the CPO
+    that owns the location. We were putting the alpha-2 value in both, so every
+    location went out as country "MY" where the spec wants "MYS".
+    """
+    return os.getenv("OCPI_COUNTRY_ALPHA3", "MYS")
+
+
+def _coord(value) -> str:
+    """A GeoLocation coordinate: a decimal-degree string, not a number.
+
+    OCPI types latitude and longitude as string(10)/string(11) matching a
+    decimal-degree pattern, and calls five decimal places the minimum for
+    roughly one metre of precision. We were emitting raw floats, so a partner
+    validating against the regex rejected every location.
+    """
+    return f"{float(value):.6f}"
+
+
+def _location_fields(charger) -> tuple:
+    """Address and coordinates for a charger, from its own row.
+
+    The chargers table has carried `location`, `latitude` and `longitude`ity
+    all along, filled in from the dashboard. The OCPI builders ignored them and
+    published one hardcoded address at one hardcoded coordinate for every
+    charge point, so DC3001 went out as "Your Charging Station Address" in the
+    middle of Kuala Lumpur while its row said Seksyen 15, Shah Alam. A driver
+    navigating from a partner app was sent 25km to the wrong place.
+
+    City and postcode were the last parts still coming from the environment,
+    which is one value for the whole platform. DC3001 sits in Shah Alam with
+    correct coordinates and was published as Kuala Lumpur 50000, so the text
+    contradicted the pin. They are per charger now, editable beside the
+    address in the dashboard.
+
+    The environment values stay as the fallback for a charger nobody has
+    filled in yet.
+    """
+    address = (getattr(charger, "location", None) or "").strip()
+    if not address:
+        address = os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station")
+
+    city = (getattr(charger, "city", None) or "").strip()
+    if not city:
+        city = os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur")
+
+    postal = (getattr(charger, "postal_code", None) or "").strip()
+    if not postal:
+        postal = os.getenv("OCPI_LOCATION_POSTAL", "50000")
+
+    lat = getattr(charger, "latitude", None)
+    lon = getattr(charger, "longitude", None)
+    # Both or neither: half a coordinate pair would place the charger on a
+    # meridian somewhere rather than admit we do not know.
+    if lat is None or lon is None:
+        lat = float(os.getenv("OCPI_LOCATION_LAT", "3.1390"))
+        lon = float(os.getenv("OCPI_LOCATION_LON", "101.6869"))
+
+    return (
+        address,
+        city,
+        postal,
+        {"latitude": _coord(lat), "longitude": _coord(lon)},
+    )
+
+
+def _utc_filter_time(value: str):
+    """A partner's filter bound as naive UTC.
+
+    For columns that are already UTC. _session_filter_time is its counterpart
+    for the session clock, which is Malaysia wall time.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _charger_changed_at(charger) -> str:
+    """When this charger last changed, as OCPI should see it.
+
+    The same value date_from selects on. These used to be stamped with the
+    current time at render, so every Location and Tariff claimed to have
+    changed the instant it was read, and a partner filtering on last_updated
+    could not tell what had actually moved.
+    """
+    # Already UTC: the chargers table keeps UTC throughout, unlike sessions.
+    # Converting it as though it were Malaysia time is what put DC3001 eight
+    # hours in the past on 2026-10-09.
+    stamped = getattr(charger, "last_updated", None) or getattr(charger, "last_heartbeat", None)
+    return _to_ocpi_datetime(stamped) if stamped else _ocpi_now()
+
+
+def _filter_by_changed(q, date_from: Optional[str], date_to: Optional[str]):
+    """Apply OCPI's date_from / date_to to a Charger query.
+
+    Locations and Tariffs are both built from chargers, and OCPI filters both
+    on last_updated the same way it filters sessions. Neither accepted the
+    parameters at all, so a partner asking for what had changed received the
+    whole list every time.
+    """
+    if date_from:
+        try:
+            q = q.filter(Charger.last_updated >= _utc_filter_time(date_from))
+        except Exception:
+            pass
+    if date_to:
+        try:
+            q = q.filter(Charger.last_updated < _utc_filter_time(date_to))
+        except Exception:
+            pass
+    return q
 
 
 def _build_location_dict(charger) -> dict:
@@ -519,22 +898,19 @@ def _build_location_dict(charger) -> dict:
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _ocpi_now()
+    now = _charger_changed_at(charger)
+    _addr, _city, _postal, _coords = _location_fields(charger)
     return Location(
         country_code=country,
         party_id=party_id,
         id=loc_id,
         publish=True,
-        type="OTHER",
         name=charger.charge_point_id,
-        address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-        city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
-        country=country,
-        coordinates={
-            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-        },
+        address=_addr,
+        city=_city,
+        postal_code=_postal,
+        country=_country_alpha3(),
+        coordinates=_coords,
         evses=_build_evses(charger, loc_id, country, party_id, now),
         time_zone="Asia/Kuala_Lumpur",
         last_updated=now,
@@ -544,18 +920,21 @@ def _build_location_dict(charger) -> dict:
 @router.get("/2.2.1/locations", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_locations(
     request: Request,
+    response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Get list of charging locations (from chargers)."""
-    chargers = (
-        _publishable(db.query(Charger))
-        .order_by(Charger.id)
-        .offset(offset)
-        .limit(limit or 100)
-        .all()
-    )
+    q = _filter_by_changed(
+        _publishable(db.query(Charger)), date_from, date_to
+    ).order_by(Charger.id)
+    total = q.count()
+    page = _page_size(limit)
+    chargers = q.offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
 
@@ -604,23 +983,20 @@ async def get_location(
     country = os.getenv("OCPI_COUNTRY_CODE", "MY")
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
-    now = _to_ocpi_datetime(datetime.utcnow())
+    now = _charger_changed_at(charger)
     evses = _build_evses(charger, loc_id, country, party_id, now)
+    _addr, _city, _postal, _coords = _location_fields(charger)
     loc = Location(
         country_code=country,
         party_id=party_id,
         id=loc_id,
         publish=True,
-        type="OTHER",
         name=charger.charge_point_id,
-        address=os.getenv("OCPI_LOCATION_ADDRESS", "Charging Station"),
-        city=os.getenv("OCPI_LOCATION_CITY", "Kuala Lumpur"),
-        postal_code=os.getenv("OCPI_LOCATION_POSTAL", "50000"),
-        country=country,
-        coordinates={
-            "latitude": float(os.getenv("OCPI_LOCATION_LAT", "3.1390")),
-            "longitude": float(os.getenv("OCPI_LOCATION_LON", "101.6869")),
-        },
+        address=_addr,
+        city=_city,
+        postal_code=_postal,
+        country=_country_alpha3(),
+        coordinates=_coords,
         evses=evses,
         time_zone="Asia/Kuala_Lumpur",
         last_updated=now,
@@ -633,8 +1009,234 @@ async def get_location(
     }
 
 
+
+def _charger_from_location_id(db, location_id: str):
+    """The charger a location id refers to, or None if it is not publishable."""
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    prefix = f"{country}{party_id}-"
+    cp_id = location_id[len(prefix):] if location_id.startswith(prefix) else location_id
+    return (
+        _publishable(db.query(Charger))
+        .filter(Charger.charge_point_id == cp_id)
+        .first()
+    )
+
+
+def _ocpi_not_found(message: str) -> dict:
+    return {
+        "status_code": 2003,
+        "status_message": message,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "data": None,
+    }
+
+
+# The Locations sender interface is four endpoints, not two. Only the list and
+# the single location existed, so a partner asking for one EVSE or one
+# connector got a 404 from the router rather than an OCPI response.
+@router.get("/2.2.1/locations/{location_id}/{evse_uid}", response_model=dict,
+            dependencies=[Depends(_ocpi_auth)])
+async def get_evse(location_id: str, evse_uid: str, db: Session = Depends(get_db)):
+    """One EVSE of one location."""
+    charger = _charger_from_location_id(db, location_id)
+    if not charger:
+        return _ocpi_not_found("Unknown location")
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    now = _charger_changed_at(charger)
+    for evse in _build_evses(charger, loc_id, country, party_id, now):
+        data = evse.model_dump() if hasattr(evse, "model_dump") else evse
+        if data.get("uid") == evse_uid:
+            return {
+                "status_code": 1000,
+                "status_message": "Success",
+                "timestamp": now,
+                "data": data,
+            }
+    return _ocpi_not_found("Unknown EVSE")
+
+
+@router.get("/2.2.1/locations/{location_id}/{evse_uid}/{connector_id}", response_model=dict,
+            dependencies=[Depends(_ocpi_auth)])
+async def get_connector(location_id: str, evse_uid: str, connector_id: str,
+                        db: Session = Depends(get_db)):
+    """One connector of one EVSE."""
+    charger = _charger_from_location_id(db, location_id)
+    if not charger:
+        return _ocpi_not_found("Unknown location")
+
+    country = os.getenv("OCPI_COUNTRY_CODE", "MY")
+    party_id = os.getenv("OCPI_PARTY_ID", "PLG")
+    loc_id = f"{country}{party_id}-{charger.charge_point_id}"
+    now = _charger_changed_at(charger)
+    for evse in _build_evses(charger, loc_id, country, party_id, now):
+        data = evse.model_dump() if hasattr(evse, "model_dump") else evse
+        if data.get("uid") != evse_uid:
+            continue
+        for conn in data.get("connectors", []):
+            if str(conn.get("id")) == str(connector_id):
+                return {
+                    "status_code": 1000,
+                    "status_message": "Success",
+                    "timestamp": now,
+                    "data": conn,
+                }
+        return _ocpi_not_found("Unknown connector")
+    return _ocpi_not_found("Unknown EVSE")
+
 # ============ Sessions ============
-def _build_session_dict(sess) -> Optional[dict]:
+def _session_still_running(sess) -> bool:
+    """True while the session has not actually finished.
+
+    A session is over when the cable comes out, not when the stop is accepted.
+    The charger sits in Finishing, the grace period runs, and idle accrues, all
+    after the stop. This mirrors the rule the CDR already follows.
+    """
+    if sess.status in ("active", "pending"):
+        return True
+    # Exactly while its CDR is held, so COMPLETED always means "final, and the
+    # CDR is there to pull". An interrupted session is held past the watchdog's
+    # unplug stamp, and reporting it COMPLETED in the meantime would promise a
+    # record that is not being served yet.
+    return _cdr_is_held(sess)
+
+
+def _is_invalid_session(sess) -> bool:
+    """A finished session with nothing at all to bill.
+
+    OCPI has a SessionStatus of INVALID for a session that was opened but
+    failed, and which must not be billed. Two things were wrong with how we
+    decided it.
+
+    It was decided at stop time, on energy alone. A driver who starts a
+    session, stops it immediately and leaves the car plugged in draws no energy
+    but does accrue idle, and we published that session as INVALID before the
+    idle existed. Voltality cannot bill an INVALID session, so the idle revenue
+    was lost. That is their test S6.
+
+    And it asked the wrong question. The test is not whether energy flowed but
+    whether anything is owed, so it now runs on the total cost: a session is
+    invalid only once it is over and every component of the cost is zero.
+    """
+    if _session_still_running(sess):
+        return False
+    return _session_cost(sess) <= 0
+
+
+def _session_last_updated(sess):
+    """When this session object last actually changed.
+
+    A partner polls on last_updated to decide what to re-read, so it has to
+    move whenever anything in the object moves. It was the stop time, falling
+    back to the start time, which never changed while a session was running.
+
+    The column is stamped by a mapper event in database.py, so every write
+    moves it, wherever that write happens to live.
+    """
+    # The stored column, so that what we publish and what date_from selects on
+    # are the same value. It used to be derived at render time, which cannot go
+    # in a WHERE clause, and a partner filtering on a number we never stored
+    # would miss rows we had just told it had changed.
+    return (
+        sess.last_updated
+        or sess.unplugged_at
+        or sess.stop_time
+        or sess.start_time
+    )
+
+
+# A charger reporting SoC every few seconds for a three hour charge would
+# otherwise put thousands of periods in one Session.
+_MAX_SOC_PERIODS = 200
+
+
+def _soc_rows_for(db, sessions) -> dict:
+    """SoC readings for a whole page of sessions, in one query instead of N.
+
+    The sessions list serves up to 1000 rows and a per-session lookup would be
+    a thousand round trips for a field most chargers never report at all.
+    """
+    keys = {
+        (s.charger_id, s.transaction_id)
+        for s in sessions
+        if s.charger_id is not None and s.transaction_id is not None
+    }
+    if not keys:
+        return {}
+    rows = (
+        db.query(MeterValue.charger_id, MeterValue.transaction_id,
+                 MeterValue.timestamp, MeterValue.soc)
+        .filter(MeterValue.soc.isnot(None),
+                MeterValue.charger_id.in_({k[0] for k in keys}),
+                MeterValue.transaction_id.in_({k[1] for k in keys}))
+        .order_by(MeterValue.timestamp.asc())
+        .all()
+    )
+    out: dict = {}
+    for charger_id, txn, ts, soc in rows:
+        # in_ over both columns separately can cross-match, so check the pair.
+        if (charger_id, txn) in keys:
+            out.setdefault((charger_id, txn), []).append((ts, soc))
+    return out
+
+
+def _session_charging_periods(sess, soc_rows=None) -> list:
+    """A Session's charging periods, carrying the vehicle's state of charge.
+
+    Voltality raised this on 2026-11-13: we record SoC on every meter value
+    that reports it, and their simulator was sending it, but the Session
+    object carried no `charging_periods` at all, so there was nowhere for it
+    to go and they could not see it.
+
+    OCPI 2.2.1 lists STATE_OF_CHARGE among the dimensions that "are not useful
+    for CDRs, and SHALL therefore only be used in Sessions". So this is
+    deliberately not shared with _build_cdr_dict: putting SoC on a CDR would
+    be a spec violation, not a bonus.
+
+    Only some DC chargers report SoC, so an empty list is the ordinary case
+    and not a fault. Readings that repeat the same percentage are dropped:
+    a value every few seconds that has not moved says nothing, and the points
+    where it changed are what a driver's app draws.
+    """
+    if soc_rows is None:
+        db = SessionLocal()
+        try:
+            soc_rows = (
+                db.query(MeterValue.timestamp, MeterValue.soc)
+                .filter(MeterValue.soc.isnot(None),
+                        MeterValue.charger_id == sess.charger_id,
+                        MeterValue.transaction_id == sess.transaction_id)
+                .order_by(MeterValue.timestamp.asc())
+                .all()
+            )
+        except Exception as e:
+            logger.warning("[ocpi-sessions] could not read SoC for %s: %s", sess.id, e)
+            return []
+        finally:
+            db.close()
+
+    periods = []
+    last = None
+    for ts, soc in soc_rows:
+        if ts is None or soc is None:
+            continue
+        pct = round(float(soc), 1)
+        if pct == last:
+            continue
+        last = pct
+        periods.append({
+            "start_date_time": _session_time(ts),
+            "dimensions": [{"type": "STATE_OF_CHARGE", "volume": pct}],
+        })
+        if len(periods) >= _MAX_SOC_PERIODS:
+            break
+    return periods
+
+
+def _build_session_dict(sess, soc_rows=None) -> Optional[dict]:
     """One OCPI Session. Shared by the pull endpoint and by push."""
     charger = sess.charger
     if not charger:
@@ -643,10 +1245,15 @@ def _build_session_dict(sess) -> Optional[dict]:
     party_id = os.getenv("OCPI_PARTY_ID", "PLG")
     loc_id = f"{country}{party_id}-{charger.charge_point_id}"
     gun = sess.evse_id or sess.connector_id or 1
-    return {
+    periods = _session_charging_periods(sess, soc_rows)
+    out = {
+        # country_code and party_id are mandatory on a 2.2.1 Session; without
+        # them a partner cannot tell whose session it is.
+        "country_code": country,
+        "party_id": party_id,
         "id": str(sess.transaction_id),
-        "start_datetime": _to_ocpi_datetime(sess.start_time),
-        "end_datetime": _to_ocpi_datetime(sess.stop_time) if sess.stop_time else None,
+        "start_date_time": _session_time(sess.start_time),
+        "end_date_time": _session_time(sess.stop_time) if sess.stop_time else None,
         "kwh": float(sess.energy_consumed or 0),
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
@@ -658,10 +1265,24 @@ def _build_session_dict(sess) -> Optional[dict]:
         "evse_uid": f"{loc_id}-EVSE{gun}",
         "connector_id": str(gun),
         "currency": "MYR",
-        "status": "ACTIVE" if sess.status == "active" else "COMPLETED",
+        # ACTIVE until the cable is out, then COMPLETED, or INVALID when
+        # nothing is owed. A stop that is merely accepted does not end the
+        # session: the grace period and any idle still lie ahead of it.
+        "status": (
+            "ACTIVE" if _session_still_running(sess)
+            else "INVALID" if _is_invalid_session(sess)
+            else "COMPLETED"
+        ),
+        "total_cost": _price(_session_cost(sess)),
         "authorization_reference": sess.authorization_reference,
-        "last_updated": _to_ocpi_datetime(sess.stop_time or sess.start_time),
+        "last_updated": _session_time(_session_last_updated(sess)),
     }
+    # Omitted rather than sent empty: the field is optional, and an empty
+    # array reads as "this session had no charging periods", which is a
+    # different claim from "this charger does not report SoC".
+    if periods:
+        out["charging_periods"] = periods
+    return out
 
 
 def _build_cdr_dict(sess) -> Optional[dict]:
@@ -675,63 +1296,130 @@ def _build_cdr_dict(sess) -> Optional[dict]:
 
     energy = float(sess.energy_consumed or 0)
     start_time = sess.start_time or datetime.utcnow()
-    stop_time = sess.stop_time or datetime.utcnow()
+    # The session ends when the cable comes out, not when the stop was
+    # requested — otherwise total_time excludes the parking time we bill for.
+    stop_time = sess.unplugged_at or sess.stop_time or datetime.utcnow()
     duration_h = (stop_time - start_time).total_seconds() / 3600
 
-    price_per_kwh = float(charger.tariff_per_kwh) if charger.tariff_per_kwh is not None else 0.50
+    # The rate this session froze at its start, so a later price edit cannot
+    # rewrite a bill the partner has already settled against. See
+    # idle_billing.priced.
+    rates = idle_billing.priced(sess, charger)
+    price_per_kwh = float(rates.tariff_per_kwh) if rates.tariff_per_kwh is not None else 0.50
     energy_cost = round(energy * price_per_kwh, 2)
 
-    idle_minutes = int(sess.idle_minutes or 0)
-    idle_cost = 0.0
-    if idle_minutes and charger.idle_fee_enabled and charger.idle_fee_per_min:
-        idle_cost = round(idle_minutes * float(charger.idle_fee_per_min), 2)
+    # A CDR is final, so it cannot be issued while the idle figure can still
+    # grow. On a remote stop the transaction closes immediately but the car
+    # may sit in the bay for another hour, and publishing here would bill the
+    # partner for a charge whose parking time is not yet known.
+    if _cdr_is_held(sess):
+        return None
+
+    # Nothing was delivered and nothing is owed, so there is nothing to bill.
+    # We used to issue a CDR for these, which asked a partner to reconcile a
+    # charge that never happened.
+    if _is_invalid_session(sess):
+        return None
+
+    idle_minutes, idle_cost = idle_billing.compute_idle(sess, charger)
+    # The duration the EV was not charging, which is a different number from
+    # the minutes we billed: the grace period is published as a restriction on
+    # the tariff, so the quantity we report has to be the measured one for a
+    # partner to arrive at our cost. See measured_idle_seconds.
+    parking_h = idle_billing.parking_hours(sess, charger)
     total_cost = round(energy_cost + idle_cost, 2)
 
     # Prefer evse_id: on 2.0.1 every gun reports connector 1, so connector_id
     # alone puts a gun 2 charge on gun 1.
     gun = int(sess.evse_id or sess.connector_id or 1)
 
+    tariff_id = _tariff_id(charger)
     periods = [{
-        "start_datetime": _to_ocpi_datetime(start_time),
+        "start_date_time": _session_time(start_time),
         "dimensions": [{"type": "ENERGY", "volume": energy}],
+        "tariff_id": tariff_id,
     }]
-    if idle_minutes:
+    if parking_h:
+        _idle_from = _session_time(sess.idle_started_at or stop_time)
         periods.append({
-            "start_datetime": _to_ocpi_datetime(sess.idle_started_at or stop_time),
-            "dimensions": [{"type": "PARKING_TIME", "volume": round(idle_minutes / 60, 4)}],
+            "start_date_time": _idle_from,
+            "dimensions": [{"type": "PARKING_TIME", "volume": parking_h}],
+            "tariff_id": tariff_id,
         })
 
+    # A CDR is immutable, so 2.2.1 has it carry its own copy of the location
+    # rather than a reference that could later describe a different connector.
+    # We were sending the flat location_id / evse_uid / connector_id of 2.1.1,
+    # which left the mandatory cdr_location absent entirely.
+    std, fmt, ptype, volt, amp, maxw = _connector_spec(charger)
+    _addr, _city, _postal, _coords = _location_fields(charger)
+    cdr_location = {
+        "id": loc_id,
+        "name": charger.charge_point_id,
+        "address": _addr,
+        "city": _city,
+        "postal_code": _postal,
+        "country": _country_alpha3(),
+        "coordinates": _coords,
+        "evse_uid": f"{loc_id}-EVSE{gun}",
+        "evse_id": f"{country}*{party_id}*E*{charger.charge_point_id}"
+                   + ("" if gun == 1 else f"*{gun}"),
+        "connector_id": str(gun),
+        "connector_standard": std,
+        "connector_format": fmt,
+        "connector_power_type": ptype,
+    }
+
     return {
+        # Mandatory on a 2.2.1 CDR: they say whose record this is.
+        "country_code": country,
+        "party_id": party_id,
         "id": str(sess.transaction_id),
         # Optional in OCPI 2.2.1, but Voltality reconcile CDRs against sessions.
         # Same value as the Session id: both are the transaction id.
         "session_id": str(sess.transaction_id),
-        "start_datetime": _to_ocpi_datetime(start_time),
-        "end_datetime": _to_ocpi_datetime(stop_time),
-        "auth_id": sess.user_id or "UNKNOWN",
+        "start_date_time": _session_time(start_time),
+        "end_date_time": _session_time(stop_time),
         "auth_method": "AUTH_REQUEST",
-        "location_id": loc_id,
-        "evse_uid": f"{loc_id}-EVSE{gun}",
-        "connector_id": str(gun),
+        "cdr_location": cdr_location,
         "currency": "MYR",
-        "tariff_id": _tariff_id(charger),
-        "total_cost": total_cost,
+        # OCPI models this as a Price, not a bare number, so the partner can
+        # see what is tax and what is not without a side channel.
+        "total_cost": _price(total_cost),
+        "total_energy_cost": _price(energy_cost),
+        "total_parking_cost": _price(idle_cost),
         "total_energy": energy,
         "total_time": round(duration_h, 4),
-        "total_parking_time": round(idle_minutes / 60, 4) if idle_minutes else 0,
+        "total_parking_time": parking_h,
         "cdr_token": {
             "uid": sess.user_id or "UNKNOWN",
             "type": "APP_USER",
             "contract_id": sess.user_id or "UNKNOWN",
         },
         "authorization_reference": sess.authorization_reference,
+        # The terms that actually applied, carried with the record rather than
+        # referenced by name. A CDR is immutable and a tariff is not: once we
+        # change a charger's idle rate or grace period, a CDR that only named
+        # its tariff would start describing terms that were never charged, and
+        # a partner could not show a driver why the parking cost was what it
+        # was. Voltality asked for the idle cost and grace to be visible on
+        # the CDR; this is where OCPI puts them.
+        "tariffs": [_build_tariff(charger, _charger_changed_at(charger), sess)],
         "charging_periods": periods,
-        "last_updated": _to_ocpi_datetime(stop_time),
+        # The same column the CDR list filters on. It was the unplug instant,
+        # which happens to be the last write today and so matched by accident.
+        # Any later write to the row — a refund settling, a late meter value —
+        # would push the filter column past the value we published, and a
+        # partner polling from the figure we gave it would be handed the same
+        # CDR on every poll, for ever.
+        "last_updated": _session_time(_session_last_updated(sess)),
     }
 
 
 @router.get("/2.2.1/sessions", response_model=dict)
 async def get_sessions(
+    request: Request,
+    response: Response,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
@@ -742,25 +1430,46 @@ async def get_sessions(
     """Get charging sessions (OCPI pull model), scoped to the caller."""
     q = _scope_to_caller(
         db.query(ChargingSession).filter(
-            ChargingSession.status.in_(["active", "completed", "stopped"])
+            # "interrupted" belongs here too. It is what the watchdog writes
+            # when a charger vanishes mid-charge, and leaving it out meant a
+            # real session that had delivered energy simply disappeared from
+            # the partner's view instead of reaching a final state. Voltality's
+            # S4 asks for exactly that: "session eventually reaches correct
+            # final state once charger connectivity is restored".
+            ChargingSession.status.in_(
+                ["active", "completed", "stopped", "interrupted"]
+            )
         ),
         caller,
     )
     if date_from:
         try:
-            df = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
-            q = q.filter(ChargingSession.start_time >= df)
+            df = _session_filter_time(date_from)
+            # OCPI selects on last_updated, not on when the session began.
+            # Filtering on the start time meant a partner could never pull a
+            # session's updates once it had started, which is what Voltality
+            # reported on 2026-10-09.
+            q = q.filter(ChargingSession.last_updated >= df)
         except Exception:
             pass
     if date_to:
         try:
-            dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-            q = q.filter(ChargingSession.start_time < dt)
+            dt = _session_filter_time(date_to)
+            q = q.filter(ChargingSession.last_updated < dt)
         except Exception:
             pass
-    sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(limit or 100).all()
+    total = q.count()
+    page = _page_size(limit)
+    sessions = q.order_by(ChargingSession.start_time.desc()).offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
 
-    result = [d for d in (_build_session_dict(s) for s in sessions) if d]
+    soc = _soc_rows_for(db, sessions)
+    result = [
+        d for d in (
+            _build_session_dict(s, soc.get((s.charger_id, s.transaction_id), []))
+            for s in sessions
+        ) if d
+    ]
 
     return {
         "status_code": 1000,
@@ -773,6 +1482,8 @@ async def get_sessions(
 # ============ CDRs ============
 @router.get("/2.2.1/cdrs", response_model=dict)
 async def get_cdrs(
+    request: Request,
+    response: Response,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     offset: int = 0,
@@ -783,24 +1494,31 @@ async def get_cdrs(
     """Get Charge Detail Records (CDRs) for billing, scoped to the caller."""
     q = _scope_to_caller(
         db.query(ChargingSession).filter(
-            ChargingSession.status.in_(["completed", "stopped"]),
+            # See the sessions endpoint: a watchdog-closed session still owes
+            # money for the energy it delivered. _exclude_held_cdrs keeps it
+            # back until it can no longer reopen.
+            ChargingSession.status.in_(["completed", "stopped", "interrupted"]),
             ChargingSession.stop_time.isnot(None),
         ),
         caller,
     )
     if date_from:
         try:
-            df = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
-            q = q.filter(ChargingSession.stop_time >= df)
+            df = _session_filter_time(date_from)
+            q = q.filter(ChargingSession.last_updated >= df)
         except Exception:
             pass
     if date_to:
         try:
-            dt = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-            q = q.filter(ChargingSession.stop_time < dt)
+            dt = _session_filter_time(date_to)
+            q = q.filter(ChargingSession.last_updated < dt)
         except Exception:
             pass
-    sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(limit or 100).all()
+    q = _exclude_invalid_cdrs(_exclude_held_cdrs(q))
+    total = q.count()
+    page = _page_size(limit)
+    sessions = q.order_by(ChargingSession.stop_time.desc()).offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
 
     result = [d for d in (_build_cdr_dict(s) for s in sessions) if d]
 
@@ -815,11 +1533,22 @@ async def get_cdrs(
 # ============ Tokens ============
 @router.get("/2.2.1/tokens", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_tokens(
+    response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get tokens (optional - for token whitelist). Returns empty list."""
+    """Tokens we hold. Empty: we do not keep a whitelist.
+
+    The date filters are accepted rather than rejected so every list endpoint
+    answers the same shape of request, which is what Voltality asked for when
+    they said the filtering should be consistent across all of them. There is
+    nothing to filter yet, but a partner probing the interface should not find
+    one endpoint that refuses a parameter the rest accept.
+    """
+    _set_pagination(response, None, 0, offset, _page_size(limit))
     return {
         "status_code": 1000,
         "status_message": "Success",
@@ -831,6 +1560,10 @@ async def get_tokens(
 # ============ Tariffs ============
 @router.get("/2.2.1/tariffs", response_model=dict, dependencies=[Depends(_ocpi_auth)])
 async def get_tariffs(
+    request: Request,
+    response: Response,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     offset: int = 0,
     limit: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -842,15 +1575,14 @@ async def get_tariffs(
     component. That was neither the rate the kiosk charges nor did it carry the
     idle fee, and no connector referenced it.
     """
-    chargers = (
-        _publishable(db.query(Charger))
-        .order_by(Charger.id)
-        .offset(offset)
-        .limit(limit or 100)
-        .all()
-    )
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    result = [_build_tariff(c, now) for c in chargers]
+    q = _filter_by_changed(
+        _publishable(db.query(Charger)), date_from, date_to
+    ).order_by(Charger.id)
+    total = q.count()
+    page = _page_size(limit)
+    chargers = q.offset(offset).limit(page).all()
+    _set_pagination(response, request, total, offset, page)
+    result = [_build_tariff(c, _charger_changed_at(c)) for c in chargers]
     return {
         "status_code": 1000,
         "status_message": "Success",
@@ -866,18 +1598,32 @@ async def get_tariffs(
 COMMAND_TYPES = {"START_SESSION", "STOP_SESSION", "UNLOCK_CONNECTOR", "RESERVE_NOW", "CANCEL_RESERVATION"}
 
 
-def _outbound_token() -> Optional[str]:
-    """The token a partner gave us for calling them.
+def _outbound_token(partner_id: Optional[int] = None) -> Optional[str]:
+    """The token to present when calling a partner back.
 
-    Kept in ocpi_partners by the credentials handshake. Only one partner is
-    registered in practice, so the newest row wins; when several exist this
-    should be selected per destination instead.
+    Pass the id of the partner that sent the command. This used to take the
+    newest row outright, which was fine while one partner existed and wrong
+    the moment a second did: Voltality registered their production system as
+    SG/VLT on 2026-11-25 alongside the SG/VOL UAT row, and every callback,
+    including the ones answering UAT, would have gone out carrying the
+    production token. That is the same 401 they spent a month reporting.
+
+    Falling back to the newest row when the caller is unknown keeps the
+    shared-token path working, which is how they drove the whole UAT.
     """
     from database import SessionLocal as _SL
 
     db = _SL()
     try:
-        row = db.query(OcpiPartner).order_by(OcpiPartner.id.desc()).first()
+        row = None
+        if partner_id is not None:
+            row = db.query(OcpiPartner).filter(OcpiPartner.id == partner_id).first()
+        if row is None:
+            row = db.query(OcpiPartner).order_by(OcpiPartner.id.desc()).first()
+            if partner_id is not None and row is not None:
+                logger.warning(
+                    "[ocpi-commands] partner %s not found, falling back to %s/%s",
+                    partner_id, row.country_code, row.party_id)
         return row.token if row else None
     except Exception as e:
         logger.warning("[ocpi-commands] could not read partner token: %s", e)
@@ -886,8 +1632,15 @@ def _outbound_token() -> Optional[str]:
         db.close()
 
 
-async def _post_command_result(response_url: str, result: str, message: Optional[str] = None) -> None:
-    """Fire-and-forget POST of async CommandResult back to the eMSP."""
+async def _post_command_result(response_url: str, result: str,
+                               message: Optional[str] = None,
+                               partner_id: Optional[int] = None) -> None:
+    """Fire-and-forget POST of async CommandResult back to the eMSP.
+
+    partner_id is the partner that sent the command, so the reply carries
+    the token that partner issued us. Two of them exist since Voltality
+    registered production beside UAT.
+    """
     import asyncio
     import httpx
     try:
@@ -896,10 +1649,15 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         # OCPI_OUTBOUND_TOKEN, which has never been set, so every callback went
         # out with no Authorization header and Voltality answered 401. Their
         # commands ran here and they were never told the outcome.
-        token = _outbound_token() or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
+        from .push import auth_header
+
+        token = _outbound_token(partner_id) or os.getenv("OCPI_OUTBOUND_TOKEN", "").strip()
         headers = {"Content-Type": "application/json"}
         if token:
-            headers["Authorization"] = f"Token {token}"
+            # Base64, per OCPI 2.2.1. Sending it raw is itself a 401 on
+            # Voltality's UAT, so a stored token alone would not have fixed
+            # this. See auth_header for the evidence.
+            headers["Authorization"] = auth_header(token)
         else:
             logger.warning(
                 "[ocpi-commands] no partner token stored, callback to %s will "
@@ -910,7 +1668,17 @@ async def _post_command_result(response_url: str, result: str, message: Optional
         if message:
             body["message"] = [{"language": "en", "text": message}]
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await client.post(response_url, json=body, headers=headers)
+            r = await client.post(response_url, json=body, headers=headers)
+        # httpx does not raise on 4xx, so without this a refused callback was
+        # silent: the 401s Voltality reported four times left no trace on our
+        # side and we learned about them by WhatsApp. Log the outcome either
+        # way, so a failing callback is visible here during a UAT.
+        if r.status_code < 300:
+            logger.info("[ocpi-commands] callback %s to %s accepted (%s)",
+                        result, response_url, r.status_code)
+        else:
+            logger.warning("[ocpi-commands] callback %s to %s refused: %s %s",
+                           result, response_url, r.status_code, r.text[:200])
     except Exception as e:
         logger.warning(f"[ocpi-commands] callback POST to {response_url} failed: {e}")
 
@@ -940,6 +1708,11 @@ async def post_command(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # Who asked, so the callback carries the token that partner issued us
+    # rather than whichever row happens to be newest. None on the shared
+    # token, which falls back to the newest partner as it always did.
+    _caller_id = caller.id if caller is not None else None
+
     response_url = body.get("response_url")
     if not response_url:
         return {
@@ -957,7 +1730,16 @@ async def post_command(
         # uid, so a start aimed at gun 2 does not silently begin on gun 1.
         connector_id = int(body.get("connector_id") or _gun_from_evse_uid(evse_uid) or 1)
         token = (body.get("token") or {}).get("uid") or "ROAMING_USER"
-        charger = db.query(Charger).filter(Charger.charge_point_id == cp_id).first()
+        # Through _publishable, not a bare lookup. Reading a location already
+        # went through it, so a partner could not see an unpublished charger,
+        # but this could still start one by name: a START_SESSION naming a
+        # Perodua or Proton home unit was accepted and dispatched. Those are
+        # other companies' fleets on private driveways.
+        charger = (
+            _publishable(db.query(Charger))
+            .filter(Charger.charge_point_id == cp_id)
+            .first()
+        )
         if not charger:
             return {
                 "status_code": 1000, "status_message": "Success",
@@ -966,7 +1748,8 @@ async def post_command(
             }
         cp = get_active_charge_point(cp_id)
         if cp is None:
-            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline",
+                                                       partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -987,9 +1770,10 @@ async def post_command(
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
                 if accepted and (auth_ref or partner_id is not None):
                     await _attach_auth_reference(charger.id, auth_ref, partner_id)
-                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED",
+                                            partner_id=_caller_id)
             except Exception as e:
-                await _post_command_result(response_url, "FAILED", str(e))
+                await _post_command_result(response_url, "FAILED", str(e), partner_id=_caller_id)
 
         asyncio.create_task(_dispatch_start())
         return {
@@ -1000,9 +1784,32 @@ async def post_command(
 
     if command == "STOP_SESSION":
         session_id = body.get("session_id")
-        sess = db.query(ChargingSession).filter(ChargingSession.id == session_id).first() if session_id else None
+        # Scoped to the caller, like every other read of a session. This took
+        # a bare primary key: session ids are small consecutive integers, so
+        # any holder of the shared token could stop any charge on the
+        # platform, including a Perodua or Proton customer mid-charge, by
+        # counting upwards.
+        #
+        # Matched on transaction_id as well as id because the Session object
+        # publishes transaction_id as its `id`, which is what a partner has
+        # in hand, while this only ever accepted the primary key. They are
+        # equal for recent sessions, so Voltality's stop flow worked by
+        # coincidence rather than by agreement.
+        sess = None
+        if session_id is not None:
+            try:
+                wanted = int(session_id)
+            except (TypeError, ValueError):
+                wanted = None
+            if wanted is not None:
+                sess = (
+                    _scope_to_caller(db.query(ChargingSession), caller)
+                    .filter((ChargingSession.transaction_id == wanted)
+                            | (ChargingSession.id == wanted))
+                    .first()
+                )
         if not sess or not sess.transaction_id:
-            asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION"))
+            asyncio.create_task(_post_command_result(response_url, "UNKNOWN_SESSION", partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1011,7 +1818,8 @@ async def post_command(
         charger = db.query(Charger).filter(Charger.id == sess.charger_id).first()
         cp = get_active_charge_point(charger.charge_point_id) if charger else None
         if cp is None:
-            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline"))
+            asyncio.create_task(_post_command_result(response_url, "EVSE_INOPERATIVE", "Charger offline",
+                                                       partner_id=_caller_id))
             return {
                 "status_code": 1000, "status_message": "Success",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1022,9 +1830,10 @@ async def post_command(
             try:
                 resp = await cp.remote_stop_transaction(transaction_id=int(sess.transaction_id))
                 accepted = bool(resp and getattr(resp, "status", "").lower() == "accepted")
-                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED")
+                await _post_command_result(response_url, "ACCEPTED" if accepted else "REJECTED",
+                                            partner_id=_caller_id)
             except Exception as e:
-                await _post_command_result(response_url, "FAILED", str(e))
+                await _post_command_result(response_url, "FAILED", str(e), partner_id=_caller_id)
 
         asyncio.create_task(_dispatch_stop())
         return {
@@ -1036,7 +1845,7 @@ async def post_command(
     # UNLOCK_CONNECTOR / RESERVE_NOW / CANCEL_RESERVATION — surface as NOT_SUPPORTED
     # until the underlying OCPP plumbing is added. Returning a structured response
     # is required by the spec even for unsupported commands.
-    asyncio.create_task(_post_command_result(response_url, "NOT_SUPPORTED"))
+    asyncio.create_task(_post_command_result(response_url, "NOT_SUPPORTED", partner_id=_caller_id))
     return {
         "status_code": 1000, "status_message": "Success",
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1045,17 +1854,70 @@ async def post_command(
 
 
 # ============ Taxes ============
+def _session_cost(sess) -> float:
+    """Energy plus idle for a session, in MYR, before tax.
+
+    The same arithmetic the CDR uses. Sessions previously carried no cost at
+    all, which left a partner tracking a live session with no figure to show
+    until the CDR arrived.
+    """
+    charger = getattr(sess, "charger", None)
+    if charger is None:
+        return 0.0
+    rates = idle_billing.priced(sess, charger)
+    rate = float(rates.tariff_per_kwh) if rates.tariff_per_kwh is not None else 0.50
+    cost = float(sess.energy_consumed or 0) * rate
+    _, idle_fee = idle_billing.compute_idle(sess, charger)
+    cost += idle_fee
+    return round(cost, 2)
+
+
+def _vat_percent() -> float:
+    """The VAT/SST rate to publish, as a percentage. Zero while unregistered.
+
+    One source of truth for both the Price objects on sessions and CDRs and the
+    `vat` field on tariff price components, so a partner cannot read two
+    different rates from us.
+    """
+    try:
+        return float(os.getenv("OCPI_VAT_PERCENT", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
+def _price(amount: float) -> dict:
+    """An OCPI 2.2.1 Price: the amount without tax, and with it.
+
+    OCPI models tax on the money itself, so this replaced a bare number for
+    total_cost. A partner reading a plain figure had no way to know whether tax
+    was already in it, which is what the separate /taxes endpoint was working
+    around.
+    """
+    excl = round(float(amount or 0), 2)
+    vat = _vat_percent()
+    return {"excl_vat": excl, "incl_vat": round(excl * (1 + vat / 100.0), 2)}
+
+
 def _default_taxes() -> list:
-    """Default tax rules for Malaysia. Override via system_settings key 'ocpi_taxes'."""
-    return [
-        {
-            "id": "sst-my",
-            "name": "SST",
-            "rate": 6.0,
-            "applies_to": "TOTAL",
-            "country_code": "MY",
-        }
-    ]
+    """No tax by default.
+
+    This used to return SST at 6% unconditionally. Two things were wrong with
+    that. C Zero is below the SST registration threshold, so no tax is due on a
+    charging session at all, and a roaming partner acting on that response
+    would have collected 6% from drivers that nobody was liable to remit. The
+    rate was also stale: the standard service tax rate has been 8% since March
+    2024, and the categories still at 6% do not cover EV charging.
+
+    An empty list is the honest answer and the safe default. When registration
+    happens, set OCPI_TAXES_JSON rather than editing this, for example:
+
+        OCPI_TAXES_JSON=[{"id":"sst-my","name":"SST","rate":8,
+                          "applies_to":"TOTAL","country_code":"MY"}]
+
+    Confirm the rate with a tax adviser first. Partners read this endpoint and
+    apply whatever it says on top of CDR total_cost, which is tax exclusive.
+    """
+    return []
 
 
 @router.get("/2.2.1/taxes", response_model=dict, dependencies=[Depends(_ocpi_auth)])

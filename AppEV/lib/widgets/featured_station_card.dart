@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../providers/session_provider.dart';
 import '../screens/live_charging_screen.dart';
 import '../screens/charger_detail_screen.dart';
+import '../providers/theme_provider.dart';
 
 class FeaturedStationCard extends StatefulWidget {
   final dynamic charger;
@@ -108,6 +109,9 @@ class _FeaturedStationCardState extends State<FeaturedStationCard> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id']?.toString() ?? 'Charging Station';
     final status = charger['status']?.toString() ?? 'unknown';
     final availability = charger['availability']?.toString() ?? 'unknown';

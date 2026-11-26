@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=19">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=1"></script>
+    <script src="/static/tenant.js?v=3"></script>
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -24,27 +24,28 @@
         <div class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Main Menu</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
-                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/chargers" class="nav-item active"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
-                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
-                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
-                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
-                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
-                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
-                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+                <a href="/" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item active"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a6 6 0 0 1-12 0V8Z"/></svg></span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8"/><path d="M8 16h5"/></svg></span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg></span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8"/><path d="M8 17h6"/></svg></span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg></span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg></span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg></span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg></span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
                 <div class="nav-section-title">Administration</div>
-                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
-                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
-                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v14"/></svg></span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg></span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin?tab=vendors" class="nav-item" onclick="localStorage.setItem('adminTab','vendors')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg></span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </div>
         <div class="sidebar-footer">
-            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"/></svg></span><span class="nav-item-text">API Docs</span></a>
         </div>
     </nav>
 
@@ -195,6 +196,10 @@
                 <h3>✏️ Edit charger — <span id="ecId">—</span></h3>
                 <label>Location label</label>
                 <input type="text" id="ecLocation" placeholder="e.g. Carpark B · Slot 12">
+                <label>City</label>
+                <input type="text" id="ecCity" placeholder="e.g. Shah Alam">
+                <label>Postcode</label>
+                <input type="text" id="ecPostal" placeholder="e.g. 40200">
                 <label>Latitude</label>
                 <input type="number" step="any" id="ecLat" placeholder="3.0738">
                 <label>Longitude</label>
@@ -209,6 +214,41 @@
                 </select>
                 <label>Max power (kW)</label>
                 <input type="number" step="0.1" id="ecPower" placeholder="22">
+                <label>Tenant</label>
+                <select id="ecTenant">
+                    <option value="">— keep current —</option>
+                </select>
+                <label>Connectivity</label>
+                <select id="ecConnectivity" title="How this charger reaches the internet. Auto uses the SIM details the charger reports in its BootNotification.">
+                    <option value="auto">Auto (from charger's SIM report)</option>
+                    <option value="cellular">Cellular (SIM card)</option>
+                    <option value="wifi">WiFi</option>
+                    <option value="ethernet">Ethernet (LAN cable)</option>
+                </select>
+
+                <!-- Pricing lived only in the Payment Terminals dialog, which
+                     lists chargers assigned to a terminal. A charger belonging
+                     to no terminal, such as VOLTALITYTEST1, could not be
+                     configured anywhere in the UI and had to be changed
+                     straight in the database. -->
+                <div class="ec-sep">💰 Pricing</div>
+
+                <label>Energy rate (RM per kWh)</label>
+                <input type="number" step="0.05" min="0" max="10" id="ecTariff" placeholder="1.40">
+
+                <label class="ec-switch-row">
+                    <input type="checkbox" id="ecIdleEnabled">
+                    <span>Charge an idle fee after charging finishes</span>
+                </label>
+
+                <div id="ecIdleFields">
+                    <label>Idle rate (RM per minute)</label>
+                    <input type="number" step="0.05" min="0" max="10" id="ecIdlePerMin" placeholder="0.20">
+                    <label>Grace period (minutes, free before the idle fee starts)</label>
+                    <input type="number" step="1" min="0" max="240" id="ecIdleGrace" placeholder="5">
+                    <div class="ec-hint" id="ecIdleHint"></div>
+                </div>
+
                 <div class="modal-actions">
                     <button class="btn btn-secondary btn-small" onclick="closeEditCharger()">Cancel</button>
                     <button class="btn btn-success btn-small" onclick="saveEditCharger()">💾 Save</button>
@@ -216,6 +256,59 @@
                 <div id="ecMsg" style="margin-top:10px;font-size:12px;color:var(--text-secondary);"></div>
             </div>
         </div>
+        <!-- Connectivity log — GET /api/admin/chargers/{id}/connectivity -->
+        <div class="modal-backdrop" id="connModal" onclick="if(event.target===this)closeConnLog()">
+            <div class="modal-box" style="width:min(820px,95vw);max-width:820px;max-height:88vh;overflow:auto;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <h3 style="margin:0;">📶 Connectivity — <span id="cnId">—</span></h3>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-secondary btn-small conn-range" data-h="24" onclick="loadConnLog(24)">24h</button>
+                        <button class="btn btn-secondary btn-small conn-range" data-h="168" onclick="loadConnLog(168)">7 days</button>
+                        <button class="btn btn-secondary btn-small conn-range" data-h="720" onclick="loadConnLog(720)">30 days</button>
+                        <button class="btn btn-secondary btn-small" onclick="closeConnLog()">✕</button>
+                    </div>
+                </div>
+                <div id="cnBody" style="margin-top:14px;font-size:13px;">Loading…</div>
+            </div>
+        </div>
+        <style>
+        .ec-sep {
+            margin: 18px 0 2px; padding-top: 14px;
+            border-top: 1px solid var(--border, #2A2A4A);
+            font-size: 12px; font-weight: 700; letter-spacing: .04em;
+            color: var(--text-secondary, #8A8AB0); text-transform: uppercase;
+        }
+        /* Scoped under .modal-box on purpose. The dialog sets
+           `.modal-box label { display:block }` and
+           `.modal-box input { width:100% }` further down this stylesheet, and
+           those beat a bare class on both specificity and source order, which
+           stretched the checkbox across the dialog and pushed its caption onto
+           the next line. */
+        .modal-box label.ec-switch-row {
+            display: flex; align-items: center; gap: 9px;
+            margin: 14px 0 4px; cursor: pointer;
+            font-size: 13px; color: var(--text-primary);
+        }
+        .modal-box .ec-switch-row input[type="checkbox"] {
+            width: 16px; height: 16px; flex: none; margin: 0; padding: 0;
+            accent-color: var(--accent, #22c55e); cursor: pointer;
+        }
+        .ec-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary, #8A8AB0); }
+        #ecIdleFields.off { opacity: .45; pointer-events: none; }
+
+            .conn-kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px 16px; margin-bottom:14px; }
+            .conn-kv div span { display:block; }
+            .conn-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:6px 0 16px; }
+            .conn-stat { border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+            .conn-stat b { display:block; font-size:18px; margin-top:2px; }
+            .conn-table { width:100%; border-collapse:collapse; font-size:12px; }
+            .conn-table th, .conn-table td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+            .conn-table th { color:var(--text-secondary); font-weight:600; }
+            .conn-ev { font-weight:600; white-space:nowrap; }
+            .conn-ev.up { color:#16a34a; } .conn-ev.down { color:#ef4444; } .conn-ev.boot { color:#6366f1; }
+            .conn-range.active { outline:2px solid var(--accent,#22c55e); }
+            .conn-link { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+        </style>
         <style>
             #chargerStatusList::-webkit-scrollbar { width:6px; }
             #chargerStatusList::-webkit-scrollbar-track { background:transparent; }
@@ -515,6 +608,34 @@
             } catch(e){ console.error('Error:',e); document.getElementById('chargerStatusList').innerHTML = '<div class="empty-state">Error loading chargers</div>'; }
         }
 
+        // Fleet counters above the list. Extracted so the empty case updates
+        // them too: it used to return early, leaving the previous load's
+        // numbers on screen, so the bar claimed hundreds of chargers at 100%
+        // utilisation above an empty list.
+        function _renderStats(rows) {
+            const stats = (rows || []).reduce((s, c) => {
+                s.total++;
+                const st = (c.status || 'offline'), av = (c.availability || 'unknown');
+                if (st === 'online') s.online++; else s.offline++;
+                if (st === 'online' && av === 'available') s.available++;
+                // Counted from availability alone. Treating any open
+                // transaction as charging is the same bad inference the card
+                // header made: an OCPP 2.0.1 charger opens a transaction when
+                // the cable is plugged in, so a plugged-in car with no energy
+                // flowing was counted here — and dragged Utilisation with it.
+                if (av === 'charging') s.charging++;
+                return s;
+            }, {total:0, online:0, offline:0, available:0, charging:0});
+            const denom = stats.online || 1;
+            const util = Math.round((stats.charging / denom) * 100);
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statOnline').textContent = stats.online;
+            document.getElementById('statAvailable').textContent = stats.available;
+            document.getElementById('statCharging').textContent = stats.charging;
+            document.getElementById('statOffline').textContent = stats.offline;
+            document.getElementById('statUtil').textContent = stats.online ? `${util}%` : '—';
+        }
+
         // Filter (search box) + sort (online first) + render the charger cards.
         // Kept separate from loadChargerStatus so typing in search re-renders
         // instantly without a network call, and the filter survives auto-refresh.
@@ -524,18 +645,46 @@
             const q = (document.getElementById('chargerSearch')?.value || '').trim().toLowerCase();
 
             if (_allChargers.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🔌</div>
-                        <div>No chargers registered</div>
-                        <p style="margin-top:12px;font-size:13px;color:var(--text-secondary);">Add your ESP32 charger manually if it has not connected via OCPP yet.</p>
-                        <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
-                            <input type="text" id="addCpId" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
-                            <button class="btn btn-success btn-small" onclick="addChargerManual()">➕ Add Charger</button>
-                        </div>
-                        <div id="addChargerMsg" style="margin-top:12px;font-size:12px;"></div>
-                    </div>`;
+                // The Add Charger field lives inside this block, and the page
+                // re-renders every 5 seconds, so rebuilding it while someone is
+                // mid-typing wiped what they had entered. Leave the block alone
+                // once it exists and the field holds anything.
+                //
+                // This field carries its own id. It used to reuse addCpId,
+                // which the header panel already owns, and getElementById
+                // returns the first match — so the guard inspected the header's
+                // permanently empty box, concluded nobody was typing, and wiped
+                // this one anyway.
+                const existing = document.getElementById('addCpIdInline');
+                const busy = existing && (existing.value !== '' || document.activeElement === existing);
+                if (!busy) {
+                    // An empty list usually means the tenant filter, not an
+                    // empty platform. Saying "no chargers registered" while the
+                    // fleet has hundreds sends people looking for a fault that
+                    // is not there.
+                    const _t = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                    const scoped = _t && _t !== 'all';
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔌</div>
+                            <div>${scoped ? 'No chargers in this tenant yet' : 'No chargers registered'}</div>
+                            <p style="margin-top:12px;font-size:13px;color:var(--text-secondary);">
+                                ${scoped
+                                    ? 'The sidebar is filtered to one tenant. Move a charger into it from its Edit dialog, or switch to All Tenants.'
+                                    : 'Add your ESP32 charger manually if it has not connected via OCPP yet.'}
+                            </p>
+                            <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;">
+                                <input type="text" id="addCpIdInline" placeholder="Charge Point ID (e.g. ESP32-CP-01)" style="padding:8px 12px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;min-width:200px;font-size:13px;">
+                                <button class="btn btn-success btn-small" onclick="addChargerManual('inline')">➕ Add Charger</button>
+                            </div>
+                            <div id="addChargerMsgInline" style="margin-top:12px;font-size:12px;"></div>
+                        </div>`;
+                }
                 countEl.textContent = '0 chargers';
+                // Fall through to the stats block. Returning here left the bar
+                // showing the previous load's numbers, so the page claimed 480
+                // chargers at 100% utilisation above an empty list.
+                _renderStats([]);
                 return;
             }
 
@@ -563,27 +712,7 @@
 
             // Fleet stats — computed across ALL chargers (not just filtered list)
             // so the snapshot doesn't change when the user types in search.
-            const stats = _allChargers.reduce((s, c) => {
-                s.total++;
-                const st = (c.status || 'offline'), av = (c.availability || 'unknown');
-                if (st === 'online') s.online++; else s.offline++;
-                if (st === 'online' && av === 'available') s.available++;
-                // Counted from availability alone. Treating any open
-                // transaction as charging is the same bad inference the card
-                // header made: an OCPP 2.0.1 charger opens a transaction when
-                // the cable is plugged in, so a plugged-in car with no energy
-                // flowing was counted here — and dragged Utilisation with it.
-                if (av === 'charging') s.charging++;
-                return s;
-            }, {total:0, online:0, offline:0, available:0, charging:0});
-            const denom = stats.online || 1;
-            const util = Math.round((stats.charging / denom) * 100);
-            document.getElementById('statTotal').textContent = stats.total;
-            document.getElementById('statOnline').textContent = stats.online;
-            document.getElementById('statAvailable').textContent = stats.available;
-            document.getElementById('statCharging').textContent = stats.charging;
-            document.getElementById('statOffline').textContent = stats.offline;
-            document.getElementById('statUtil').textContent = stats.online ? `${util}%` : '—';
+            _renderStats(_allChargers);
 
             if (list.length === 0) {
                 container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div>No charger matches your search</div></div>`;
@@ -625,18 +754,21 @@
                     // its own socket state — the charger-level availability is
                     // the best socket, which would light up the wrong button on
                     // a unit where one gun is free and the other is charging.
-                    // Whether roaming partners currently see this charger. Mirrors
-                    // the server rule in ocpi/router.py: explicit override wins,
-                    // otherwise it comes down to how stale the heartbeat is.
+                    // Whether roaming partners see this charger. The server
+                    // answers it with the same predicate the OCPI endpoints
+                    // use, because this block used to work it out here and
+                    // still had the rule retired in October: a charger with a
+                    // recent heartbeat and no flag was reported as "Published
+                    // (auto)" while being withheld.
                     const roam = (() => {
-                        if (charger.is_public === true)  return {label:'✓ Always published', hint:'Forced on — published even while offline'};
-                        if (charger.is_public === false) return {label:'✗ Hidden',           hint:'Forced off — never published to roaming partners'};
-                        const hbAge = charger.last_heartbeat
-                            ? (Date.now() - new Date(charger.last_heartbeat).getTime()) / 86400000
-                            : Infinity;
-                        return hbAge <= 7
-                            ? {label:'✓ Published (auto)', hint:'Seen within 7 days, so published automatically'}
-                            : {label:'— Not published',    hint:'No heartbeat in over 7 days, so withheld from roaming partners'};
+                        if (charger.roaming_published) {
+                            return {label:'✓ Published', hint:'Roaming partners see this charger, including while it is offline'};
+                        }
+                        if (charger.is_public === true) {
+                            return {label:'✗ Hidden',
+                                    hint:`Set to publish, but the ${charger.tenant || 'unassigned'} tenant is never published to roaming partners`};
+                        }
+                        return {label:'✗ Hidden', hint:'Not published to roaming partners'};
                     })();
                     // Auth readiness. Enforcement is off fleet-wide, so this
                     // answers "would this charger survive us turning it on"
@@ -646,6 +778,21 @@
                         if (charger.auth_ok)      return {label:`✓ ${charger.auth_method}`, hint:'Credentials match — would pass if enforcement were switched on'};
                         if (charger.auth_method === 'none') return {label:'✗ none sent', hint:'Sends no credentials — would be rejected if enforcement were switched on'};
                         return {label:`✗ ${charger.auth_method}`, hint:'Credentials sent but do not match the configured token — would be rejected'};
+                    })();
+                    // How the charger reaches us, and how often its link dropped
+                    // in the last day. Clicking opens the full log.
+                    const conn = (() => {
+                        const c = charger.connectivity;
+                        if (!c) return { label: '—', hint: 'Not reported yet', warn: false };
+                        const icon = { cellular: '📶', wifi: '📡', ethernet: '🔌' }[c.type] || '❔';
+                        const drops = c.drops_24h || 0;
+                        const abnormal = c.abnormal_drops_24h || 0;
+                        const dropText = drops ? ` · ${drops} drop${drops === 1 ? '' : 's'}/24h` : '';
+                        return {
+                            label: `${icon} ${c.label}${dropText}`,
+                            hint: `${c.source}. ${drops} disconnect(s) in 24h, ${abnormal} of them abnormal (1006: link lost). Click for the log.`,
+                            warn: abnormal >= 5,
+                        };
                     })();
                     const txnByConn = charger.active_transactions || {};
                     const gunButtons = Array.from({ length: connCount }, (_, i) => {
@@ -700,6 +847,7 @@
                                             <button onclick="window.location='/sessions?charger_id=${encodeURIComponent(charger.charge_point_id)}'">📊 View sessions</button>
                                             <button onclick="window.location='/metering?charger_id=${encodeURIComponent(charger.charge_point_id)}'">⚡ View metering</button>
                                             <button onclick="openOpsPanel('${cpEsc}')">🎛 OCPP Operations</button>
+                                            <button onclick="openConnLog('${cpEsc}')" title="SIM or WiFi, and every connect / disconnect">📶 Connectivity log</button>
                                             <div class="menu-sep"></div>
                                             <button onclick="setPublish('${cpEsc}')" title="Control whether roaming partners (OCPI) see this charger">🌐 Roaming visibility</button>
                                             <button onclick="forceReconnect('${cpEsc}')" title="Drop the stale server-side socket so the charger reopens a fresh connection">🔄 Force reconnect</button>
@@ -718,6 +866,7 @@
                                 <div class="info-item"><span class="info-label">OCPP</span><span class="info-value">${charger.ocpp_version ? charger.ocpp_version + (charger.ocpp_version === '2.0.1' ? ' (JSON)' : 'J') : '—'}</span></div>
                                 <div class="info-item"><span class="info-label">Roaming (OCPI)</span><span class="info-value" title="${roam.hint}">${roam.label}</span></div>
                                 <div class="info-item"><span class="info-label">Auth</span><span class="info-value" title="${auth.hint}">${auth.label}</span></div>
+                                <div class="info-item"><span class="info-label">Connectivity</span><span class="info-value conn-link" style="${conn.warn ? 'color:#d97706;font-weight:600;' : ''}" title="${conn.hint}" onclick="openConnLog('${cpEsc}')">${conn.label}</span></div>
                             </div>
                             <div class="charger-conns">
                                 <span class="info-label">Connectors (${connCount})</span>
@@ -755,16 +904,87 @@
             _editingCpId = cpId;
             document.getElementById('ecId').textContent = cpId;
             document.getElementById('ecLocation').value = c.location || '';
+            document.getElementById('ecCity').value = c.city || '';
+            document.getElementById('ecPostal').value = c.postal_code || '';
             document.getElementById('ecLat').value = c.latitude ?? '';
             document.getElementById('ecLng').value = c.longitude ?? '';
             document.getElementById('ecConnector').value = c.connector_type || '';
             document.getElementById('ecPower').value = c.max_power_kw ?? '';
             document.getElementById('ecMsg').textContent = '';
+            _fillTenantOptions(c.tenant);
+            // Preselect the operator's choice if one was made, else Auto.
+            const cc = c.connectivity || {};
+            const cnSel = document.getElementById('ecConnectivity');
+            cnSel.value = cc.source === 'set by operator' && ['cellular', 'wifi', 'ethernet'].includes(cc.type) ? cc.type : 'auto';
+            cnSel.dataset.initial = cnSel.value;
+
+            // Pricing. Show what the charger actually holds rather than a
+            // placeholder: a blank box next to a real figure invites someone
+            // to save the placeholder over it.
+            const tariff = document.getElementById('ecTariff');
+            const idleOn = document.getElementById('ecIdleEnabled');
+            const perMin = document.getElementById('ecIdlePerMin');
+            const grace  = document.getElementById('ecIdleGrace');
+            tariff.value = c.tariff_per_kwh ?? '';
+            idleOn.checked = !!c.idle_fee_enabled;
+            perMin.value = c.idle_fee_per_min ?? '';
+            grace.value  = c.idle_grace_minutes ?? '';
+            [tariff, perMin, grace].forEach(el => { el.dataset.initial = el.value; });
+            idleOn.dataset.initial = idleOn.checked ? '1' : '0';
+            idleOn.onchange = _ecIdleToggle;
+            perMin.oninput = _ecIdleToggle;
+            grace.oninput = _ecIdleToggle;
+            _ecIdleToggle();
+
             document.getElementById('editChargerModal').classList.add('open');
         }
+        // Dim the idle inputs when the fee is off, and spell out what the
+        // partner will see. The absence of a PARKING_TIME component in the
+        // published tariff is how a roaming partner knows not to bill for
+        // parking at all, which is worth stating where the switch is.
+        function _ecIdleToggle() {
+            const on = document.getElementById('ecIdleEnabled').checked;
+            const box = document.getElementById('ecIdleFields');
+            box.classList.toggle('off', !on);
+            const perMin = parseFloat(document.getElementById('ecIdlePerMin').value || 0);
+            const grace = parseInt(document.getElementById('ecIdleGrace').value || 0, 10);
+            document.getElementById('ecIdleHint').textContent = on
+                ? `Roaming partners see this as a PARKING_TIME price of RM${(perMin * 60).toFixed(2)} per hour, `
+                  + `with the first ${grace} minutes free. Parking time is rounded up to the `
+                  + `whole minute, then the ${grace} free minutes come off, so any part of a `
+                  + `minute past the grace costs a full minute.`
+                : 'No idle fee. Roaming partners receive a tariff with no PARKING_TIME component, '
+                  + 'so they will not bill for parking on this charger.';
+        }
+
         function closeEditCharger() {
             document.getElementById('editChargerModal').classList.remove('open');
             _editingCpId = null;
+        }
+        // Tenants are editable from Settings, so the options are fetched rather
+        // than written into the markup. Failing quietly leaves "keep current"
+        // as the only choice, which changes nothing.
+        let _tenantOptions = null;
+        async function _fillTenantOptions(current) {
+            const sel = document.getElementById('ecTenant');
+            if (!_tenantOptions) {
+                try {
+                    const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                    const res = await fetch(`${API_BASE}/tenants`, { headers: token ? { 'X-Staff-Token': token } : {} });
+                    _tenantOptions = res.ok ? await res.json() : [];
+                } catch (e) { _tenantOptions = []; }
+            }
+            sel.innerHTML = '<option value="">— keep current —</option>';
+            _tenantOptions.forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.key;
+                // A fleet being invoiced against a live contract is marked, so
+                // the warning on save is not the first anyone hears of it.
+                o.textContent = t.label
+                    + (t.key === current ? ' (current)' : '')
+                    + (t.billing_locked ? ' 🔒 billed' : '');
+                sel.appendChild(o);
+            });
         }
         async function saveEditCharger() {
             if (!_editingCpId) return;
@@ -777,20 +997,70 @@
             const ct  = document.getElementById('ecConnector').value;
             const pw  = document.getElementById('ecPower').value;
             if (loc !== '') body.location = loc;
+            // Always sent, unlike the fields above: emptying the box is how
+            // you hand a charger back to the platform-wide default, and a
+            // blank that is never sent could not express that.
+            body.city = document.getElementById('ecCity').value.trim();
+            body.postal_code = document.getElementById('ecPostal').value.trim();
             if (lat !== '') body.latitude = parseFloat(lat);
             if (lng !== '') body.longitude = parseFloat(lng);
             if (ct  !== '') body.connector_type = ct;
             if (pw  !== '') body.max_power_kw = parseFloat(pw);
+            const tn  = document.getElementById('ecTenant').value;
+            if (tn  !== '') body.tenant = tn;
+            const cn  = document.getElementById('ecConnectivity');
+            if (cn.value !== cn.dataset.initial) body.connectivity = cn.value;
             const msg = document.getElementById('ecMsg');
             msg.textContent = 'Saving…';
             try {
-                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/info`, {
+                const send = () => fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/info`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
                     body: JSON.stringify(body),
                 });
+                let res = await send();
+                // 409 means one side of the move is a fleet under a live
+                // billing contract. The server states what changes; the
+                // operator decides, and the retry carries that decision.
+                if (res.status === 409) {
+                    const why = (await res.clone().json().catch(() => ({}))).detail || '';
+                    if (!confirm(why + '\n\nMove it anyway?')) {
+                        msg.innerHTML = '<span style="color:var(--text-muted);">Tenant left unchanged.</span>';
+                        return;
+                    }
+                    body.confirm_tenant_change = true;
+                    res = await send();
+                }
                 const r = await res.json();
                 if (r.success) {
+                    // Pricing has its own endpoint, so it is a second call and
+                    // only made when something actually changed.
+                    const pricing = {};
+                    const tariff = document.getElementById('ecTariff');
+                    const idleOn = document.getElementById('ecIdleEnabled');
+                    const perMin = document.getElementById('ecIdlePerMin');
+                    const grace  = document.getElementById('ecIdleGrace');
+                    if (tariff.value !== tariff.dataset.initial && tariff.value !== '')
+                        pricing.tariff_per_kwh = parseFloat(tariff.value);
+                    if ((idleOn.checked ? '1' : '0') !== idleOn.dataset.initial)
+                        pricing.enabled = idleOn.checked;
+                    if (perMin.value !== perMin.dataset.initial && perMin.value !== '')
+                        pricing.per_min = parseFloat(perMin.value);
+                    if (grace.value !== grace.dataset.initial && grace.value !== '')
+                        pricing.grace_minutes = parseInt(grace.value, 10);
+
+                    if (Object.keys(pricing).length) {
+                        const pr = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_editingCpId)}/pricing`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
+                            body: JSON.stringify(pricing),
+                        });
+                        const pj = await pr.json().catch(() => ({}));
+                        if (!pr.ok || pj.success === false) {
+                            msg.innerHTML = `<span style="color:#ef4444;">❌ Saved the details, but pricing failed: ${pj.detail || pr.status}</span>`;
+                            return;
+                        }
+                    }
                     msg.innerHTML = '<span style="color:var(--accent,#22c55e);">✅ Saved.</span>';
                     setTimeout(() => { closeEditCharger(); loadChargerStatus(); }, 700);
                 } else {
@@ -798,6 +1068,88 @@
                 }
             } catch (e) {
                 msg.innerHTML = `<span style="color:#ef4444;">❌ ${e.message}</span>`;
+            }
+        }
+
+        // ── Connectivity log modal ──────────────────────────────────────────
+        let _connCpId = null;
+        const _esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        function _dur(sec) {
+            if (sec == null) return '—';
+            if (sec < 60) return `${sec}s`;
+            const m = Math.floor(sec / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+            if (d) return `${d}d ${h % 24}h`;
+            if (h) return `${h}h ${m % 60}m`;
+            return `${m}m ${sec % 60}s`;
+        }
+        function _myt(iso) {
+            return new Date(iso).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        function openConnLog(cpId) {
+            document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+            _connCpId = cpId;
+            document.getElementById('cnId').textContent = cpId;
+            document.getElementById('connModal').classList.add('open');
+            loadConnLog(24);
+        }
+        function closeConnLog() {
+            document.getElementById('connModal').classList.remove('open');
+            _connCpId = null;
+        }
+        async function loadConnLog(hours) {
+            if (!_connCpId) return;
+            document.querySelectorAll('.conn-range').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === hours));
+            const body = document.getElementById('cnBody');
+            body.textContent = 'Loading…';
+            try {
+                const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`${API_BASE}/admin/chargers/${encodeURIComponent(_connCpId)}/connectivity?hours=${hours}`, {
+                    headers: token ? { 'X-Staff-Token': token } : {},
+                });
+                if (!res.ok) throw new Error(res.status === 401 || res.status === 403 ? 'Please log in again.' : `HTTP ${res.status}`);
+                const r = await res.json();
+                const c = r.connectivity || {};
+                const icon = { cellular: '📶', wifi: '📡', ethernet: '🔌' }[c.type] || '❔';
+                const since = r.measured_since && new Date(r.measured_since) > new Date(Date.now() - hours * 3600e3)
+                    ? `<div style="color:var(--text-secondary);margin:-6px 0 10px;">Logging started ${_esc(_myt(r.measured_since))}; figures cover the time since then.</div>`
+                    : '';
+                const rows = (r.events || []).map(e => {
+                    let what = '🔁 Boot', cls = 'boot', detail = '';
+                    if (e.event === 'connected') {
+                        cls = 'up'; what = '🟢 Connected';
+                        detail = e.duration_seconds != null ? `Back after ${_dur(e.duration_seconds)} offline` : 'Connected';
+                    } else if (e.event === 'disconnected') {
+                        cls = 'down'; what = '🔴 Disconnected';
+                        detail = `${_esc(e.close_text || 'Closed')}${e.duration_seconds != null ? ` · was up ${_dur(e.duration_seconds)}` : ''}`;
+                    } else {
+                        detail = _esc(e.detail || 'Charger rebooted');
+                    }
+                    if (e.event !== 'boot' && e.detail) detail += ` <span style="color:var(--text-secondary);">· ${_esc(e.detail)}</span>`;
+                    return `<tr><td style="white-space:nowrap;">${_esc(_myt(e.at))}</td><td class="conn-ev ${cls}">${what}</td><td>${detail}</td><td style="color:var(--text-secondary);">${_esc(e.remote_ip || '')}</td></tr>`;
+                }).join('');
+                body.innerHTML = `
+                    <div class="conn-kv">
+                        <div><span class="info-label">Connection</span><span>${icon} ${_esc(c.label)}</span></div>
+                        <div><span class="info-label">Source</span><span>${_esc(c.source)}</span></div>
+                        <div><span class="info-label">Now</span><span>${r.connected_now ? '🟢 WebSocket open' : '🔴 No WebSocket'}</span></div>
+                        <div><span class="info-label">SIM ICCID</span><span style="font-family:monospace;">${_esc(c.iccid || '—')}</span></div>
+                        <div><span class="info-label">SIM IMSI</span><span style="font-family:monospace;">${_esc(c.imsi || '—')}</span></div>
+                        <div><span class="info-label">Last public IP</span><span style="font-family:monospace;">${_esc(c.remote_ip || '—')}</span></div>
+                    </div>
+                    ${since}
+                    <div class="conn-stats">
+                        <div class="conn-stat"><span class="info-label">Uptime</span><b>${r.uptime_percent == null ? '—' : r.uptime_percent + '%'}</b></div>
+                        <div class="conn-stat"><span class="info-label">Disconnects</span><b>${r.disconnects}</b></div>
+                        <div class="conn-stat" title="Close code 1006: the link died without a goodbye, usually signal or network loss"><span class="info-label">Link lost (1006)</span><b style="${r.abnormal_drops >= 5 ? 'color:#d97706;' : ''}">${r.abnormal_drops}</b></div>
+                        <div class="conn-stat"><span class="info-label">Avg connection</span><b>${_dur(r.average_connection_seconds)}</b></div>
+                        <div class="conn-stat"><span class="info-label">Longest offline</span><b>${_dur(r.longest_offline_seconds)}</b></div>
+                    </div>
+                    ${rows
+                        ? `<table class="conn-table"><thead><tr><th>Time (MYT)</th><th>Event</th><th>Detail</th><th>IP</th></tr></thead><tbody>${rows}</tbody></table>`
+                        : '<div style="color:var(--text-secondary);">No connection events in this period.</div>'}
+                `;
+            } catch (e) {
+                body.innerHTML = `<span style="color:#ef4444;">❌ ${_esc(e.message)}</span>`;
             }
         }
 
@@ -1020,31 +1372,66 @@
             // for the maintenance flow is finalised. For now surface intent.
             alert(`Disable ${cpId} temporarily — coming soon.\n\n(Use Force reconnect or pull the breaker for now.)`);
         }
-        function deleteCharger(cpId) {
-            // TODO: wire to DELETE /api/admin/chargers/{id} once the endpoint
-            // exists with a cascade-safety check (no active sessions).
-            alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
+        // Deleting is for debris: a charger a scanner invented by probing the
+        // OCPP endpoint, or a test that is over. A charger with any charging
+        // history is refused by the server, because every report joins the
+        // charger to name it and taking it away would quietly rewrite months
+        // that have already been invoiced.
+        async function deleteCharger(cpId) {
+            document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+
+            // Typing the id is the confirmation. A charger id is long and
+            // unmemorable on purpose: nobody types one by accident.
+            const typed = prompt(
+                `Delete ${cpId} permanently?\n\n` +
+                `This cannot be undone. Its meter values, faults, pricing row ` +
+                `and connection log go with it.\n\n` +
+                `Type the charger id to confirm:`);
+            if (typed === null) return;
+            if (typed.trim() !== cpId) { alert('That does not match. Nothing was deleted.'); return; }
+
+            try {
+                const res = await fetch(
+                    `${API_BASE}/admin/chargers/${encodeURIComponent(cpId)}` +
+                    `?confirm=${encodeURIComponent(cpId)}`,
+                    { method: 'DELETE', headers: { 'X-Staff-Token': token } });
+                const r = await res.json().catch(() => ({}));
+                if (!res.ok) { alert(r.detail || `Failed (${res.status})`); return; }
+                const rows = Object.entries(r.removed || {})
+                    .map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`).join(', ');
+                alert(`${cpId} deleted.` + (rows ? `\n\nAlso removed: ${rows}.` : ''));
+                loadChargerStatus();
+            } catch (e) {
+                alert('Failed: ' + e.message);
+            }
         }
 
-        // Roaming (OCPI) visibility. Three states rather than a toggle, so a
-        // prompt: on / off are operator overrides, auto defers to heartbeat age.
+        // Roaming (OCPI) visibility: on or off, nothing else.
+        //
+        // There used to be a third choice, `auto`, which wrote NULL and once
+        // meant "publish while the heartbeat is recent". That rule is what
+        // put three Proton home chargers on Voltality's map, and publication
+        // has been opt-in ever since, so `auto` had become an alias for off
+        // that read like an alias for on. The API still accepts null, and
+        // chargers that predate this still carry it; they are hidden, which
+        // is what the prompt now reports.
         async function setPublish(cpId) {
             const cur = (_allChargers.find(c => c.charge_point_id === cpId) || {}).is_public;
-            const now = cur === true ? 'always published'
-                      : cur === false ? 'hidden'
-                      : 'automatic (published while the heartbeat is recent)';
+            const now = cur === true ? 'published to roaming partners' : 'hidden';
             const ans = prompt(
                 `Roaming visibility for ${cpId}\n\n` +
                 `Currently: ${now}\n\n` +
+                `A charger must also sit in the CZero TNG Public tenant.\n\n` +
                 `Type one of:\n` +
-                `  auto  — publish only while seen in the last 7 days (default)\n` +
-                `  on    — always publish, even while offline\n` +
-                `  off   — never publish to roaming partners`,
-                cur === true ? 'on' : cur === false ? 'off' : 'auto');
+                `  on   — publish, and keep publishing while it is offline\n` +
+                `  off  — never publish to roaming partners`,
+                cur === true ? 'on' : 'off');
             if (ans === null) return;
             const key = ans.trim().toLowerCase();
-            const map = { auto: null, on: true, off: false };
-            if (!(key in map)) { alert('Type auto, on or off.'); return; }
+            const map = { on: true, off: false };
+            if (!(key in map)) { alert('Type on or off.'); return; }
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { alert('Please log in again.'); return; }
             try {
@@ -1096,9 +1483,15 @@
             if (msg) msg.textContent = '';
         }
 
-        async function addChargerManual() {
-            const cpId = document.getElementById('addCpId')?.value?.trim();
-            const msgEl = document.getElementById('addChargerMsg');
+        // `where` is 'inline' for the field in the empty state, or omitted for
+        // the header panel. They are separate elements: sharing one id meant
+        // the empty state's messages were written into the hidden header panel
+        // and never seen.
+        async function addChargerManual(where) {
+            const inline = where === 'inline';
+            const inputEl = document.getElementById(inline ? 'addCpIdInline' : 'addCpId');
+            const msgEl = document.getElementById(inline ? 'addChargerMsgInline' : 'addChargerMsg');
+            const cpId = inputEl?.value?.trim();
             if (!cpId) { if (msgEl) msgEl.textContent = 'Enter Charge Point ID'; return; }
             const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
             if (!token) { if (msgEl) msgEl.textContent = 'Login required'; return; }
@@ -1107,14 +1500,27 @@
                 const res = await fetch(`${API_BASE}/admin/chargers`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Staff-Token': token },
-                    body: JSON.stringify({ charge_point_id: cpId, vendor: 'ESP32', model: 'EV Charger' })
+                    // Join whichever tenant the sidebar is scoped to, so the
+                    // charger appears in the list the operator is looking at
+                    // instead of landing in the default one and seeming lost.
+                    body: JSON.stringify({
+                        charge_point_id: cpId,
+                        vendor: 'ESP32',
+                        model: 'EV Charger',
+                        tenant: (function () {
+                            const t = (typeof window.currentTenant === 'function') ? window.currentTenant() : 'all';
+                            return (t && t !== 'all') ? t : undefined;
+                        })(),
+                    })
                 });
                 const data = await res.json();
                 if (res.ok && !data.detail) {
                     if (msgEl) msgEl.innerHTML = '<span style="color:var(--accent)">✅ Charger added!</span>';
-                    document.getElementById('addCpId').value = '';
+                    if (inputEl) inputEl.value = '';
                     loadChargerStatus();
-                    setTimeout(() => { toggleAddCharger(); }, 1500);
+                    // Only the header panel is a collapsible card; closing it
+                    // is meaningless for the empty state's inline field.
+                    if (!inline) setTimeout(() => { toggleAddCharger(); }, 1500);
                 } else {
                     if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">❌ ' + (data.detail || data.message || 'Failed') + '</span>';
                 }

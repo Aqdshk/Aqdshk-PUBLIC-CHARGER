@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/charger_provider.dart';
 import '../constants/app_colors.dart';
+import '../providers/theme_provider.dart';
 
 class OfflineChargersScreen extends StatelessWidget {
   const OfflineChargersScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -103,6 +107,9 @@ class _OfflineChargerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = charger['charge_point_id'] ?? 'Unknown';
     final availability = charger['availability']?.toString() ?? 'offline';
 

@@ -8,6 +8,7 @@ import '../constants/app_colors.dart';
 import '../providers/charger_provider.dart';
 import '../services/api_service.dart';
 import 'charger_detail_screen.dart';
+import '../providers/theme_provider.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -483,6 +484,9 @@ class _ScanScreenState extends State<ScanScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(

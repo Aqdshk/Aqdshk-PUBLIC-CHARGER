@@ -12,24 +12,91 @@
 (function () {
     var KEY = 'dashboard_tenant';
 
-    // Hardcoded for now — swap for GET /api/admin/tenants once we build the
-    // tenants management page. Keys must match chargers.tenant column values.
+    var ALL_ROW = { value: 'all', label: 'All Tenants', badge: '', hint: 'Combined view — used for reconciliation & totals' };
+
+    // Loaded from GET /api/tenants, which is backed by the tenants table and
+    // editable from Settings. These two are the seeded values and act as the
+    // fallback, so the switcher still works if the request fails rather than
+    // collapsing to a single option.
     var TENANTS = [
-        { value: 'all',       label: 'All Tenants',        badge: '', hint: 'Combined view — used for reconciliation & totals' },
-        { value: 'czero-tng', label: 'CZero TNG Public',   badge: 'TNG',     hint: 'Walk-up + TNG payment flow' },
-        { value: 'perodua',   label: 'Perodua Public',     badge: 'P2',      hint: 'Perodua P2 Superapp fleet' },
+        ALL_ROW,
+        { value: 'czero-tng', label: 'CZero TNG Public', badge: 'TNG', hint: 'Walk-up + TNG payment flow' },
+        { value: 'perodua',   label: 'Perodua Public',   badge: 'P2',  hint: 'Perodua P2 Superapp fleet' },
     ];
+
+    function loadTenants() {
+        // The dashboard authenticates with a staff token header, not a cookie.
+        // Without it this request came back 401, the catch below kept the
+        // fallback list, and a tenant added in Settings never appeared here.
+        var headers = {};
+        try {
+            var tok = (window.STAFF_AUTH && window.STAFF_AUTH.token) ||
+                      localStorage.getItem('staffToken') || '';
+            if (tok) headers['X-Staff-Token'] = tok;
+        } catch (e) {}
+
+        return fetch('/api/tenants', { credentials: 'same-origin', headers: headers })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (rows) {
+                if (!rows || !rows.length) return;
+                var before = currentValue();
+                _loaded = true;
+                TENANTS = [ALL_ROW].concat(rows.map(function (t) {
+                    return {
+                        value: t.key,
+                        label: t.label,
+                        badge: t.badge || '',
+                        hint : t.hint  || '',
+                    };
+                }));
+                // A tenant that has since been removed must not leave the
+                // dashboard filtered to something that no longer exists.
+                var after = currentValue();
+                updateButton(after);
+                if (after !== before) {
+                    // The stored tenant is gone. Tell the page so it refetches
+                    // rather than showing rows for a scope no longer selected.
+                    window.dispatchEvent(new CustomEvent('tenantChange', { detail: { tenant: after } }));
+                }
+            })
+            .catch(function (e) {
+                // Keep the fallback list, but say so. Failing silently here is
+                // what made a missing tenant look like the switcher was fine.
+                if (window.console) {
+                    console.warn('[tenant] could not load tenants, using fallback list:', e);
+                }
+            });
+    }
+
+    // Whether the real list has arrived from the API yet. Until it has, the
+    // stored selection is trusted as-is: validating it against the fallback
+    // list meant a tenant added later resolved to 'all' on every page load,
+    // so the page fetched the whole fleet, then snapped to the right scope
+    // seconds later when the list finally loaded.
+    var _loaded = false;
 
     function currentValue() {
         var v = null;
         try { v = localStorage.getItem(KEY); } catch (e) {}
         if (!v) return 'all';
-        if (!TENANTS.some(function (t) { return t.value === v; })) return 'all';
+        if (_loaded && !TENANTS.some(function (t) { return t.value === v; })) return 'all';
         return v;
     }
 
     // Public accessor for page scripts
     window.currentTenant = currentValue;
+
+    // A page that offers its own tenant control (the invoice report has one
+    // in its filter bar, because a report is scoped before it is generated)
+    // must change the same state this switcher owns. Without a setter the
+    // page would have to write localStorage itself, which updates no button
+    // and fires no event, leaving the sidebar showing a scope the report is
+    // not using.
+    window.setTenant = function (v) { setTenant(v); };
+    window.tenantList = function () { return TENANTS.slice(); };
 
     function setTenant(v) {
         try { localStorage.setItem(KEY, v); } catch (e) {}
@@ -108,6 +175,19 @@
             menu.appendChild(row);
         });
 
+        // Route to where tenants are actually created. Without this the list
+        // looks like a fixed set of options with no way to extend it, which is
+        // precisely how it behaved before.
+        var manage = document.createElement('a');
+        manage.className = 'tenant-menu-row tenant-menu-manage';
+        manage.href = '/settings#tenants';
+        manage.innerHTML = ''
+            + '<span class="tenant-menu-main">'
+            +   '<span class="tenant-menu-label">⚙️ Manage tenants</span>'
+            +   '<span class="tenant-menu-hint">Add, rename or remove a fleet operator</span>'
+            + '</span>';
+        menu.appendChild(manage);
+
         // Position: fixed to the anchor's location (above the toggle button)
         var rect = anchor.getBoundingClientRect();
         menu.style.left   = Math.round(rect.left) + 'px';
@@ -171,6 +251,7 @@
     function boot() {
         injectSwitcher();
         startWatcher();
+        loadTenants();
     }
 
     if (document.readyState === 'loading') {

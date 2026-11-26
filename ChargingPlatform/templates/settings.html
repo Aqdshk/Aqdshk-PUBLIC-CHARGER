@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=13">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=1"></script>
+    <script src="/static/tenant.js?v=3"></script>
 </head>
 <body>
     <script src="/static/auth.js"></script>
@@ -24,27 +24,28 @@
         <div class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Main Menu</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
-                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
-                <a href="/sessions" class="nav-item"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
-                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
-                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
-                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
-                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
-                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+                <a href="/" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a6 6 0 0 1-12 0V8Z"/></svg></span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8"/><path d="M8 16h5"/></svg></span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg></span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8"/><path d="M8 17h6"/></svg></span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg></span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg></span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg></span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg></span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
                 <div class="nav-section-title">Administration</div>
-                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
-                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
-                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v14"/></svg></span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg></span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin?tab=vendors" class="nav-item" onclick="localStorage.setItem('adminTab','vendors')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg></span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </div>
         <div class="sidebar-footer">
-            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"/></svg></span><span class="nav-item-text">API Docs</span></a>
         </div>
     </nav>
 
@@ -62,6 +63,35 @@
         </header>
 
         <div class="dashboard-container fade-in">
+            <!-- Tenants — the fleet operators the sidebar switcher offers.
+                 This list used to be a hardcoded array in static/tenant.js, so
+                 adding one meant a code change and a deploy. -->
+            <div class="card" id="tenants" style="margin-bottom:20px;">
+                <div class="card-header">
+                    <span class="card-title"><span>🏢</span> Tenants</span>
+                    <button class="btn btn-primary btn-xs" onclick="openTenantForm()">+ Add tenant</button>
+                </div>
+                <div class="card-body">
+                    <div id="tenantAddForm" style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:8px;">
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Key <span style="color:var(--text-muted);">— used in the database, cannot be changed later</span></label>
+                                <input type="text" id="tnKey" placeholder="e.g. shell-recharge">
+                            </div>
+                            <div class="setting-item"><label>Name</label><input type="text" id="tnLabel" placeholder="e.g. Shell Recharge"></div>
+                            <div class="setting-item"><label>Badge <span style="color:var(--text-muted);">— optional, max 12 chars</span></label><input type="text" id="tnBadge" placeholder="e.g. SHELL"></div>
+                            <div class="setting-item"><label>Description <span style="color:var(--text-muted);">— optional</span></label><input type="text" id="tnHint" placeholder="e.g. Shell forecourt network"></div>
+                        </div>
+                        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-success btn-small" onclick="saveTenant()">Save tenant</button>
+                            <button class="btn btn-secondary btn-small" onclick="closeTenantForm()">Cancel</button>
+                            <span id="tenantMsg" style="font-size:11px;color:var(--text-muted);"></span>
+                        </div>
+                    </div>
+                    <div id="tenantList"><div class="empty-state">Loading…</div></div>
+                </div>
+            </div>
+
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header"><span class="card-title"><span>ℹ️</span> Device Information</span></div>
@@ -113,6 +143,113 @@
         sidebarOverlay.addEventListener('click', closeSidebar);
 
         document.addEventListener('DOMContentLoaded', populateChargerSelect);
+        document.addEventListener('DOMContentLoaded', loadTenantList);
+
+        // ── Tenants ────────────────────────────────────────────────────────
+        function _authHeaders(extra) {
+            const t = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+            return Object.assign({}, extra || {}, t ? { 'X-Staff-Token': t } : {});
+        }
+
+        function openTenantForm() {
+            document.getElementById('tenantAddForm').style.display = 'block';
+            document.getElementById('tnKey').focus();
+        }
+        function closeTenantForm() {
+            document.getElementById('tenantAddForm').style.display = 'none';
+            ['tnKey','tnLabel','tnBadge','tnHint'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('tenantMsg').textContent = '';
+        }
+
+        async function loadTenantList() {
+            const box = document.getElementById('tenantList');
+            try {
+                const res = await fetch(`${API_BASE}/tenants?include_inactive=true`, { headers: _authHeaders() });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const rows = await res.json();
+                if (!rows.length) { box.innerHTML = '<div class="empty-state">No tenants yet</div>'; return; }
+                box.innerHTML = `
+                  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;">
+                      <th style="padding:6px 8px;">Name</th><th style="padding:6px 8px;">Key</th>
+                      <th style="padding:6px 8px;">Badge</th><th style="padding:6px 8px;">Chargers</th>
+                      <th style="padding:6px 8px;"></th></tr></thead>
+                    <tbody>` + rows.map(t => `
+                      <tr style="border-top:1px solid var(--border);">
+                        <td style="padding:8px;">${esc(t.label)}${t.is_active ? '' : ' <span style="color:var(--text-muted);">(hidden)</span>'}
+                            ${t.hint ? `<div style="color:var(--text-muted);font-size:11px;">${esc(t.hint)}</div>` : ''}</td>
+                        <td style="padding:8px;"><code>${esc(t.key)}</code></td>
+                        <td style="padding:8px;">${esc(t.badge || '—')}</td>
+                        <td style="padding:8px;">${t.charger_count}</td>
+                        <td style="padding:8px;text-align:right;">
+                          <button class="btn btn-secondary btn-xs" onclick="renameTenant('${esc(t.key)}','${esc(t.label)}')">Rename</button>
+                          <button class="btn btn-danger btn-xs" onclick="removeTenant('${esc(t.key)}',${t.charger_count})">Delete</button>
+                        </td>
+                      </tr>`).join('') + `</tbody></table>`;
+            } catch (e) {
+                box.innerHTML = `<div class="empty-state">Could not load tenants (${esc(String(e.message || e))})</div>`;
+            }
+        }
+
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c =>
+                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        async function saveTenant() {
+            const msg = document.getElementById('tenantMsg');
+            const body = {
+                key:   document.getElementById('tnKey').value.trim().toLowerCase(),
+                label: document.getElementById('tnLabel').value.trim(),
+                badge: document.getElementById('tnBadge').value.trim(),
+                hint:  document.getElementById('tnHint').value.trim(),
+            };
+            msg.textContent = 'Saving…';
+            try {
+                const res = await fetch(`${API_BASE}/tenants`, {
+                    method: 'POST',
+                    headers: _authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { msg.textContent = data.detail || `Failed (HTTP ${res.status})`; return; }
+                closeTenantForm();
+                loadTenantList();
+            } catch (e) {
+                msg.textContent = String(e.message || e);
+            }
+        }
+
+        async function renameTenant(key, current) {
+            const label = prompt(`New name for "${key}"`, current);
+            if (!label || label === current) return;
+            const res = await fetch(`${API_BASE}/tenants/${encodeURIComponent(key)}`, {
+                method: 'PATCH',
+                headers: _authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ label }),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                alert(d.detail || `Failed (HTTP ${res.status})`);
+            }
+            loadTenantList();
+        }
+
+        async function removeTenant(key, count) {
+            if (count > 0) {
+                alert(`${count} charger(s) still belong to "${key}". Move them to another tenant first, from the charger's Edit dialog.`);
+                return;
+            }
+            if (!confirm(`Delete tenant "${key}"?`)) return;
+            const res = await fetch(`${API_BASE}/tenants/${encodeURIComponent(key)}`, {
+                method: 'DELETE', headers: _authHeaders(),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                alert(d.detail || `Failed (HTTP ${res.status})`);
+            }
+            loadTenantList();
+        }
 
         async function populateChargerSelect() {
             try {

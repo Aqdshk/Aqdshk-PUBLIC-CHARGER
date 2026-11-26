@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../constants/app_colors.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class BookingScreen extends StatefulWidget {
   final Map<String, dynamic> charger;
@@ -91,6 +93,9 @@ class _BookingScreenState extends State<BookingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final chargePointId = widget.charger['charge_point_id'] ?? 'Charger';
     final location = widget.charger['location'] ?? 'Lokasi tidak diketahui';
 

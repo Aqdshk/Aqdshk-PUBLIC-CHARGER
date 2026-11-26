@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../constants/app_colors.dart';
 import '../providers/notification_provider.dart';
 import 'glowing_icon_button.dart';
+import '../providers/theme_provider.dart';
 
 class HeaderWidget extends StatelessWidget {
   final VoidCallback? onNotificationTap;
@@ -11,6 +12,9 @@ class HeaderWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(

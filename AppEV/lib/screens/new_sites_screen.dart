@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import 'charger_detail_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 class NewSitesScreen extends StatelessWidget {
   const NewSitesScreen({super.key});
@@ -13,6 +15,9 @@ class NewSitesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -99,6 +104,9 @@ class _FilterTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -140,6 +148,9 @@ class _NewSiteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = site['name'] ?? 'Unknown';
     final location = site['location'] ?? '';
     final addedDate = site['added_date'] ?? '';

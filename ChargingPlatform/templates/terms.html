@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Terms and Conditions of Use for the PlagSini charging network, operated by PlagSini Sdn Bhd." />
+<meta name="theme-color" content="#0a1420" />
+<title>PlagSini &mdash; Terms and Conditions</title>
+<link rel="icon" href="/static/logo.png" />
+<style>
+  /* The wording of this document is legal text and is not to be edited for
+     layout. Every sentence below is the same as the version published on
+     8 October 2026, except the two clauses removed on 16 November 2026:
+     the company registration number and the annual liability cap. */
+  :root {
+    --lime: #5ad23f;
+    --green: #22c55e;
+    --green-dark: #15a349;
+    --green-soft: #eefbf900;
+    --green-tint: #f0fdf4;
+    --green-line: #bbf7d0;
+    --ink: #0b1220;
+    --ink-2: #16233a;
+    --text: #1f2a37;
+    --muted: #5b6a7d;
+    --line: #e4e9ef;
+    --bg: #eef1f5;
+    --card: #ffffff;
+    --radius: 18px;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--green-dark); }
+
+  .shell { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- hero, with the navigation inside it ---------- */
+  .hero {
+    position: relative; overflow: hidden;
+    border-radius: 26px;
+    background: linear-gradient(115deg, #091320 0%, #0d1c2b 45%, #112636 100%);
+    color: #fff;
+    margin: 18px 0 30px;
+  }
+  .hero-art {
+    position: absolute; inset: 0 0 0 36%;
+    background: url('/static/terms_hero.jpg') 50% center/cover no-repeat;
+  }
+  .hero-art::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, #091320 0%, rgba(9,19,32,.9) 22%, rgba(9,19,32,.28) 62%, rgba(9,19,32,.1) 100%);
+  }
+
+  .nav {
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 28px;
+    padding: 22px 34px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .brand img { width: 46px; height: 46px; object-fit: contain; }
+  .brand span { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+  .nav-links { display: flex; gap: 32px; margin-left: 26px; }
+  .nav-links a {
+    text-decoration: none; color: #d4dde7; font-size: 15px; font-weight: 500;
+    padding: 6px 0; border-bottom: 2px solid transparent;
+  }
+  .nav-links a:hover { color: #fff; border-bottom-color: var(--lime); }
+  .nav-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 19px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    text-decoration: none; white-space: nowrap;
+  }
+  .pill-ghost { background: #fff; color: var(--ink); }
+  .pill-ghost:hover { background: #eef2f6; }
+  .pill-green { background: var(--green); color: #fff; box-shadow: 0 6px 18px rgba(34,197,94,.35); }
+  .pill-green:hover { background: var(--green-dark); }
+
+  .hero-inner { position: relative; z-index: 2; padding: 26px 34px 48px; max-width: 640px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 9px;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+    padding: 8px 16px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 600; letter-spacing: .2px;
+  }
+  .badge svg { flex: none; }
+  .hero h1 {
+    margin: 20px 0 14px;
+    font-size: clamp(32px, 5vw, 54px); line-height: 1.04;
+    font-weight: 800; letter-spacing: -1.4px;
+  }
+  .hero h1 .accent { color: var(--lime); display: block; }
+  .stamp {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px; font-weight: 600; color: #e8eef5;
+    padding-bottom: 16px;
+    border-bottom: 3px solid var(--lime);
+    width: fit-content;
+  }
+  .hero p { margin: 18px 0 0; color: #c3cfdb; font-size: 15.5px; max-width: 520px; }
+
+  /* ---------- layout ---------- */
+  .layout { display: grid; grid-template-columns: 268px 1fr; gap: 26px; align-items: start; }
+
+  /* ---------- table of contents ---------- */
+  .toc { position: sticky; top: 20px; }
+  .toc-box {
+    background: var(--ink); border-radius: var(--radius); padding: 10px;
+    box-shadow: var(--shadow);
+  }
+  .toc a {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 12px; border-radius: 11px;
+    color: #a9b6c6; text-decoration: none; font-size: 14.5px; line-height: 1.35;
+  }
+  .toc a:hover { background: rgba(255,255,255,.06); color: #fff; }
+  .toc a.on { background: var(--green); color: #fff; font-weight: 600; }
+  .toc .num {
+    flex: none; width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(255,255,255,.08); color: #cfd9e4;
+    display: grid; place-items: center; font-size: 12.5px; font-weight: 700;
+  }
+  .toc a.on .num { background: rgba(255,255,255,.25); color: #fff; }
+
+  .promo {
+    margin-top: 14px; border-radius: var(--radius); padding: 20px;
+    background: linear-gradient(140deg, #0f2a1c, #103524);
+    border: 1px solid #1d4a33;
+    color: #fff;
+  }
+  .promo .spark { font-size: 20px; }
+  .promo strong { display: block; margin-top: 8px; font-size: 16.5px; line-height: 1.3; }
+
+  /* ---------- content ---------- */
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 26px 28px;
+    margin-bottom: 18px; box-shadow: var(--shadow);
+    scroll-margin-top: 20px;
+  }
+  .card h2 {
+    display: flex; align-items: center; gap: 14px;
+    margin: 0 0 14px; font-size: 21px; font-weight: 700;
+    color: var(--ink); letter-spacing: -.3px;
+  }
+  .card h2 .n {
+    flex: none; width: 34px; height: 34px; border-radius: 10px;
+    background: var(--green); color: #fff;
+    display: grid; place-items: center; font-size: 16px; font-weight: 800;
+  }
+  .card p { margin: 0 0 13px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  .agree {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: var(--green-tint); border: 1px solid var(--green-line);
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px;
+  }
+  .agree .tick { flex: none; }
+  .agree b { display: block; color: #14532d; }
+  .agree span { color: #2f6b45; font-size: 15px; }
+
+  .note {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: var(--green-tint); border: 1px solid var(--green-line);
+    border-radius: 14px; padding: 15px 17px; margin: 14px 0 0;
+    color: #25613d; font-size: 15px;
+  }
+  .note.plain { background: #f6f8fa; border-color: var(--line); color: var(--muted); }
+  .note p { margin: 0; color: inherit; }
+
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 26px; margin: 4px 0 0; padding: 0; list-style: none; }
+  .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+  .checks .tick { flex: none; margin-top: 2px; }
+
+  dl { margin: 0; }
+  dt { font-weight: 700; color: var(--ink); margin-top: 14px; }
+  dt:first-child { margin-top: 0; }
+  dd { margin: 5px 0 0; color: var(--muted); }
+
+  footer.site {
+    margin: 34px 0 44px; padding-top: 22px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 14px;
+    display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+  }
+  footer.site .dot { color: #b9c3cf; }
+
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static; }
+    .toc-box { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px; }
+    .hero-art { inset: 0; }
+    .hero-art::before { background: linear-gradient(90deg, rgba(9,19,32,.95), rgba(9,19,32,.72)); }
+  }
+  @media (max-width: 760px) {
+    .nav-links { display: none; }
+    .nav { padding: 16px 20px; gap: 14px; }
+    .checks { grid-template-columns: 1fr; }
+    .hero-inner { padding: 14px 22px 34px; }
+    .card { padding: 22px 20px; }
+    .shell { padding: 0 16px; }
+  }
+  @media (max-width: 420px) {
+    .nav-actions .pill-ghost { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <section class="hero">
+    <div class="hero-art"></div>
+
+  <nav class="nav">
+    <!-- plagsini.com is a single page, so every item lands there rather than
+         on a section URL that does not exist. -->
+    <a class="brand" href="https://plagsini.com/">
+      <img src="/static/logo.png" alt="PlagSini" />
+      <span>PlagSini</span>
+    </a>
+    <div class="nav-links">
+      <a href="https://plagsini.com/">Home</a>
+      <a href="https://plagsini.com/">Charging Network</a>
+      <a href="mailto:enquiry@plagsini.com">Support</a>
+      <a href="https://plagsini.com/">About Us</a>
+    </div>
+    <div class="nav-actions">
+      <a class="pill pill-ghost" href="tel:+60355247844">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>
+        Help &amp; Support
+      </a>
+      <a class="pill pill-green" href="https://plagsini.com/">Find a Charger &rarr;</a>
+    </div>
+  </nav>
+
+    <div class="hero-inner">
+      <span class="badge">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5ad23f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5.5v5.9c0 5 3.4 9.6 8 10.6 4.6-1 8-5.6 8-10.6V5.5Z"/><path d="m9 12 2 2 4-4"/></svg>
+        Legal Information
+      </span>
+      <h1>Terms and<span class="accent">Conditions of Use</span></h1>
+      <div class="stamp">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5ad23f" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="17" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
+        Last updated: 16 November 2026
+      </div>
+      <p>
+        These terms govern your use of the PlagSini charging network, which is operated
+        by PlagSini Sdn Bhd (&ldquo;PlagSini&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;).
+        They apply whether you start a charge through the PlagSini app, through a QR
+        code at a charge point, or through the app of a roaming partner whose
+        customers we serve.
+      </p>
+    </div>
+  </section>
+
+  <div class="layout">
+
+    <aside class="toc">
+      <div class="toc-box">
+        <a href="#overview" class="on"><span class="num">&#9679;</span> Overview</a>
+        <a href="#s1"><span class="num">1</span> Who you are contracting with</a>
+        <a href="#s2"><span class="num">2</span> Using a charge point</a>
+        <a href="#s3"><span class="num">3</span> Prices, payment and pre-authorisation</a>
+        <a href="#s4"><span class="num">4</span> Idle fee</a>
+        <a href="#s5"><span class="num">5</span> Availability of the service</a>
+        <a href="#s6"><span class="num">6</span> Your vehicle</a>
+        <a href="#s7"><span class="num">7</span> Limitation of liability</a>
+        <a href="#s8"><span class="num">8</span> Misuse and suspension</a>
+        <a href="#s9"><span class="num">9</span> Personal data</a>
+        <a href="#s10"><span class="num">10</span> Changes to these terms</a>
+        <a href="#s11"><span class="num">11</span> Governing law</a>
+        <a href="#s12"><span class="num">12</span> Contact us</a>
+      </div>
+      <div class="promo">
+        <div class="spark">&#9889;</div>
+        <strong>Charging Smarter.<br />Together.</strong>
+      </div>
+    </aside>
+
+    <div class="content">
+
+      <div class="agree" id="overview">
+        <svg class="tick" width="26" height="26" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg>
+        <div>
+          <b>By starting a charging session at any PlagSini charge point you accept these terms.</b>
+          <span>If you do not accept them, do not use our charge points.</span>
+        </div>
+      </div>
+
+      <article class="card" id="s1">
+        <h2><span class="n">1</span> Who you are contracting with</h2>
+        <p>
+          The charging service is provided by PlagSini Sdn Bhd. If you reached our charge
+          point through a roaming partner&rsquo;s app, your payment relationship is with
+          that partner and their terms govern how they bill you. These terms still
+          govern your use of the charge point itself.
+        </p>
+        <div class="note">
+          <svg class="tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9"/></svg>
+          <p>
+            You must be at least 18 years old and legally able to enter into a contract.
+            If you are charging a vehicle you do not own, you confirm you are permitted to
+            do so, and these terms bind you and the vehicle owner.
+          </p>
+        </div>
+      </article>
+
+      <article class="card" id="s2">
+        <h2><span class="n">2</span> Using a charge point</h2>
+        <p>You are responsible for using the charge point safely and correctly. In particular:</p>
+        <ul class="checks">
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Follow the instructions shown on the charge point, in the app, and in your vehicle manufacturer&rsquo;s handbook.</span></li>
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Do not use adaptors or cables that the vehicle manufacturer has not approved.</span></li>
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Check that the connector is compatible with your vehicle before you start.</span></li>
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Park within the bay and do not obstruct other users.</span></li>
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Do not use equipment that is visibly damaged, and do not attempt to repair, open or modify a charge point.</span></li>
+          <li><svg class="tick" width="18" height="18" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 5-5 1.4 1.4Z"/></svg><span>Stop charging and contact us if anything appears unsafe.</span></li>
+        </ul>
+        <div class="note">
+          <svg class="tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>
+          <p>
+            If a charge point is damaged, faulty or unsafe, please report it to us using
+            the contact details at the end of this page.
+          </p>
+        </div>
+      </article>
+
+      <article class="card" id="s3">
+        <h2><span class="n">3</span> Prices, payment and pre-authorisation</h2>
+        <p>
+          The price of a charging session is shown before you start it. Prices are set
+          per charge point and may differ between locations. We may change prices at any
+          time, but a change will never affect a session already in progress.
+        </p>
+        <div class="note">
+          <svg class="tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></svg>
+          <p>
+            Where you pay us directly, we may place a pre-authorisation hold on your
+            payment method before charging begins. This is not a charge. When the session
+            ends we take the amount actually owed for the energy delivered, plus any idle
+            fee, and release the remainder. The time your bank or e-wallet takes to show
+            the released amount is outside our control.
+          </p>
+        </div>
+        <p style="margin-top:14px">
+          Where you reached us through a roaming partner, that partner bills you under
+          their own terms and we do not hold or charge your payment method.
+        </p>
+      </article>
+
+      <article class="card" id="s4">
+        <h2><span class="n">4</span> Idle fee</h2>
+        <p>
+          A charging bay is only useful to the next driver when it is free. Where a
+          charge point applies an idle fee, the fee begins after a free grace period
+          that starts when your vehicle stops drawing power, and it stops when you
+          unplug. The grace period, the rate, and the billing block are shown before you
+          start the session.
+        </p>
+        <div class="note">
+          <svg class="tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.8V12l3.4 2"/></svg>
+          <p>Please unplug and move your vehicle promptly once charging has finished.</p>
+        </div>
+      </article>
+
+      <article class="card" id="s5">
+        <h2><span class="n">5</span> Availability of the service</h2>
+        <p>
+          We work to keep our charge points available and in good order, but we cannot
+          guarantee that any particular charge point will be available, free, in working
+          order, compatible with your vehicle, or able to deliver any particular
+          charging speed. Charging speed depends on your vehicle, its battery state and
+          temperature, the ambient conditions, and the capacity of the site.
+        </p>
+        <p>
+          We may suspend or withdraw a charge point without notice for maintenance,
+          safety, or where we reasonably suspect misuse. We rely on mobile networks,
+          payment providers and the electricity supply, none of which we control.
+        </p>
+      </article>
+
+      <article class="card" id="s6">
+        <h2><span class="n">6</span> Your vehicle</h2>
+        <p>
+          Your vehicle remains your responsibility at all times. We are not liable for
+          damage to your vehicle, its battery or its charging equipment where the damage
+          results from your failure to take reasonable care, to follow the instructions
+          given, or to comply with your vehicle manufacturer&rsquo;s requirements, or
+          from a defect in your own vehicle or equipment.
+        </p>
+      </article>
+
+      <article class="card" id="s7">
+        <h2><span class="n">7</span> Limitation of liability</h2>
+        <div class="note">
+          <svg class="tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5.5v5.9c0 5 3.4 9.6 8 10.6 4.6-1 8-5.6 8-10.6V5.5Z"/></svg>
+          <p>
+            Nothing in these terms limits or excludes our liability for death or
+            personal injury caused by our negligence, for fraud, or for anything else
+            that cannot lawfully be limited. Your rights under the Consumer Protection
+            Act 1999 are not affected.
+          </p>
+        </div>
+        <p style="margin-top:14px">
+          Subject to the paragraph above, we are not liable for indirect or
+          consequential loss, nor for loss of profit, revenue, time, opportunity or
+          data, however arising. Our total liability in connection with any one
+          charging session is limited to the amount you paid for that session.
+        </p>
+      </article>
+
+      <article class="card" id="s8">
+        <h2><span class="n">8</span> Misuse and suspension</h2>
+        <p>
+          We may refuse, suspend or withdraw access to our network where we reasonably
+          believe a charge point is being misused, damaged, used fraudulently, or used
+          in a way that creates a safety risk, or where amounts owed to us remain
+          unpaid. We may recover from you the cost of repairing damage you cause.
+        </p>
+      </article>
+
+      <article class="card" id="s9">
+        <h2><span class="n">9</span> Personal data</h2>
+        <p>
+          We process personal data in accordance with the Personal Data Protection Act
+          2010. To operate the service we record session details such as the charge
+          point used, the start and end time, the energy delivered, and the amount
+          charged. Where you arrive through a roaming partner we exchange the session
+          and billing records needed to settle that session with them, and we do not
+          share your identity beyond what that settlement requires.
+        </p>
+      </article>
+
+      <article class="card" id="s10">
+        <h2><span class="n">10</span> Changes to these terms</h2>
+        <p>
+          We may update these terms. The version published on this page at the time you
+          start a session is the version that applies to it. The date at the top of this
+          page shows when it was last changed.
+        </p>
+      </article>
+
+      <article class="card" id="s11">
+        <h2><span class="n">11</span> Governing law</h2>
+        <p>
+          These terms are governed by the laws of Malaysia, and the courts of Malaysia
+          have exclusive jurisdiction over any dispute arising from them.
+        </p>
+      </article>
+
+      <article class="card" id="s12">
+        <h2><span class="n">12</span> Contact us</h2>
+        <!-- The building holds several companies, so this is given as a
+             contact address and not as a registered office. -->
+        <dl>
+          <dt>PlagSini Sdn Bhd</dt>
+          <dd>Address: Lot 2, Jalan Gergaji 15/14, Seksyen 15, 40200 Shah Alam, Selangor, Malaysia</dd>
+          <dt>Support</dt>
+          <dd>Email: <a href="mailto:enquiry@plagsini.com">enquiry@plagsini.com</a></dd>
+          <dd>Phone: <a href="tel:+60355247844">+603-5524 7844</a></dd>
+          <dd>Web: <a href="https://plagsini.com/">plagsini.com</a></dd>
+        </dl>
+      </article>
+
+    </div>
+  </div>
+
+  <footer class="site">
+    <span>PlagSini charging network, operated by PlagSini Sdn Bhd.</span>
+    <span class="dot">&bull;</span>
+    <span>Last updated 16 November 2026</span>
+  </footer>
+</div>
+
+<script>
+  // Highlight the section being read. Progressive enhancement only: with no
+  // JavaScript the list is still a working set of anchors.
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var targets = links
+      .map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); })
+      .filter(Boolean);
+    if (!targets.length || !('IntersectionObserver' in window)) return;
+
+    function mark(id) {
+      links.forEach(function (a) {
+        a.classList.toggle('on', a.getAttribute('href') === '#' + id);
+      });
+    }
+
+    var seen = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      for (var i = 0; i < targets.length; i++) {
+        if (seen[targets[i].id]) { mark(targets[i].id); return; }
+      }
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+
+    targets.forEach(function (t) { io.observe(t); });
+  })();
+</script>
+
+</body>
+</html>

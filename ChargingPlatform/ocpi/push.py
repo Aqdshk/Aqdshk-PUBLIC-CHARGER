@@ -18,12 +18,48 @@ URL, from which we read the 2.2.1 version detail and its module endpoints. The
 result is cached, since it changes about as often as the partnership does.
 """
 import asyncio
+import base64
 import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def auth_header(token: str) -> str:
+    """The Authorization header to present when we call a partner.
+
+    OCPI 2.2.1 §4.1.3 says the token travels base64-encoded. We sent it raw,
+    and every outbound call was refused. Verified against Voltality's UAT on
+    2026-11-12: the plain token answers 401 on their 2.2.1 endpoints and the
+    encoded one answers 200, which is the 401 they reported on every
+    CommandResult callback.
+
+    Inbound is deliberately not symmetrical. `_token_candidates` in router.py
+    accepts either form from a caller, because plenty of clients still send it
+    raw; we are strict about what we send and lenient about what we accept.
+    """
+    return "Token " + base64.b64encode(token.encode("utf-8")).decode("ascii")
+
+
+def enabled() -> bool:
+    """Whether to push at all. Off unless OCPI_PUSH_ENABLED says otherwise.
+
+    This module has never actually pushed anything: it only acts when a row
+    exists in ocpi_partners, and that table was empty from the day it was
+    created until Voltality's credential was stored on 2026-11-12. Storing
+    that one row would therefore have switched outbound pushing on for the
+    first time, as a side effect of fixing the command callbacks, on the eve
+    of their UAT.
+
+    Those are two separate changes and they deserve separate decisions, so
+    the default here preserves what the platform has always done. Turn it on
+    deliberately, once a partner has agreed to receive pushes, by setting
+    OCPI_PUSH_ENABLED=1 in docker-compose.prod.yml.
+    """
+    return os.getenv("OCPI_PUSH_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 _QUEUE: "Optional[asyncio.Queue]" = None
 _WORKER: "Optional[asyncio.Task]" = None
@@ -43,7 +79,12 @@ def enqueue(kind: str, ref: Any) -> None:
     Silently does nothing if the worker is not running, which is the case in
     tests and in any process that is not the API. A dropped push is not worth
     an exception on the OCPP path.
+
+    Dropping here rather than in the worker means a disabled push costs the
+    caller nothing and queues nothing.
     """
+    if not enabled():
+        return
     q = _QUEUE
     if q is None:
         return
@@ -56,6 +97,9 @@ def enqueue(kind: str, ref: Any) -> None:
 async def start_worker() -> None:
     global _QUEUE, _WORKER
     if _WORKER is not None:
+        return
+    if not enabled():
+        logger.info("[ocpi-push] disabled (set OCPI_PUSH_ENABLED=1 to turn on)")
         return
     _QUEUE = asyncio.Queue(maxsize=2000)
     _WORKER = asyncio.create_task(_run())
@@ -99,7 +143,7 @@ async def _endpoints_for(partner) -> Dict[str, str]:
 
     import httpx
 
-    headers = {"Authorization": f"Token {partner.token}"}
+    headers = {"Authorization": auth_header(partner.token)}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             r = await client.get(partner.versions_url, headers=headers)
@@ -146,7 +190,7 @@ async def _send(partner, url: str, payload: dict, method: str = "PUT") -> bool:
     import httpx
 
     headers = {
-        "Authorization": f"Token {partner.token}",
+        "Authorization": auth_header(partner.token),
         "Content-Type": "application/json",
         "X-Request-ID": datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
         "OCPI-from-country-code": os.getenv("OCPI_COUNTRY_CODE", "MY"),

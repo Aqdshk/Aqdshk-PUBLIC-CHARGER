@@ -11,6 +11,7 @@ import 'live_charging_screen.dart';
 import 'booking_screen.dart';
 import 'rating_review_screen.dart';
 import 'charger_settings_screen.dart';
+import '../providers/theme_provider.dart';
 
 class ChargerDetailScreen extends StatefulWidget {
   final Map<String, dynamic> charger;
@@ -194,6 +195,9 @@ class _ChargerDetailScreenState extends State<ChargerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     final name = _charger['charge_point_id'] ?? 'Unknown Charger';
     // Per-connector status (from /api/chargers connector_status JSON map).
     // For multi-socket chargers the gate must follow the SELECTED socket,
@@ -900,6 +904,9 @@ class _InfoItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Column(
       children: [
         Icon(icon, color: iconColor, size: 16),
@@ -933,6 +940,9 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -978,6 +988,9 @@ class _ConnectorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1068,6 +1081,9 @@ class _AmenityChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the palette swaps: AppColors is global, so
+    // nothing else would tell this widget its colours changed.
+    context.watch<ThemeProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(

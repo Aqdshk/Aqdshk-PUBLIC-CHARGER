@@ -7,7 +7,7 @@
     <link rel="icon" href="/static/logo.png" type="image/png">
     <link rel="stylesheet" href="/static/styles.css?v=13">
     <script src="/static/theme.js?v=2"></script>
-    <script src="/static/tenant.js?v=1"></script>
+    <script src="/static/tenant.js?v=3"></script>
     <style>
         .ss-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
         .ss-toolbar input { flex:1; min-width:180px; padding:7px 11px; background:var(--bg-base); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; outline:none; }
@@ -29,6 +29,7 @@
         .ss-pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:9px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; }
         .ss-pill.completed { background:rgba(0,255,136,0.12); color:#00ff88; }
         .ss-pill.active    { background:rgba(255,153,68,0.14); color:#ff9944; }
+        .ss-pill.idling    { background:rgba(255,196,0,0.16); color:#ffc400; }
         .ss-pill.cancelled { background:rgba(120,120,120,0.18); color:var(--text-muted); }
         .ss-pill.failed    { background:rgba(255,68,102,0.14); color:#ff4466; }
         .ss-count { font-size:10px; color:var(--text-muted); letter-spacing:0.5px; font-weight:500; }
@@ -49,27 +50,28 @@
         <div class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Main Menu</div>
-                <a href="/" class="nav-item"><span class="nav-item-icon">📊</span><span class="nav-item-text">Dashboard</span></a>
-                <a href="/analytics" class="nav-item"><span class="nav-item-icon">🧠</span><span class="nav-item-text">Analytics & Insights</span></a>
-                <a href="/chargers" class="nav-item"><span class="nav-item-icon">🔌</span><span class="nav-item-text">Charger Status</span></a>
-                <a href="/sessions" class="nav-item active"><span class="nav-item-icon">📋</span><span class="nav-item-text">Sessions</span></a>
-                <a href="/metering" class="nav-item"><span class="nav-item-icon">⚡</span><span class="nav-item-text">Metering</span></a>
-                <a href="/faults" class="nav-item"><span class="nav-item-icon">⚠️</span><span class="nav-item-text">Faults</span></a>
-                <a href="/maintenance" class="nav-item"><span class="nav-item-icon">🔧</span><span class="nav-item-text">Maintenance</span></a>
-                <a href="/invoice" class="nav-item"><span class="nav-item-icon">📄</span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon">💳</span><span class="nav-item-text">Payment Gateway</span></a>
-                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon">💰</span><span class="nav-item-text">Top Up (User)</span></a>
-                <a href="/operations" class="nav-item"><span class="nav-item-icon">🎛️</span><span class="nav-item-text">OCPP Operations</span></a>
-                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon">📟</span><span class="nav-item-text">Payment Terminals</span></a>
+                <a href="/" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span class="nav-item-text">Dashboard</span></a>
+                <a href="/analytics" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span><span class="nav-item-text">Analytics & Insights</span></a>
+                <a href="/chargers" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a6 6 0 0 1-12 0V8Z"/></svg></span><span class="nav-item-text">Charger Status</span></a>
+                <a href="/sessions" class="nav-item active"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8"/><path d="M8 16h5"/></svg></span><span class="nav-item-text">Sessions</span></a>
+                <a href="/metering" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg></span><span class="nav-item-text">Metering</span></a>
+                <a href="/faults" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nav-item-text">Faults</span></a>
+                <a href="/maintenance" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg></span><span class="nav-item-text">Maintenance</span></a>
+                <a href="/invoice" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8"/><path d="M8 17h6"/></svg></span><span class="nav-item-text">Invoice & Reports</span></a>                <a href="/payment-settings" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg></span><span class="nav-item-text">Payment Gateway</span></a>
+                <a href="/topup" class="nav-item" target="_blank"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M18 12h.01"/></svg></span><span class="nav-item-text">Top Up (User)</span></a>
+                <a href="/operations" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg></span><span class="nav-item-text">OCPP Operations</span></a>
+                <a href="/admin/terminals" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg></span><span class="nav-item-text">Payment Terminals</span></a>
             </div>
             <div class="nav-section">
                 <div class="nav-section-title">Administration</div>
-                <a href="/admin" class="nav-item"><span class="nav-item-icon">👥</span><span class="nav-item-text">User Management</span></a>
-                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon">🎫</span><span class="nav-item-text">Support Tickets</span></a>
-                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon">🏢</span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="nav-item-text">User Management</span></a>
+                <a href="/admin#tickets" class="nav-item" onclick="localStorage.setItem('adminTab','tickets')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v14"/></svg></span><span class="nav-item-text">Support Tickets</span></a>
+                <a href="/admin?tab=staff" class="nav-item" onclick="localStorage.setItem('adminTab','staff')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg></span><span class="nav-item-text">Staff Management</span></a>
+                <a href="/admin?tab=vendors" class="nav-item" onclick="localStorage.setItem('adminTab','vendors')"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></svg></span><span class="nav-item-text">Vendor Access</span></a>
             </div>
         </div>
         <div class="sidebar-footer">
-            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon">📚</span><span class="nav-item-text">API Docs</span></a>
+            <a href="/docs" target="_blank" class="nav-item"><span class="nav-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"/></svg></span><span class="nav-item-text">API Docs</span></a>
         </div>
     </nav>
 
@@ -119,8 +121,135 @@
         </div>
     </div>
 
+    <!-- Session timeline. Reading a session used to mean SSHing to the server
+         and grepping container logs, so only one person could do it and only
+         while the logs were still around. -->
+    <div class="modal-backdrop" id="tlModal" onclick="if(event.target===this)closeTimeline()">
+        <div class="tl-box">
+            <div class="tl-head">
+                <h3 style="margin:0;">🧾 Session <span id="tlTxn">—</span></h3>
+                <button class="btn btn-secondary btn-small" onclick="closeTimeline()">✕</button>
+            </div>
+            <div id="tlBody" style="margin-top:14px;">Loading…</div>
+        </div>
+    </div>
+    <style>
+        .ss-row { cursor: pointer; }
+        .ss-row:hover { background: rgba(127,127,160,.10); }
+        .modal-backdrop {
+            display:none; position:fixed; inset:0; background:rgba(0,0,0,.65);
+            z-index:900; align-items:flex-start; justify-content:center;
+            padding:40px 16px; overflow:auto;
+        }
+        .modal-backdrop.open { display:flex; }
+        .tl-box {
+            background:var(--bg-card,#15152B); border:1px solid var(--border,#2A2A4A);
+            border-radius:12px; padding:20px; width:min(980px,96vw);
+        }
+        .tl-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .tl-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0 4px; }
+        .tl-card {
+            background:var(--bg-base,#0A0A1A); border:1px solid var(--border,#2A2A4A);
+            border-radius:8px; padding:9px 11px;
+        }
+        .tl-card .k { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted,#8A8AB0); }
+        .tl-card .v { font-size:14px; font-weight:600; margin-top:3px; }
+        .tl-sum { margin-top:12px; font-size:13px; line-height:1.75; }
+        .tl-ev { margin-top:16px; border-top:1px solid var(--border,#2A2A4A); padding-top:12px; }
+        .tl-row { display:flex; gap:10px; padding:5px 0; font-size:12px; align-items:flex-start; }
+        .tl-row .t { color:var(--text-muted,#8A8AB0); font-family:ui-monospace,Menlo,Consolas,monospace; white-space:nowrap; }
+        .tl-row .b { flex:1; min-width:0; }
+        .tl-row .lab { font-weight:600; }
+        .tl-row .raw {
+            font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px;
+            color:var(--text-muted,#8A8AB0); word-break:break-all; margin-top:2px;
+        }
+        .k-command .lab { color:#60a5fa; }
+        .k-partner .lab { color:#a78bfa; }
+        .k-charger .lab { color:#34d399; }
+        .k-error   .lab { color:#f87171; }
+        .k-billing .lab { color:#fbbf24; }
+        .k-status  .lab { color:#94a3b8; }
+        .k-meter   .lab { color:#64748b; }
+    </style>
+
     <script>
         const API_BASE = '/api';
+
+        // ---- Session timeline -------------------------------------------
+        // Pulls the session's own facts and the log lines from its window,
+        // so an operator can answer "why did this cost that" without a shell.
+        function closeTimeline() {
+            document.getElementById('tlModal').classList.remove('open');
+        }
+        function _tlTime(iso) {
+            if (!iso) return '—';
+            return String(iso).replace('T', ' ').slice(0, 19);
+        }
+        async function openTimeline(txn) {
+            const modal = document.getElementById('tlModal');
+            document.getElementById('tlTxn').textContent = '#' + txn;
+            document.getElementById('tlBody').innerHTML = 'Loading…';
+            modal.classList.add('open');
+            try {
+                const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken') || '';
+                const res = await fetch(`${API_BASE}/admin/sessions/${txn}/timeline`, {
+                    headers: token ? { 'X-Staff-Token': token } : {},
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                _renderTimeline(await res.json());
+            } catch (e) {
+                document.getElementById('tlBody').innerHTML =
+                    `<div style="color:#f87171;font-size:13px;">Could not load: ${e.message}</div>`;
+            }
+        }
+        function _renderTimeline(d) {
+            const m = d.money, t = d.times;
+            const card = (k, v) => `<div class="tl-card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+            // Spell out the arithmetic. During the Voltality tests every
+            // question was "where did this number come from".
+            const sums = [];
+            sums.push(`Energy: ${m.energy_kwh} kWh × RM${m.rate_per_kwh}/kWh = <b>RM${m.energy_cost.toFixed(2)}</b>`);
+            if (m.idle_fee_enabled) {
+                sums.push(`Idle: ${m.idle_minutes} min × RM${m.idle_rate_per_min}/min = <b>RM${m.idle_cost.toFixed(2)}</b>`
+                        + ` <span style="color:var(--text-muted,#8A8AB0)">(first ${m.idle_grace_minutes} min free, parking rounded up to the whole minute)</span>`);
+            } else {
+                sums.push(`Idle: not charged on this charger`);
+            }
+            sums.push(`Total: <b>RM${m.total.toFixed(2)}</b>`);
+
+            const evs = (d.events || []).map(e => `
+                <div class="tl-row k-${e.kind}">
+                    <div class="t">${(e.at || '').slice(11)}</div>
+                    <div class="b"><div class="lab">${e.label}</div><div class="raw">${_esc(e.line)}</div></div>
+                </div>`).join('');
+
+            document.getElementById('tlBody').innerHTML = `
+                <div class="tl-grid">
+                    ${card('Charger', d.charge_point_id || '—')}
+                    ${card('Status', d.status || '—')}
+                    ${card('Stop reason', d.stop_reason || '—')}
+                    ${card('Started', _tlTime(t.start))}
+                    ${card('Stopped', _tlTime(t.stop))}
+                    ${card('Unplugged', _tlTime(t.unplugged) )}
+                </div>
+                <div class="tl-sum">${sums.join('<br>')}</div>
+                ${d.partner.authorization_reference
+                    ? `<div class="tl-sum" style="color:var(--text-muted,#8A8AB0);">Partner reference: ${_esc(d.partner.authorization_reference)}</div>`
+                    : ''}
+                <div class="tl-ev">
+                    <div style="font-size:12px;color:var(--text-muted,#8A8AB0);margin-bottom:6px;">
+                        ${evs ? `What happened, from the logs (${d.log_lines_scanned} lines scanned)`
+                              : 'No log lines for this session. Logs are kept for a limited window, so older sessions show facts only.'}
+                    </div>
+                    ${evs}
+                </div>`;
+        }
+        function _esc(x) {
+            return String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+        }
+
 
         function formatKLTime(isoString) {
             if (!isoString) return 'N/A';
@@ -183,8 +312,58 @@
             Other:           ['reason: other', 'The charger reported "Other" — commonly a normal end of charge on this firmware.'],
         };
 
+        // Who ended the charge, decided on the server at StopTransaction
+        // where it is still known whether we asked for the stop. The
+        // charger's own reason cannot tell: DC3001 answers "Other" both when
+        // the driver ends the charge from the car and when it finishes by
+        // itself, which is why this used to read "reason: other" and say
+        // nothing. Older sessions carry no initiator and fall back to the
+        // reason alone.
+        const _INITIATOR_TEXT = {
+            platform: ['stopped from platform', 'A remote stop was sent from PlagSini or a roaming partner.'],
+            charger:  ['stopped at the charge point', 'Ended at the unit itself, or by the charge point for its own reasons.'],
+            vehicle:  ['stopped from the vehicle', 'The driver ended it from the car, or the car stopped drawing power. The charger did not report a remote or local stop.'],
+        };
+
+        // A charge ends in two steps. The transaction closes when the car
+        // stops drawing power, and the session is not finished until the
+        // cable comes out: the idle fee runs in between and the CDR is held
+        // until the unplug. The badge read COMPLETED from the first step, so
+        // a bay still occupied and still charging the driver looked settled.
+        function _displayStatus(s) {
+            const stopped = !!s.stop_time;
+            const unplugged = !!s.unplugged_at;
+            if (stopped && !unplugged && s.status !== 'interrupted') {
+                return {
+                    label: 'idling',
+                    cls: 'idling',
+                    hint: 'Charging has finished but the cable is still in. The idle fee runs until it is unplugged, and the session is not final yet.',
+                };
+            }
+            return {
+                label: s.status,
+                cls: s.status,
+                hint: unplugged ? 'Unplugged, session final.' : '',
+            };
+        }
+
+        function _idleNote(s) {
+            const mins = s.idle_minutes || 0;
+            const fee = Number(s.idle_fee_amount || 0);
+            if (!mins && !fee) return '';
+            const money = fee ? ` · RM${fee.toFixed(2)}` : '';
+            return `<div style="font-size:10px;margin-top:3px;color:#ffc400;">idle ${mins} min${money}</div>`;
+        }
+
         function _stopReasonNote(s) {
             const r = s.stop_reason;
+            const who = _INITIATOR_TEXT[s.stop_initiator];
+            if (who) {
+                const extra = r ? ` Charger reported: ${r}.` : '';
+                const warn2 = (r === 'PowerLoss' || r === 'EmergencyStop');
+                const col = warn2 ? 'var(--warning, #ffa500)' : 'var(--text-muted, #8b949e)';
+                return `<div title="${who[1]}${extra}" style="font-size:10px;margin-top:3px;color:${col};cursor:help;">${who[0]}</div>`;
+            }
             if (!r) return '';
             const known = _STOP_REASON_TEXT[r];
             const label = known ? known[0] : r;
@@ -254,7 +433,7 @@
                 const conn = (s.connector_id != null && s.connector_id !== undefined) ? `· #${s.connector_id}` : '';
                 const energy = (s.energy_consumed || 0).toFixed(2);
                 const stopTxt = s.stop_time ? _shortTime(s.stop_time) : '<em style="color:var(--text-muted);font-style:normal;">ongoing</em>';
-                return `<tr>
+                return `<tr class="ss-row" onclick="openTimeline(${s.transaction_id})" title="Show everything that happened in this session">
                     <td class="txn">#${s.transaction_id}</td>
                     <td><div>${s.charge_point_id}</div><div class="cp">${conn || 'connector N/A'}</div></td>
                     <td class="time">${_shortTime(s.start_time)}</td>
@@ -262,7 +441,8 @@
                     <td class="num">${energy}</td>
                     <td class="cp">${s.id_tag || '—'}</td>
                     <td>
-                        <span class="ss-pill ${s.status}">${s.status}</span>
+                        <span class="ss-pill ${_displayStatus(s).cls}" title="${_displayStatus(s).hint}">${_displayStatus(s).label}</span>
+                        ${_idleNote(s)}
                         ${_stopReasonNote(s)}
                     </td>
                 </tr>`;
