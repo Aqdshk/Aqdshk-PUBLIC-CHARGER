@@ -4082,3 +4082,195 @@ class InvoicePagePartnerTests(unittest.TestCase):
         arrive without the token and come back 401 instead of a file."""
         self.assertIn("downloadExport", self.page)
         self.assertIn("headers: authHeaders()", self.page)
+
+
+class DeleteChargerTests(unittest.TestCase):
+    """A charger with history is never deleted.
+
+    Every report joins `chargers` to name the charge point and its address,
+    so removing one would take its sessions out of reports for months that
+    have already been invoiced: the same silent rewrite that moving a
+    charger between tenants used to cause. Deleting exists for debris, a
+    charger an internet scanner invented by probing the OCPP endpoint, or a
+    test that is over.
+    """
+
+    JUNK = "DELTEST_JUNK1"
+    USED = "DELTEST_USED1"
+    DAY = datetime(2026, 5, 4, 9, 0, 0)
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
+        api.app.dependency_overrides[api.require_admin_or_staff_admin] = \
+            lambda: {"role": "admin", "email": "test@local"}
+        cls.client = TestClient(api.app)
+        cls.db = SessionLocal()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.query(ChargingSession).filter(
+            ChargingSession.transaction_id == 993001).delete(
+            synchronize_session=False)
+        cls.db.query(Charger).filter(
+            Charger.charge_point_id.in_([cls.JUNK, cls.USED])).delete(
+            synchronize_session=False)
+        cls.db.commit()
+        cls.db.close()
+        api.app.dependency_overrides.pop(api.require_admin_or_staff_admin, None)
+        api.invalidate_chargers_cache()
+
+    def setUp(self):
+        from database import MeterValue
+        self.db.query(ChargingSession).filter(
+            ChargingSession.transaction_id == 993001).delete(
+            synchronize_session=False)
+        self.db.query(Charger).filter(
+            Charger.charge_point_id.in_([self.JUNK, self.USED])).delete(
+            synchronize_session=False)
+        self.db.commit()
+
+        self.junk = Charger(charge_point_id=self.JUNK, tenant="czero-tng",
+                            vendor="ProbeVendor", model="ProbeModel",
+                            status="offline", availability="available")
+        self.used = Charger(charge_point_id=self.USED, tenant="czero-tng",
+                            tariff_per_kwh=1.40, status="offline",
+                            availability="available")
+        self.db.add_all([self.junk, self.used])
+        self.db.commit()
+        # Debris still leaves telemetry behind; a scanner's probe produces a
+        # meter value or two and nothing else.
+        self.db.add(MeterValue(charger_id=self.junk.id, timestamp=self.DAY))
+        self.db.add(ChargingSession(
+            charger_id=self.used.id, transaction_id=993001, status="completed",
+            start_time=self.DAY, stop_time=self.DAY + timedelta(hours=1),
+            energy_consumed=5.0, tariff_per_kwh_at_start=1.40))
+        self.db.commit()
+        api.invalidate_chargers_cache()
+        api.active_charge_points.pop(self.JUNK, None)
+
+    def _delete(self, cp, confirm=None):
+        q = {} if confirm is None else {"confirm": confirm}
+        return self.client.request(
+            "DELETE", "/api/admin/chargers/%s" % cp, params=q)
+
+    def _exists(self, cp):
+        return self.db.query(Charger).filter(
+            Charger.charge_point_id == cp).first() is not None
+
+    # --- the guard that matters ----------------------------------------
+    def test_a_charger_with_history_is_refused(self):
+        r = self._delete(self.USED, confirm=self.USED)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.db.expire_all()
+        self.assertTrue(self._exists(self.USED))
+
+    def test_the_refusal_explains_what_would_break(self):
+        """An operator told only "refused" will look for a way around it."""
+        detail = self._delete(self.USED, confirm=self.USED).json()["detail"]
+        self.assertIn("1 charging session", detail)
+        self.assertIn("invoiced", detail)
+        self.assertIn("Hide it instead", detail)
+
+    def test_the_session_survives_the_attempt(self):
+        self._delete(self.USED, confirm=self.USED)
+        self.assertEqual(
+            self.db.query(ChargingSession).filter(
+                ChargingSession.transaction_id == 993001).count(), 1)
+
+    # --- confirmation ---------------------------------------------------
+    def test_without_the_typed_id_nothing_happens(self):
+        for confirm in (None, "", "something-else", self.JUNK.lower()):
+            with self.subTest(confirm):
+                r = self._delete(self.JUNK, confirm=confirm)
+                self.assertEqual(r.status_code, 400, r.text)
+                self.db.expire_all()
+                self.assertTrue(self._exists(self.JUNK))
+
+    def test_a_charger_that_is_not_there_is_a_404(self):
+        self.assertEqual(
+            self._delete("NO-SUCH-CHARGER", confirm="NO-SUCH-CHARGER").status_code,
+            404)
+
+    # --- a live charger would simply come back --------------------------
+    def test_a_connected_charger_is_refused(self):
+        """It would register itself again on its next BootNotification, so
+        the delete achieves nothing and loses what was configured on it."""
+        api.active_charge_points[self.JUNK] = object()
+        try:
+            r = self._delete(self.JUNK, confirm=self.JUNK)
+            self.assertEqual(r.status_code, 409, r.text)
+            self.assertIn("connected over OCPP", r.json()["detail"])
+        finally:
+            api.active_charge_points.pop(self.JUNK, None)
+
+    # --- what a successful delete does ----------------------------------
+    def test_debris_is_removed(self):
+        r = self._delete(self.JUNK, confirm=self.JUNK)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.expire_all()
+        self.assertFalse(self._exists(self.JUNK))
+
+    def test_its_telemetry_goes_with_it(self):
+        """Rows pointing at an id nothing answers to are worse than none."""
+        from database import MeterValue
+        cid = self.junk.id
+        r = self._delete(self.JUNK, confirm=self.JUNK)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["removed"].get("meter_values"), 1)
+        self.assertEqual(
+            self.db.query(MeterValue).filter(MeterValue.charger_id == cid).count(), 0)
+
+    def test_the_connection_log_goes_too(self):
+        """It keys on the charge point id, not the row id, so it is not
+        caught by the foreign keys. For a scanner's probe it is often the
+        only thing that was ever written."""
+        from database import ChargerConnectionEvent
+        self.db.add(ChargerConnectionEvent(
+            charge_point_id=self.JUNK, event="connected", at=self.DAY))
+        self.db.commit()
+        r = self._delete(self.JUNK, confirm=self.JUNK)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(
+            self.db.query(ChargerConnectionEvent).filter(
+                ChargerConnectionEvent.charge_point_id == self.JUNK).count(), 0)
+
+    def test_it_leaves_the_list_immediately(self):
+        """The charger list is cached, so a delete that does not clear it
+        leaves the row on screen until the cache expires."""
+        self._delete(self.JUNK, confirm=self.JUNK)
+        ids = {c["charge_point_id"] for c in self.client.get("/api/chargers").json()}
+        self.assertNotIn(self.JUNK, ids)
+
+    def test_the_other_charger_is_untouched(self):
+        self._delete(self.JUNK, confirm=self.JUNK)
+        self.db.expire_all()
+        self.assertTrue(self._exists(self.USED))
+
+
+class ChargerPageDeleteTests(unittest.TestCase):
+    """The menu promised a delete for months and only printed a message."""
+
+    PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "templates", "chargers.html")
+
+    @classmethod
+    def setUpClass(cls):
+        with io.open(cls.PAGE, encoding="utf-8") as fh:
+            cls.page = fh.read()
+
+    def test_delete_is_wired(self):
+        self.assertNotIn("Delete ${cpId} \u2014 coming soon", self.page)
+        self.assertIn("method: 'DELETE'", self.page)
+
+    def test_it_asks_for_the_id_to_be_typed(self):
+        self.assertIn("Type the charger id to confirm", self.page)
+        self.assertIn("typed.trim() !== cpId", self.page)
+
+    def test_it_says_the_delete_cannot_be_undone(self):
+        self.assertIn("cannot be undone", self.page)
+
+    def test_it_shows_the_servers_refusal(self):
+        """The server explains why a charger with history cannot go. A page
+        that swallowed that and said "failed" would send someone hunting."""
+        self.assertIn("r.detail", self.page)

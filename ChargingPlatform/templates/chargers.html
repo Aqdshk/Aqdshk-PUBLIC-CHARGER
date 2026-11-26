@@ -1372,10 +1372,40 @@
             // for the maintenance flow is finalised. For now surface intent.
             alert(`Disable ${cpId} temporarily — coming soon.\n\n(Use Force reconnect or pull the breaker for now.)`);
         }
-        function deleteCharger(cpId) {
-            // TODO: wire to DELETE /api/admin/chargers/{id} once the endpoint
-            // exists with a cascade-safety check (no active sessions).
-            alert(`Delete ${cpId} — coming soon.\n\nNeeds confirm-typing and active-session guard before we wire this.`);
+        // Deleting is for debris: a charger a scanner invented by probing the
+        // OCPP endpoint, or a test that is over. A charger with any charging
+        // history is refused by the server, because every report joins the
+        // charger to name it and taking it away would quietly rewrite months
+        // that have already been invoiced.
+        async function deleteCharger(cpId) {
+            document.querySelectorAll('.actions-menu.open').forEach(m => m.classList.remove('open'));
+            const token = window.STAFF_AUTH?.token || localStorage.getItem('staffToken');
+            if (!token) { alert('Please log in again.'); return; }
+
+            // Typing the id is the confirmation. A charger id is long and
+            // unmemorable on purpose: nobody types one by accident.
+            const typed = prompt(
+                `Delete ${cpId} permanently?\n\n` +
+                `This cannot be undone. Its meter values, faults, pricing row ` +
+                `and connection log go with it.\n\n` +
+                `Type the charger id to confirm:`);
+            if (typed === null) return;
+            if (typed.trim() !== cpId) { alert('That does not match. Nothing was deleted.'); return; }
+
+            try {
+                const res = await fetch(
+                    `${API_BASE}/admin/chargers/${encodeURIComponent(cpId)}` +
+                    `?confirm=${encodeURIComponent(cpId)}`,
+                    { method: 'DELETE', headers: { 'X-Staff-Token': token } });
+                const r = await res.json().catch(() => ({}));
+                if (!res.ok) { alert(r.detail || `Failed (${res.status})`); return; }
+                const rows = Object.entries(r.removed || {})
+                    .map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`).join(', ');
+                alert(`${cpId} deleted.` + (rows ? `\n\nAlso removed: ${rows}.` : ''));
+                loadChargerStatus();
+            } catch (e) {
+                alert('Failed: ' + e.message);
+            }
         }
 
         // Roaming (OCPI) visibility: on or off, nothing else.

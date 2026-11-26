@@ -1581,6 +1581,134 @@ class UpdateChargerInfoRequest(BaseModel):
     connectivity: Optional[str] = None
 
 
+@app.delete("/api/admin/chargers/{charge_point_id}")
+async def delete_charger(
+    charge_point_id: str,
+    confirm: Optional[str] = Query(
+        None,
+        description="Must equal the charge point id. Typing it is the "
+                    "confirmation; a delete cannot be undone.",
+    ),
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin_or_staff_admin),
+):
+    """Remove a charger that has no charging history.
+
+    **A charger that has ever run a session is never deleted.** Every report
+    on this platform joins `chargers` to name the charge point and its
+    address, so deleting one would take its sessions out of every report
+    silently, including months already invoiced. That is the same failure as
+    moving a charger between tenants used to be, and the answer is the same:
+    history does not change because something about the hardware did. Hide
+    it from the dashboard instead, which is what `maintenance_mode` and
+    `is_public` are for.
+
+    What this is actually for is the debris: a charger created by an
+    internet scanner probing the OCPP endpoint, or by a test that is over.
+    Those have no sessions at all, and leaving them in place inflates the
+    fleet count and the tenant reports they landed in.
+
+    Telemetry that only describes the charger goes with it in the same
+    transaction: meter values, faults, its pricing row, schedules, bookings,
+    reviews and maintenance records. None of them means anything once the
+    charger they belong to is gone, and leaving them would orphan rows that
+    point at an id nothing answers to.
+    """
+    charger = (
+        db.query(Charger)
+        .filter(Charger.charge_point_id == charge_point_id)
+        .first()
+    )
+    if not charger:
+        raise HTTPException(status_code=404, detail="Charger not found")
+
+    if (confirm or "").strip() != charge_point_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Type the charge point id to confirm. This cannot be undone.",
+        )
+
+    # A live OCPP socket means the charger is out there and will simply
+    # register itself again on its next BootNotification, so the delete would
+    # achieve nothing and lose whatever was configured on it.
+    if charge_point_id in active_charge_points:
+        raise HTTPException(
+            status_code=409,
+            detail=("%s is connected over OCPP right now. It would register "
+                    "itself again on its next boot. Disconnect it first."
+                    % charge_point_id),
+        )
+
+    sessions = (
+        db.query(func.count(ChargingSession.id))
+        .filter(ChargingSession.charger_id == charger.id)
+        .scalar() or 0
+    )
+    if sessions:
+        active = (
+            db.query(func.count(ChargingSession.id))
+            .filter(ChargingSession.charger_id == charger.id)
+            .filter(ChargingSession.status == "active")
+            .scalar() or 0
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "%s has %d charging session%s%s and cannot be deleted. Every "
+                "report joins the charger to name it and its address, so "
+                "removing it would take those sessions out of reports for "
+                "months that have already been invoiced. Hide it instead: "
+                "switch Roaming visibility off and put it in maintenance mode."
+                % (charge_point_id, sessions, "" if sessions == 1 else "s",
+                   " (%d still active)" % active if active else "")
+            ),
+        )
+
+    removed = {}
+    for model, label in (
+        (MeterValue, "meter_values"),
+        (Fault, "faults"),
+        (Pricing, "pricing"),
+        (MaintenanceRecord, "maintenance_records"),
+        (ChargingSchedule, "charging_schedules"),
+        (ChargerReview, "charger_reviews"),
+        (ChargerBooking, "charger_bookings"),
+    ):
+        n = (
+            db.query(model)
+            .filter(model.charger_id == charger.id)
+            .delete(synchronize_session=False)
+        )
+        if n:
+            removed[label] = int(n)
+
+    # Connection events key on the charge point id rather than the row id,
+    # so they are not caught by the loop above and would otherwise be left
+    # describing a charger that no longer exists. For a scanner's probe
+    # these are the only rows it ever produced.
+    n = (
+        db.query(ChargerConnectionEvent)
+        .filter(ChargerConnectionEvent.charge_point_id == charge_point_id)
+        .delete(synchronize_session=False)
+    )
+    if n:
+        removed["charger_connection_events"] = int(n)
+
+    db.delete(charger)
+    db.commit()
+    _CHARGERS_CACHE.clear()
+    logger.warning(
+        "Charger %s deleted by admin (tenant=%s, rows removed: %s)",
+        charge_point_id, charger.tenant, removed or "none",
+    )
+    return {
+        "success": True,
+        "charge_point_id": charge_point_id,
+        "removed": removed,
+        "message": "%s deleted." % charge_point_id,
+    }
+
+
 @app.patch("/api/admin/chargers/{charge_point_id}/info")
 async def update_charger_info(
     charge_point_id: str,
